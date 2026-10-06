@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Your herdr coding agents, on your phone."
 license = "MIT"
-repository = "https://github.com/gshklovski/sheprd"
+repository = "https://github.com/gshklovs/sheprd"
 readme = "../README.md"
 
 [[bin]]

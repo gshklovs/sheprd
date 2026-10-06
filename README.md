@@ -25,7 +25,7 @@ You need a Linux machine running [herdr](https://github.com/herdrdev/herdr) and
 and on your phone.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/gshklovski/sheprd/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/gshklovs/sheprd/main/install.sh | sh
 ```
 
 That's it. The installer downloads one ~10 MB binary and runs `sheprd setup`, which:
@@ -46,10 +46,10 @@ Re-run `sheprd setup` any time: every step checks first and only fixes what's mi
 
 ```sh
 # from source (Rust 1.85+)
-cargo install --locked --git https://github.com/gshklovski/sheprd sheprd && sheprd setup
+cargo install --locked --git https://github.com/gshklovs/sheprd sheprd && sheprd setup
 
 # just the binary, no setup
-curl -fsSL https://raw.githubusercontent.com/gshklovski/sheprd/main/install.sh | SHEPRD_NO_SETUP=1 sh
+curl -fsSL https://raw.githubusercontent.com/gshklovs/sheprd/main/install.sh | SHEPRD_NO_SETUP=1 sh
 
 # setup options
 sheprd setup --no-tailscale   # leave Tailscale alone

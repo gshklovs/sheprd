@@ -38,7 +38,7 @@ Setup options:
 
 Environment: SHEPRD_PORT (default 7878), SHEPRD_STATE_DIR, SHEPRD_LISTEN (extra bind addresses,
 e.g. 0.0.0.0:7878 for a trusted LAN), HERDR_SOCKET_PATH, SHEPRD_NO_PUSH=1 (log pushes instead).
-Docs: https://github.com/gshklovski/sheprd";
+Docs: https://github.com/gshklovs/sheprd";
 
 pub async fn run(args: &[String]) -> i32 {
     let rest = &args[1..];

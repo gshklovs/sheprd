@@ -1,7 +1,7 @@
 #!/bin/sh
 # sheprd installer: downloads the prebuilt binary (or builds it with cargo), then runs `sheprd setup`.
 #
-#   curl -fsSL https://raw.githubusercontent.com/gshklovski/sheprd/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/gshklovs/sheprd/main/install.sh | sh
 #
 # Options (environment):
 #   SHEPRD_VERSION=v0.1.0       a specific release (default: latest)
@@ -11,7 +11,7 @@
 # Arguments after `sh -s --` go to `sheprd setup` (e.g. `| sh -s -- --no-tailscale`).
 set -eu
 
-REPO="${SHEPRD_REPO:-gshklovski/sheprd}"
+REPO="${SHEPRD_REPO:-gshklovs/sheprd}"
 VERSION="${SHEPRD_VERSION:-latest}"
 BIN_DIR="${SHEPRD_BIN_DIR:-$HOME/.local/bin}"
 
