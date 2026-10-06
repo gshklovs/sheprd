@@ -18,18 +18,23 @@ pub struct Push {
     subject: String,
 }
 
+fn gen_vapid(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    use openssl::{ec::{EcGroup, EcKey}, nid::Nid};
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+    let pem = EcKey::generate(&group)?.private_key_to_pem()?;
+    std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?.write_all(&pem)?;
+    Ok(())
+}
+
 impl Push {
     pub fn load(dir: &std::path::Path, subject: String) -> Option<Push> {
         let pem_path = dir.join("vapid.pem");
+        // A fresh VAPID key per install, generated on first start; it never leaves the state dir.
         if !pem_path.exists() {
-            let ok = std::process::Command::new("openssl")
-                .args(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out"])
-                .arg(&pem_path)
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if !ok {
-                eprintln!("push: could not generate VAPID key with openssl; push disabled");
+            if let Err(e) = gen_vapid(&pem_path) {
+                eprintln!("push: could not generate a VAPID key ({e}); push disabled");
                 return None;
             }
         }
@@ -61,6 +66,10 @@ impl Push {
         if let Ok(b) = serde_json::to_vec_pretty(subs) {
             let _ = std::fs::write(&self.subs_path, b);
         }
+    }
+
+    pub fn count(&self) -> usize {
+        self.subs.lock().unwrap().len()
     }
 
     pub fn has_subscribers(&self) -> bool {

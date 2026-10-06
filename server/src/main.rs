@@ -7,6 +7,7 @@ mod activity;
 mod alerts;
 mod artifacts;
 mod chips;
+mod cli;
 mod cloud;
 mod desk;
 mod disk;
@@ -55,18 +56,19 @@ mod assets {
     include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 }
 
-const DEFAULT_PORT: u16 = 7878;
+pub const DEFAULT_PORT: u16 = 7878;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into())
 }
 
 /// `SHEPRD_PORT` (test instances run on another port, local-only).
-fn port() -> u16 {
+pub fn port() -> u16 {
     std::env::var("SHEPRD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT)
 }
 
-fn state_dir() -> PathBuf {
+pub fn state_dir() -> PathBuf {
     let d = std::env::var_os("SHEPRD_STATE_DIR")
         .filter(|d| !d.is_empty())
         .map(PathBuf::from)
@@ -160,10 +162,12 @@ fn save_home(h: &Value) {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     single_arena();
-    // `sheprd disk-scan <path> …`: the short-lived disk scanner child (disk.rs).
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("disk-scan") {
-        std::process::exit(disk::cli(&args[1..]));
+    match args.first().map(String::as_str) {
+        None | Some("serve") => {}
+        // `sheprd disk-scan <path> …`: the short-lived disk scanner child (disk.rs).
+        Some("disk-scan") => std::process::exit(disk::cli(&args[1..])),
+        Some(_) => std::process::exit(cli::run(&args).await),
     }
     let host = std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).unwrap_or_default();
     let (ts_name, ts_ip) = tailscale_identity().await;
@@ -217,6 +221,7 @@ async fn main() {
     tokio::spawn(theme::run(app.clone()));
 
     let api = Router::new()
+        .route("/api/health", get(api_health))
         .route("/api/state", get(api_state))
         .route("/api/events", get(api_events))
         .route("/api/t/{tid}", get(api_transcript))
@@ -300,6 +305,17 @@ async fn main() {
                 tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
+    }
+    // `SHEPRD_LISTEN=0.0.0.0:7878,…`: extra addresses (e.g. the LAN without Tailscale). No auth: trusted networks only.
+    for a in std::env::var("SHEPRD_LISTEN").unwrap_or_default().split(',').map(str::trim).filter(|a| !a.is_empty()) {
+        match tokio::net::TcpListener::bind(a).await {
+            Ok(l) => {
+                eprintln!("sheprd listening on http://{a}");
+                let r = api.clone();
+                tokio::spawn(async move { axum::serve(l, r).await });
+            }
+            Err(e) => eprintln!("bind {a}: {e}"),
+        }
     }
     let a = format!("127.0.0.1:{port}");
     let l = tokio::net::TcpListener::bind(&a).await.unwrap_or_else(|e| {
@@ -1013,6 +1029,21 @@ fn herdr_err(e: herdr::HerdrError) -> Response {
 
 fn json_raw(s: Arc<String>) -> Response {
     ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], s.to_string()).into_response()
+}
+
+/// `sheprd setup` / `sheprd doctor` probe this: who answers on the port, and is the phone side wired up.
+async fn api_health(State(app): State<Shared>) -> Response {
+    let (herdr, agents, last_phone) = {
+        let i = app.inner.lock().unwrap();
+        let st: Value = serde_json::from_str(&i.state).unwrap_or(Value::Null);
+        (i.herdr_ok, st["agents"].as_array().map_or(0, Vec::len), i.last_visible)
+    };
+    Json(json!({
+        "app": "sheprd", "version": VERSION, "herdr": herdr, "herdrSocket": herdr::socket_path(), "agents": agents,
+        "push": {"enabled": app.push.is_some(), "subscribers": app.push.as_ref().map_or(0, |p| p.count()), "noPush": app.no_push},
+        "lastPhone": last_phone, "tsName": app.ts_name, "stateDir": state_dir(),
+    }))
+    .into_response()
 }
 
 async fn api_state(State(app): State<Shared>) -> Response {

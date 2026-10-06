@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - run: cargo test --locked
+        working-directory: server
+      - run: cargo build --locked --release
+        working-directory: server
+      - name: web syntax
+        run: for f in web/*.js; do node --check "$f"; done
+      - name: install.sh is POSIX sh
+        run: sh -n install.sh

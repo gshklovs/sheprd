@@ -2,6 +2,14 @@
 name = "sheprd"
 version = "0.1.0"
 edition = "2024"
+description = "Your herdr coding agents, on your phone."
+license = "MIT"
+repository = "https://github.com/sheprd/sheprd"
+readme = "../README.md"
+
+[[bin]]
+name = "sheprd"
+path = "src/main.rs"
 
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "http2", "tokio", "json", "query"] }
@@ -12,6 +20,10 @@ futures-util = "0.3.34"
 hyper = "1.11.1"
 hyper-util = { version = "0.1.21", features = ["tokio"] }
 libc = "0.2.190"
+# VAPID key generation at first start (already linked by web-push).
+openssl = "0.10.81"
+# `sheprd setup` / `sheprd qr`: the phone URL as a terminal QR code.
+qrcode = { version = "0.14", default-features = false }
 regex-lite = "0.1.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -27,3 +39,7 @@ lto = "thin"
 codegen-units = 4
 strip = true
 panic = "abort"
+
+[features]
+# Release builds compile OpenSSL in so the binary runs on any glibc Linux (`--features vendored`).
+vendored = ["openssl/vendored"]

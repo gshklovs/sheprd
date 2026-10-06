@@ -1,10 +1,11 @@
 [Unit]
-Description=sheprd: phone control for herdr agents
+Description=sheprd: herdr agents on your phone
+# Reference unit for packagers; `sheprd setup` writes its own (with your PATH) to ~/.config/systemd/user.
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/sheprd
+ExecStart=%h/.local/bin/sheprd serve
 Restart=always
 RestartSec=2
 Nice=5

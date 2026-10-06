@@ -2513,8 +2513,9 @@ class HomeEmpty {
       <div class="scroll"><div class="he">
         <div class="he-ic">${I.chat}</div>
         <h2>No master agent</h2>
-        <p class="dim">Master is a long-running Claude session that dispatches subagents and spawns tabs for you.</p>
+        <p class="dim">Master is a long-running Claude session that dispatches subagents and spawns tabs for you. Optional: every agent you run in herdr is under Agents either way.</p>
         <button class="btn primary start" hidden>Start master</button>
+        <a class="btn" href="#/agents" style="margin-top:10px">See your agents</a>
         <p class="dim small st"></p>
       </div></div></div>`);
   }
