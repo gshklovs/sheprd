@@ -63,6 +63,15 @@ pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into())
 }
 
+/// Where new agents start and the folder picker looks first: `SHEPRD_WORK_DIR`, else ~/Work when it
+/// exists, else home.
+pub fn work_dir() -> PathBuf {
+    std::env::var_os("SHEPRD_WORK_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Some(home().join("Work")).filter(|w| w.is_dir()).unwrap_or_else(home))
+}
+
 /// `SHEPRD_PORT` (test instances run on another port, local-only).
 pub fn port() -> u16 {
     std::env::var("SHEPRD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT)
@@ -920,7 +929,7 @@ fn publish_state(app: &App, agents: Value, shells: Value, workspaces: Value, her
     let home = if inner.home_live { inner.home.as_ref().map(|h| h["pane"].clone()).unwrap_or(Value::Null) } else { Value::Null };
     let mut v = json!({
         "home": home,
-        "host": app.host, "tsName": app.ts_name, "tsIp": app.ts_ip, "herdr": herdr_ok,
+        "host": app.host, "workDir": work_dir(), "tsName": app.ts_name, "tsIp": app.ts_ip, "herdr": herdr_ok,
         "agents": agents, "shells": shells, "workspaces": workspaces, "surfaces": surfaces,
     });
     let jobs_running: u64 = v["agents"].as_array().map(|l| l.iter().filter_map(|a| a["jobs"]["running"].as_u64()).sum()).unwrap_or(0);
@@ -1577,7 +1586,7 @@ async fn api_dirs(State(app): State<Shared>) -> Response {
             }
         }
     }
-    let work = home().join("Work");
+    let work = work_dir();
     if let Ok(rd) = std::fs::read_dir(&work) {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
@@ -1841,9 +1850,9 @@ async fn api_home_new(State(app): State<Shared>, body: Option<Json<HomeNewBody>>
     let cwd = body
         .and_then(|Json(b)| b.cwd)
         .filter(|c| Path::new(c).is_dir())
-        // ~/Work: already trusted (Claude never persists trust for $HOME, so a
+        // the work dir: usually already trusted (Claude never persists trust for $HOME, so a
         // master there would stall on the trust dialog) and shares its memory.
-        .unwrap_or_else(|| home().join("Work").to_string_lossy().to_string());
+        .unwrap_or_else(|| work_dir().to_string_lossy().to_string());
     let (prev_pane, prev_tab, prev_title, ws) = {
         let i = app.inner.lock().unwrap();
         let prev = i.home.as_ref().filter(|_| i.home_live).and_then(|h| h["pane"].as_str().map(str::to_string));
@@ -1914,7 +1923,7 @@ async fn api_home_ensure(State(app): State<Shared>) -> Response {
     }
     let h = pinned.unwrap_or(json!({}));
     let cwd = h["cwd"].as_str().filter(|c| Path::new(c).is_dir()).map(str::to_string)
-        .unwrap_or_else(|| home().join("Work").to_string_lossy().to_string());
+        .unwrap_or_else(|| work_dir().to_string_lossy().to_string());
     let label = h["label"].as_str().unwrap_or("master").to_string();
     let ws_exists = {
         let st: Value = serde_json::from_str(&app.inner.lock().unwrap().state).unwrap_or(Value::Null);

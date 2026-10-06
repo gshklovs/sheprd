@@ -375,7 +375,7 @@ fn clean(out: &str) -> String {
 fn prompt(app: &Shared, pane: Option<&str>) -> String {
     let state = app.inner.lock().unwrap().state.clone();
     let st: Value = serde_json::from_str(&state).unwrap_or(Value::Null);
-    let mut work: Vec<String> = std::fs::read_dir(home().join("Work"))
+    let mut work: Vec<String> = std::fs::read_dir(crate::work_dir())
         .map(|d| {
             d.flatten()
                 .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))

@@ -786,9 +786,9 @@ addEventListener('pageshow', fitVV); addEventListener('orientationchange', () =>
 fitVV();
 
 // ---------- Agents view ----------
-// Auto-quiet (ux-ideas #10): test agents (cwd under ~/Work/tries, title or tab starting test/qa) and agents idle 30 min+
+// Auto-quiet: test agents (title or tab starting test/qa) and agents idle 30 min+
 // with nothing unseen fold into the Quiet folder; blocked, working, pinned and Master never do. Nothing closes by itself.
-const isTest = a => !a.home && (/\/Work\/tries(\/|$)/.test(String(a.cwd || '')) || /^(test|qa)\b/i.test(String(a.title || a.name || '')) || /^(test|qa)\b/i.test(String(a.tabLabel || '')));
+const isTest = a => !a.home && (/^(test|qa)\b/i.test(String(a.title || a.name || '')) || /^(test|qa)\b/i.test(String(a.tabLabel || '')));
 const isQuiet = a => {
   if (a.home || a.pinned || svcNeeds(a)) return false;
   const s = dispStatus(a);
@@ -2352,7 +2352,7 @@ async function quickNew() {
   kb.focus();
   const t0 = performance.now();
   try {
-    const r = await post('new', { cwd: ls.get('newCwd', null) || L.home + '/Work' });
+    const r = await post('new', { cwd: ls.get('newCwd', null) || G.st?.workDir || L.home });
     G.starting.set(r.pane, Date.now());
     location.hash = '#/a/' + enc(r.pane);
     for (let i = 0; i < 60 && G.view?.pane !== r.pane; i++) await new Promise(f => requestAnimationFrame(f));
