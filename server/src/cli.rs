@@ -409,11 +409,28 @@ fn setup(o: Opts) -> i32 {
         install_service()
     } else {
         warn("No systemd user session here (container, WSL without systemd, macOS?).");
-        if let Some(h) = health() {
-            ok(&format!("sheprd {} is already running on port {}", h["version"].as_str().unwrap_or("?"), port()));
-            true
-        } else {
-            spawn_detached()
+        match health() {
+            Some(h) if h["version"] == VERSION => {
+                ok(&format!("sheprd {VERSION} is already running on port {}", port()));
+                true
+            }
+            Some(h) => {
+                // an older version: stop it and start this one
+                if let Some(pid) = h["pid"].as_i64() {
+                    unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+                    let t = Instant::now();
+                    while health().is_some() && t.elapsed() < Duration::from_secs(5) {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
+                if health().is_some() {
+                    warn(&format!("sheprd {} is running and couldn't be stopped; stop it, then re-run setup", h["version"].as_str().unwrap_or("?")));
+                    true
+                } else {
+                    spawn_detached()
+                }
+            }
+            None => spawn_detached(),
         }
     };
 
@@ -552,7 +569,8 @@ fn install_service() -> bool {
 
 /// No systemd: start `sheprd serve` in the background, logging to the state dir.
 fn spawn_detached() -> bool {
-    let exe = std::env::current_exe().unwrap_or_else(|_| "sheprd".into());
+    // run the installed copy (a download in /tmp may vanish)
+    let exe = installed_exe().or_else(|_| std::env::current_exe()).unwrap_or_else(|_| "sheprd".into());
     let log = state_dir().join("sheprd.log");
     let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(&log) else {
         bad("couldn't open the log file");
@@ -925,6 +943,15 @@ fn uninstall(purge: bool) -> i32 {
             let _ = sh("systemctl", &["--user", "daemon-reload"], 15);
             ok(&format!("removed {UNIT}"));
         }
+    }
+    // started without systemd (setup's fallback): stop it by pid
+    if let Some(pid) = health().and_then(|h| h["pid"].as_i64()) {
+        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        let t = Instant::now();
+        while health().is_some() && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if health().is_none() { ok("stopped the server") } else { warn(&format!("couldn't stop the server (pid {pid})")) }
     }
     if which("tailscale").is_some() {
         if let Some(p) = serve_port() {

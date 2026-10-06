@@ -1048,7 +1048,7 @@ async fn api_health(State(app): State<Shared>) -> Response {
         (i.herdr_ok, st["agents"].as_array().map_or(0, Vec::len), i.last_visible)
     };
     Json(json!({
-        "app": "sheprd", "version": VERSION, "herdr": herdr, "herdrSocket": herdr::socket_path(), "agents": agents,
+        "app": "sheprd", "version": VERSION, "pid": std::process::id(), "herdr": herdr, "herdrSocket": herdr::socket_path(), "agents": agents,
         "push": {"enabled": app.push.is_some(), "subscribers": app.push.as_ref().map_or(0, |p| p.count()), "noPush": app.no_push},
         "lastPhone": last_phone, "tsName": app.ts_name, "stateDir": state_dir(),
     }))
@@ -2722,6 +2722,25 @@ fn urlencode(s: &str) -> String {
     out
 }
 
+/// Hash of every web asset (embedded, or `SHEPRD_WEB_DIR` on disk during development).
+async fn shell_hash(web_dir: Option<&Path>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    match web_dir {
+        None => assets::ASSETS.iter().for_each(|(p, b)| (p, b).hash(&mut h)),
+        Some(d) => {
+            let mut files: Vec<PathBuf> = std::fs::read_dir(d).map(|rd| rd.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+            files.sort();
+            for f in files {
+                if let Ok(b) = tokio::fs::read(&f).await {
+                    (f, b).hash(&mut h);
+                }
+            }
+        }
+    }
+    h.finish()
+}
+
 async fn static_file(State(app): State<Shared>, headers: HeaderMap, uri: Uri) -> Response {
     let mut rel = uri.path().trim_start_matches('/').to_string();
     if rel.is_empty() {
@@ -2735,7 +2754,13 @@ async fn static_file(State(app): State<Shared>, headers: HeaderMap, uri: Uri) ->
         Some(d) => tokio::fs::read(d.join(&rel)).await.ok(),
         None => assets::ASSETS.iter().find(|(p, _)| *p == rel).map(|(_, b)| b.to_vec()),
     };
-    let Some(b) = bytes else { return StatusCode::NOT_FOUND.into_response() };
+    let Some(mut b) = bytes else { return StatusCode::NOT_FOUND.into_response() };
+    // The service worker's cache name follows the content of the whole web app, so every upgrade
+    // replaces the phone's cached shell without anyone bumping a version by hand.
+    if rel == "sw.js" {
+        let v = format!("sheprd-shell-{:x}", shell_hash(app.web_dir.as_deref()).await);
+        b = String::from_utf8_lossy(&b).replace("sheprd-shell-v1", &v).into_bytes();
+    }
     // Always revalidate (ETag -> 304), so a deploy can never leave the phone
     // running a mix of old and new modules, which breaks module linking.
     use std::hash::{Hash, Hasher};

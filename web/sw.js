@@ -1,4 +1,4 @@
-// sheprd service worker. Bump CACHE on every shell change.
+// sheprd service worker. The server rewrites CACHE to a hash of the web app, so each upgrade refreshes the shell.
 const CACHE = 'sheprd-shell-v1';
 const SHELL = ['/', 'index.html', 'app.js', 'md.js', 'ansi.js', 'sheets.js', 'search.js', 'files.js', 'v3.js', 'mb.js', 'res.js', 'res.css', 'fleet.js', 'fleet.css', 'git.js', 'git.css', 'voice.js', 'voice.css', 'art.js', 'art.css', 'talk.js', 'talk.css', 'queue.js', 'home.js', 'home.css', 'style.css', 'manifest.webmanifest',
   'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
