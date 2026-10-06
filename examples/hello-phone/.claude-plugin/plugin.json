@@ -1,0 +1,14 @@
+{
+  "name": "hello-phone",
+  "version": "0.1.0",
+  "description": "Example sheprd mod: a /hello-phone command that puts a card on your phone.",
+  "author": { "name": "sheprd contributors" },
+  "userConfig": {
+    "baseUrl": {
+      "type": "string",
+      "title": "sheprd server URL",
+      "description": "Where sheprd listens.",
+      "default": "http://127.0.0.1:7878"
+    }
+  }
+}

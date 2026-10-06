@@ -1,0 +1,8 @@
+{
+  "name": "sheprd-examples",
+  "owner": { "name": "sheprd contributors" },
+  "description": "Example mods for sheprd.",
+  "plugins": [
+    { "name": "hello-phone", "source": "./hello-phone", "description": "A /hello-phone command that puts a card on your phone.", "version": "0.1.0" }
+  ]
+}

@@ -7,8 +7,8 @@
 //! whisper's initial prompt (agent titles, pane ids, ~/Work projects, commands),
 //! built from the cached state on each request.
 //!
-//! Install layout (see README "Voice notes"): `~/.local/share/sheprd/whisper/`
-//! holds `pkg/usr/{bin,lib}` (Arch's whisper-cpp + ggml packages, unpacked) and
+//! Install layout (see README, FAQ "Voice notes"): `~/.local/share/sheprd/whisper/`
+//! may hold `pkg/usr/{bin,lib}` (an unpacked whisper-cpp + ggml build) and
 //! `models/ggml-base.en.bin`. Overrides: `SHEPRD_WHISPER_BIN`,
 //! `SHEPRD_WHISPER_MODEL`; a system `whisper-cli` on PATH also works.
 
@@ -162,7 +162,7 @@ impl Drop for Busy {
 async fn api_voice(State(app): State<Shared>, Query(q): Query<VoiceQ>, headers: HeaderMap, body: Body) -> Response {
     let t0 = Instant::now();
     let (Some(bin), Some(model)) = (whisper_bin(), whisper_model()) else {
-        return json_err(StatusCode::SERVICE_UNAVAILABLE, "whisper.cpp is not installed on the box (see README: Voice notes)");
+        return json_err(StatusCode::SERVICE_UNAVAILABLE, "whisper.cpp is not installed on the box (see the README FAQ: Voice notes)");
     };
     if which("ffmpeg").is_none() {
         return json_err(StatusCode::SERVICE_UNAVAILABLE, "ffmpeg is not installed on the box");
