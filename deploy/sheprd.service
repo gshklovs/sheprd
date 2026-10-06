@@ -1,0 +1,16 @@
+[Unit]
+Description=sheprd: phone control for herdr agents
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/sheprd
+Restart=always
+RestartSec=2
+Nice=5
+# Small and quiet: cap memory so a runaway can never hurt the desktop.
+MemoryMax=200M
+Environment=RUST_BACKTRACE=0
+
+[Install]
+WantedBy=default.target

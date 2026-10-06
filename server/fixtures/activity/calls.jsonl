@@ -1,0 +1,61 @@
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd/server && cargo test 2>&1 | grep -E \"test result|FAILED\" | head -30","description":"Run the server test suite"},"id":"test-rust","phrase":"running the sheprd tests"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd/server && cargo test 2>&1 | tail -3","description":"Run cargo tests"},"title":"sheprd","id":"test-rust","phrase":"running the tests"}
+{"tool":"Bash","input":{"command":"cd /home/u/Work/sheprd/server && cargo build --release 2>&1 | grep -E \"^(warning|error)\" -A5 | head -40","description":"Build server"},"id":"build-rust","phrase":"building sheprd"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd && ./deploy/install.sh 2>&1 | tail -12","description":"Build, test and deploy committed HEAD"},"id":"deploy-script","phrase":"deploying sheprd"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd && git add web/app.js web/sw.js && git commit -q -m \"Home: tiles\"","description":"Commit the tile changes"},"id":"git-commit","phrase":"committing the tile changes"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd && git diff --stat; git diff server/src/modbridge.rs | head -80","description":"Inspect diffs for foreign hunks"},"id":"git-diff","phrase":"reviewing the diff"}
+{"tool":"Bash","input":{"command":"git log --oneline | head -20"},"id":"git-log","phrase":"reading the git history"}
+{"tool":"Bash","input":{"command":"git push origin main"},"id":"git-push","phrase":"pushing to main"}
+{"tool":"Bash","input":{"command":"gh pr create --title \"Fix\" --body \"x\""},"id":"pr-open","phrase":"opening a pull request"}
+{"tool":"Bash","input":{"command":"git rebase origin/main"},"id":"git-rebase","phrase":"rebasing onto origin/main"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd/web && grep -n \"function sortAgents\" -A16 app.js","description":"Read agent sort logic"},"id":"search-code","phrase":"searching the code"}
+{"tool":"Grep","input":{"pattern":"fn tool_summary","path":"server/src"},"id":"search-code","phrase":"searching the code for fn tool_summary"}
+{"tool":"Bash","input":{"command":"sed -n 1,140p server/src/transcript.rs","description":"Read Transcript struct definitions"},"id":"read-code","phrase":"reading transcript.rs"}
+{"tool":"Read","input":{"file_path":"/home/u/Work/sheprd/web/app.js"},"id":"read-code","phrase":"reading app.js"}
+{"tool":"Read","input":{"file_path":"/home/u/Work/sheprd/docs/API.md"},"id":"read-own-docs","phrase":"reading API.md"}
+{"tool":"Read","input":{"file_path":"/tmp/x/shots/dark-08-chat.png"},"id":"view-screenshot","phrase":"looking at a screenshot"}
+{"tool":"Read","input":{"file_path":"/home/u/.cache/wallpapers/sheet-12.jpg"},"id":"view-image","phrase":"looking at sheet-12.jpg"}
+{"tool":"Edit","input":{"file_path":"/home/u/Work/sheprd/web/style.css","old_string":"a","new_string":"b"},"id":"edit-css","phrase":"styling the UI"}
+{"tool":"Edit","input":{"file_path":"/home/u/Work/sheprd/server/src/follow.rs","old_string":"a","new_string":"b"},"id":"edit-rust","phrase":"editing follow.rs"}
+{"tool":"Write","input":{"file_path":"/home/u/Work/sheprd/web-dev/t-briefing.mjs","content":"x"},"id":"write-tests","phrase":"writing tests"}
+{"tool":"Write","input":{"file_path":"/home/u/Work/sheprd/docs/STATUS.md","content":"x"},"id":"status-doc","phrase":"updating the status notes"}
+{"tool":"Write","input":{"file_path":"/home/u/Work/tutorial/06-editing-helpers.md","content":"x"},"id":"write-doc","phrase":"writing 06-editing-helpers.md"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd && python3 - <<'EOF'\np='web/home.js'; s=open(p).read()\ns=s.replace('a','b')\nopen(p,'w').write(s)\nEOF"},"id":"script-edit","phrase":"editing home.js"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd/web && python3 - <<'EOF'\np='app.js'; s=open(p).read()\nEOF","description":"Fix viewport sizing, sheet dismissal, composer padding"},"id":"fix-bug","phrase":"fixing viewport sizing, sheet dismissal, composer padding"}
+{"tool":"Bash","input":{"command":"python3 - <<'EOF'\np='web-dev/mock.py'; s=open(p).read()\nEOF","description":"Add v2 GET endpoints to mock"},"id":"add-feature","phrase":"adding v2 GET endpoints to mock"}
+{"tool":"Bash","input":{"command":"cat >> docs/API.md <<'EOF'\n## Fleet\nEOF","description":"Append Fleet section to API.md"},"id":"api-docs"}
+{"tool":"Bash","input":{"command":"cd ~/Work/sheprd/web-dev && timeout 100 node t-briefing.mjs dark 2>&1 | tail -5","description":"Run the briefing test"},"id":"test-ui","phrase":"running the briefing UI test"}
+{"tool":"Bash","input":{"command":"node shoot.mjs light && magick montage a.png b.png out.png","description":"Screenshot the home"},"id":"screenshot-ui","phrase":"screenshotting the app"}
+{"tool":"Bash","input":{"command":"agent-browser --session s1 snapshot -i","description":""},"id":"browser-screenshot","phrase":"looking at a page"}
+{"tool":"WebSearch","input":{"query":"tokio graceful shutdown example"},"id":"web-search","phrase":"searching the web for tokio graceful shutdown example"}
+{"tool":"WebFetch","input":{"url":"https://github.com/tobi/disktree","prompt":"x"},"id":"read-github","phrase":"reading tobi/disktree on GitHub"}
+{"tool":"WebFetch","input":{"url":"https://code.claude.com/docs/en/hooks","prompt":"x"},"id":"read-docs-web","phrase":"reading the Claude docs"}
+{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which?"}]},"id":"ask-question","phrase":"asking you a question"}
+{"tool":"mcp__sheprd__surface","input":{"title":"Pick a look"},"id":"surface-card"}
+{"tool":"Agent","input":{"description":"Build dashboard frontend","subagent_type":"general-purpose"},"id":"sub-build","phrase":"building dashboard frontend"}
+{"tool":"Agent","input":{"description":"Survey agent-supervision products","subagent_type":"general-purpose"},"id":"sub-explore","phrase":"surveying agent-supervision products"}
+{"tool":"Skill","input":{"skill":"agent-browser"},"id":"load-skill","phrase":"reading the agent-browser skill"}
+{"tool":"Bash","input":{"command":"herdr agent read w6:p1M 2>&1 | tail -40","description":"Check video agent state"},"id":"read-agent","phrase":"checking on another agent"}
+{"tool":"Bash","input":{"command":"herdr agent prompt w6:pB \"Follow-up from the user\"","description":"Pass direction to the agent"},"id":"steer-agent"}
+{"tool":"Bash","input":{"command":"sleep 30","description":"Wait 30 seconds"},"id":"wait-sleep","phrase":"waiting a moment"}
+{"tool":"Bash","input":{"command":"until grep -q \"all ok\" /tmp/x/tasks/b1.output; do sleep 2; done; tail -5 /tmp/x/tasks/b1.output"},"id":"wait-poll"}
+{"tool":"Bash","input":{"command":"cd /home/u/Work/sim && PYTHONUNBUFFERED=1 python train.py --num_envs 4096 --max_iterations 1500","description":"Train the policy on the GPU"},"id":"train-model","phrase":"training policy"}
+{"tool":"Bash","input":{"command":"ffmpeg -y -framerate 30 -i f%04d.png -c:v libx264 out.mp4","description":"Render the walkthrough video"},"id":"render-media","phrase":"rendering the walkthrough video"}
+{"tool":"Bash","input":{"command":"curl -sL -o model.bin https://huggingface.co/x/y/resolve/main/model.bin","description":"Download the model weights"},"id":"download","phrase":"downloading the model weights"}
+{"tool":"Bash","input":{"command":"sudo pacman -S --needed xorg-server-xvfb"},"id":"install-system","phrase":"installing xorg-server-xvfb"}
+{"tool":"Bash","input":{"command":"npm install vite"},"id":"install-deps","phrase":"installing vite"}
+{"tool":"Bash","input":{"command":"systemctl --user restart sheprd"},"id":"service-restart","phrase":"restarting sheprd"}
+{"tool":"Bash","input":{"command":"journalctl --user -u sheprd -n 50 --no-pager"},"id":"logs-journal","phrase":"reading the service logs"}
+{"tool":"Bash","input":{"command":"curl -s localhost:7878/api/state | python3 -c \"import json,sys; print(len(json.load(sys.stdin)['agents']))\"","description":"Count agents in state"},"id":"api-probe","phrase":"poking the local API"}
+{"tool":"Bash","input":{"command":"hyprctl dispatch dpms off","description":"Turn the display off"},"id":"desktop","phrase":"adjusting the desktop"}
+{"tool":"Bash","input":{"command":"nvidia-smi --query-gpu=utilization.gpu --format=csv"},"id":"gpu-check","phrase":"checking the GPU"}
+{"tool":"Bash","input":{"command":"cd ~/.claude/projects && python3 - <<'EOF'\nimport json,glob\nfor f in glob.glob('*/*.jsonl'): pass\nEOF","description":"List queued messages"},"id":"mine-transcripts","phrase":"digging through past sessions"}
+{"tool":"Bash","input":{"command":"magick montage a.png b.png -tile 2x1 -geometry +4+4 sheet.png","description":"Montage surface screenshots"},"id":"image-edit","phrase":"editing images"}
+{"tool":"Bash","input":{"command":"cad/.venv/bin/python cad/bracket/build.py && ls cad/bracket/*.step","description":"Rebuild the tray model"},"id":"cad-model"}
+{"tool":"mcp__claude_ai_Gmail__search_threads","input":{"query":"is:unread"},"id":"mail-search","phrase":"searching the inbox"}
+{"tool":"TodoWrite","input":{"todos":[{"content":"Restyle bubbles","activeForm":"Restyling bubbles","status":"in_progress"}]},"id":"plan-todos"}
+{"tool":"SubagentHandback","input":{"message":"done"},"id":"report-back","phrase":"reporting back"}
+{"tool":"Bash","input":{"command":"ps aux | grep -E \"mock.py\" | grep -v grep | head"},"id":"processes","phrase":"checking running processes"}
+{"tool":"Bash","input":{"command":"systemctl --user show-environment | grep ^PATH"},"id":"service-status","phrase":"checking a service"}
+{"tool":"Bash","input":{"command":"herdr --help 2>&1 | head -40","description":"Read herdr help"},"id":"help-pages","phrase":"reading the herdr docs"}
+{"tool":"Bash","input":{"command":"echo placeholder >/dev/null","description":"No-op"},"id":"output-print"}

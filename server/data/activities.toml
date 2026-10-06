@@ -1,0 +1,1753 @@
+# Activity taxonomy: what an agent is doing, read from its tool calls (server/src/activity.rs).
+#
+# Rules are tried in file order; the first match wins, so specific rules come before broad ones.
+# A rule matches when its `tool` filter passes (exact name, or a `prefix*` glob; no filter = any tool) and
+# at least one of its pattern lists matches (no pattern lists = the tool alone is enough).
+# `not` vetoes a match (tested on the command and the description).
+#
+# `all = true`: every pattern list must match (default: any one).
+# `bare` lists tools that match on their own, without any pattern (e.g. Read for "reading {file}").
+#
+# Pattern lists (regex-lite syntax, literal TOML strings):
+#   cmd    the Bash command, normalised: one segment per line (split on newlines, && || ; |), with env
+#          assignments, `cd`, `export` and wrappers (timeout, time, sudo, nohup, env, uv run, npx) stripped.
+#          Multi-line mode is on, so `^` anchors a segment start. Case-sensitive.
+#   desc   the Bash call's description, or a subagent's description (case-insensitive)
+#   path   the file path (Read/Write/Edit/NotebookEdit, Grep/Glob path, else the first path in the command)
+#   ext    file extensions of that path (no dot)
+#   host   host of the URL (WebFetch, browser tools, or the first URL in the command)
+#   url    the whole URL
+#   query  the WebSearch query
+#   agent  subagent type + description
+#   todo   the in-progress todo item (TodoWrite activeForm / TaskUpdate)
+#
+# Phrase: a present-participle phrase that reads after "<agent> is ". Slots:
+#   {slot}          must be filled, or the rule falls back to `alt`, then to the category's phrase
+#   {slot|text}     slot, else the literal text
+#   [ ... ]         optional: dropped when a slot inside it is empty
+# Built-in slots: file (basename of the path), project (repo folder), site (pretty host), item (search terms
+# in the URL), query, what (description minus its verb), desc_ing (description as a gerund phrase),
+# agent (subagent description as a gerund phrase), skill, session (agent-browser session), todo.
+# Named regex groups (?P<name>…) fill the slot of the same name (`path` sets file/project).
+#
+# ask: the template Haiku fills instead of `phrase` (no file paths, so {what} = the subject of the work).
+# progress = true: the activity usually reports progress (tests, builds, training, downloads...).
+# conf: how sure the rule is (default 0.8). Below 0.6 the agent may get a Haiku pass.
+
+version = 1
+
+[categories]
+needs     = { label = "Needs you",     icon = "✋", phrase = "waiting for you" }
+comms     = { label = "Communicating", icon = "💬", phrase = "talking to other agents" }
+coding    = { label = "Coding",        icon = "⌨️", phrase = "writing code" }
+verifying = { label = "Verifying",     icon = "🧪", phrase = "checking the work" }
+git       = { label = "Git",           icon = "🌿", phrase = "working in git" }
+research  = { label = "Research",      icon = "🔎", phrase = "looking things up" }
+browsing  = { label = "Browsing",      icon = "🛒", phrase = "browsing the web" }
+jobs      = { label = "Running jobs",  icon = "⏳", phrase = "running a job" }
+planning  = { label = "Planning",      icon = "🧭", phrase = "planning" }
+waiting   = { label = "Waiting",       icon = "⏸", phrase = "waiting" }
+docs      = { label = "Writing docs",  icon = "📝", phrase = "writing docs" }
+data      = { label = "Data",          icon = "📊", phrase = "crunching data" }
+ops       = { label = "System",        icon = "⚙️", phrase = "tending the system" }
+design    = { label = "Design",        icon = "🎨", phrase = "working on visuals" }
+mail      = { label = "Mail",          icon = "✉️", phrase = "going through mail" }
+thinking  = { label = "Thinking",      icon = "💭", phrase = "thinking" }
+
+# Pretty names for hosts ({site}). Unknown hosts: the second-level label, capitalised.
+[sites]
+"github.com" = "GitHub"
+"api.github.com" = "GitHub"
+"huggingface.co" = "Hugging Face"
+"google.com" = "Google"
+"youtube.com" = "YouTube"
+"docs.rs" = "docs.rs"
+"crates.io" = "crates.io"
+"npmjs.com" = "npm"
+"pypi.org" = "PyPI"
+"code.claude.com" = "the Claude docs"
+"docs.anthropic.com" = "the Anthropic docs"
+"stackoverflow.com" = "Stack Overflow"
+"reddit.com" = "Reddit"
+"wikipedia.org" = "Wikipedia"
+"arxiv.org" = "arXiv"
+"omarchy.org" = "omarchy.org"
+
+# ======================================================================================================
+# Needs you: the agent is blocked on the user
+# ======================================================================================================
+
+[[act]]
+id = "ask-question"
+cat = "needs"
+phrase = "asking you a question"
+tool = ["AskUserQuestion"]
+conf = 0.95
+
+[[act]]
+id = "ask-phone"
+cat = "needs"
+phrase = "asking you on the phone"
+tool = ["mcp__sheprd__ask_phone"]
+conf = 0.95
+
+[[act]]
+id = "plan-approval"
+cat = "needs"
+phrase = "waiting for you to approve the plan"
+tool = ["ExitPlanMode"]
+conf = 0.9
+
+# ======================================================================================================
+# Communicating
+# ======================================================================================================
+
+[[act]]
+id = "surface-card"
+cat = "comms"
+icon = "📌"
+phrase = "putting a card on your phone"
+ask = "putting {what} on your phone"
+tool = ["mcp__sheprd__surface"]
+conf = 0.9
+
+[[act]]
+id = "report-back"
+cat = "comms"
+phrase = "reporting back"
+ask = "reporting back on {what}"
+tool = ["SubagentHandback"]
+conf = 0.9
+
+[[act]]
+id = "message-agent"
+cat = "comms"
+phrase = "messaging another agent"
+ask = "messaging another agent about {what}"
+tool = ["SendMessage", "mcp__sheprd__steer", "mcp__sheprd__send"]
+conf = 0.85
+
+[[act]]
+id = "steer-agent"
+cat = "comms"
+phrase = "steering another agent"
+ask = "steering another agent on {what}"
+tool = ["Bash"]
+cmd = ['^herdr (agent|pane) (prompt|send|send-text|keys|send-keys)\b', '/api/a/[^/\s]+/(prompt|steer|text|keys)\b']
+conf = 0.85
+
+[[act]]
+id = "read-agent"
+cat = "comms"
+phrase = "checking on another agent"
+ask = "checking on {what}"
+tool = ["Bash"]
+cmd = ['^herdr (agent|pane) (read|get|list|wait|watch)\b', '^herdr agent\b']
+conf = 0.8
+
+[[act]]
+id = "list-agents"
+cat = "comms"
+phrase = "checking on the other agents"
+tool = ["ListAgents", "TaskList", "TaskGet"]
+conf = 0.8
+
+[[act]]
+id = "send-email"
+cat = "mail"
+phrase = "sending an email"
+tool = ["mcp__claude_ai_Gmail__send*", "mcp__claude_ai_Gmail__create_draft*", "mcp__claude_ai_Gmail__reply*"]
+conf = 0.9
+
+[[act]]
+id = "push-notify"
+cat = "comms"
+phrase = "sending you a notification"
+tool = ["Bash", "PushNotification"]
+cmd = ['notify-send\b', '/api/push\b']
+conf = 0.75
+
+[[act]]
+id = "slack"
+cat = "comms"
+phrase = "messaging on Slack"
+tool = ["mcp__claude_ai_Slack*", "mcp__slack*"]
+conf = 0.85
+
+[[act]]
+id = "doc-comment"
+cat = "comms"
+phrase = "replying to a comment"
+tool = ["ArtifactComments"]
+conf = 0.85
+
+# ======================================================================================================
+# Mail
+# ======================================================================================================
+
+[[act]]
+id = "mail-read"
+cat = "mail"
+phrase = "reading mail"
+tool = ["mcp__claude_ai_Gmail__get*", "mcp__claude_ai_Gmail__read*"]
+conf = 0.85
+
+[[act]]
+id = "mail-search"
+cat = "mail"
+phrase = "searching the inbox"
+tool = ["mcp__claude_ai_Gmail__search*", "mcp__claude_ai_Gmail__list*"]
+conf = 0.85
+
+[[act]]
+id = "mail-label"
+cat = "mail"
+phrase = "filing mail"
+tool = ["mcp__claude_ai_Gmail__*label*", "mcp__claude_ai_Gmail__modify*", "mcp__claude_ai_Gmail__archive*"]
+conf = 0.85
+
+[[act]]
+id = "mail-other"
+cat = "mail"
+phrase = "going through mail"
+tool = ["mcp__claude_ai_Gmail__*"]
+conf = 0.75
+
+[[act]]
+id = "calendar"
+cat = "planning"
+icon = "📅"
+phrase = "checking the calendar"
+tool = ["mcp__claude_ai_Google_Calendar__*", "mcp__*calendar*"]
+conf = 0.85
+
+# ======================================================================================================
+# Planning and delegating
+# ======================================================================================================
+
+[[act]]
+id = "plan-todos"
+cat = "planning"
+phrase = "planning the steps"
+ask = "planning {what}"
+tool = ["TodoWrite", "TaskCreate"]
+conf = 0.7
+
+[[act]]
+id = "update-todos"
+cat = "planning"
+phrase = "ticking off a step"
+tool = ["TaskUpdate"]
+conf = 0.6
+
+[[act]]
+id = "enter-plan"
+cat = "planning"
+phrase = "drawing up a plan"
+tool = ["EnterPlanMode"]
+conf = 0.8
+
+[[act]]
+id = "schedule-wakeup"
+cat = "planning"
+icon = "⏰"
+phrase = "scheduling a wake-up"
+ask = "scheduling {what}"
+tool = ["CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "mcp__scheduled-tasks__*"]
+conf = 0.85
+
+[[act]]
+id = "sub-explore"
+cat = "research"
+phrase = "{agent}"
+ask = "researching {what} with a subagent"
+alt = "exploring with a subagent"
+tool = ["Agent", "Task"]
+agent = ['^(explore|plan)\b', '(?i)\b(explore|survey|research|investigate|find|map|analy[sz]e|evaluate|look into)\b']
+conf = 0.8
+
+[[act]]
+id = "sub-review"
+cat = "verifying"
+phrase = "{agent}"
+ask = "getting {what} reviewed"
+alt = "getting a review"
+tool = ["Agent", "Task"]
+agent = ['(?i)\b(review|audit|qa|bug bash|critique)\b']
+conf = 0.8
+
+[[act]]
+id = "sub-build"
+cat = "coding"
+phrase = "{agent}"
+ask = "building {what} with a subagent"
+alt = "building with a subagent"
+tool = ["Agent", "Task"]
+agent = ['(?i)\b(build|implement|add|fix|write|create|port|refactor|wire)\b']
+conf = 0.8
+
+[[act]]
+id = "sub-design"
+cat = "design"
+phrase = "{agent}"
+ask = "designing {what} with a subagent"
+alt = "designing with a subagent"
+tool = ["Agent", "Task"]
+agent = ['(?i)\b(design|mock ?up|ux|spec)\b']
+conf = 0.8
+
+[[act]]
+id = "subagent"
+cat = "planning"
+phrase = "{agent}"
+ask = "delegating {what} to a subagent"
+alt = "delegating to a subagent"
+tool = ["Agent", "Task"]
+conf = 0.7
+
+[[act]]
+id = "stop-task"
+cat = "planning"
+phrase = "stopping a background task"
+tool = ["TaskStop", "KillShell", "KillBash"]
+conf = 0.7
+
+[[act]]
+id = "spawn-agent"
+cat = "planning"
+phrase = "starting a new agent"
+ask = "starting an agent for {what}"
+tool = ["Bash"]
+cmd = ['^herdr (agent start|tab create|workspace create|pane split|worktree)\b', '/api/new\b', '^claude --resume\b']
+conf = 0.8
+
+[[act]]
+id = "herdr-other"
+cat = "planning"
+phrase = "arranging agents in herdr"
+ask = "arranging agents for {what}"
+tool = ["Bash"]
+cmd = ['^herdr\b', 'hc\.py (agent|tab|pane|workspace|worktree)\.']
+not = ['(--help|--skill|\shelp\b)']
+conf = 0.65
+
+[[act]]
+id = "headless-claude"
+cat = "jobs"
+phrase = "running a helper Claude"
+ask = "asking a helper Claude about {what}"
+tool = ["Bash"]
+cmd = ['^claude -p\b', '^claude .*--print\b', '^claude\b.*--model haiku']
+conf = 0.75
+
+# ======================================================================================================
+# Waiting
+# ======================================================================================================
+
+[[act]]
+id = "wait-output"
+cat = "waiting"
+phrase = "waiting for a background task"
+tool = ["TaskOutput", "BashOutput", "Monitor", "AgentOutputTool"]
+conf = 0.75
+
+[[act]]
+id = "wait-poll"
+cat = "waiting"
+phrase = "waiting for {thing|something to finish}"
+tool = ["Bash"]
+cmd = ['^until\b', '^while (true|:|!)', 'wait_for_output', '^tail -f\b', '^inotifywait\b']
+conf = 0.7
+
+[[act]]
+id = "wait-sleep"
+cat = "waiting"
+phrase = "waiting a moment"
+tool = ["Bash"]
+cmd = ['\Asleep \d+\S*\s*\z', 'time\.sleep\(\d+\)\S*\s*\z']
+conf = 0.6
+
+# ======================================================================================================
+# Shipping: deploys and releases (before git and builds: they wrap both)
+# ======================================================================================================
+
+[[act]]
+id = "deploy-script"
+cat = "jobs"
+icon = "🚀"
+phrase = "deploying[ {project}]"
+ask = "deploying {what}"
+progress = true
+tool = ["Bash"]
+cmd = ['(^|/)deploy(/install)?\.sh\b', '^\S*deploy\S*\.sh\b', '^make (deploy|install|release)\b', '^just deploy\b']
+conf = 0.9
+
+[[act]]
+id = "deploy-cloud"
+cat = "jobs"
+icon = "🚀"
+phrase = "deploying to {site|the cloud}"
+progress = true
+tool = ["Bash"]
+cmd = ['^(vercel|netlify|fly|flyctl|wrangler|railway|heroku)\b.*\b(deploy|publish|up)\b', '^kubectl (apply|rollout)\b', '^helm (install|upgrade)\b', '^terraform apply\b', '^gcloud .*deploy\b', '^aws .*deploy\b']
+conf = 0.9
+
+[[act]]
+id = "release"
+cat = "git"
+icon = "🏷"
+phrase = "cutting a release"
+tool = ["Bash"]
+cmd = ['^gh release\b', '^git tag\b', '^cargo publish\b', '^npm publish\b', '^twine upload\b']
+conf = 0.85
+
+[[act]]
+id = "service-restart"
+cat = "ops"
+phrase = "restarting {thing|a service}"
+ask = "restarting {what}"
+tool = ["Bash"]
+cmd = ['^systemctl (--user )?(restart|reload|start|stop|enable|disable|daemon-reload)\b ?(?P<thing>[\w@.-]+)?', 'mock-restart\.sh']
+conf = 0.85
+
+# ======================================================================================================
+# Git and GitHub
+# ======================================================================================================
+
+[[act]]
+id = "git-commit"
+cat = "git"
+phrase = "committing[ {what}]"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? commit\b']
+conf = 0.9
+
+[[act]]
+id = "git-push"
+cat = "git"
+phrase = "pushing to {thing|the remote}"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? push\b(?: \S+ (?P<thing>[\w./-]+))?']
+conf = 0.9
+
+[[act]]
+id = "pr-open"
+cat = "git"
+phrase = "opening a pull request"
+tool = ["Bash", "mcp__github__create_pull_request"]
+cmd = ['^gh pr create\b']
+conf = 0.9
+
+[[act]]
+id = "pr-review"
+cat = "git"
+phrase = "reviewing a pull request"
+tool = ["Bash", "mcp__github__*review*", "mcp__github__get_pull_request*"]
+cmd = ['^gh pr (view|diff|review|checks|comment)\b', '^gh api .*pulls']
+conf = 0.85
+
+[[act]]
+id = "pr-merge"
+cat = "git"
+phrase = "merging a pull request"
+tool = ["Bash"]
+cmd = ['^gh pr (merge|close|ready)\b']
+conf = 0.9
+
+[[act]]
+id = "ci-check"
+cat = "verifying"
+phrase = "checking CI"
+progress = true
+tool = ["Bash"]
+cmd = ['^gh (run|workflow)\b', '^gh pr checks\b']
+conf = 0.85
+
+[[act]]
+id = "gh-issue"
+cat = "git"
+phrase = "working on a GitHub issue"
+tool = ["Bash", "mcp__github__*issue*"]
+cmd = ['^gh issue\b']
+conf = 0.85
+
+[[act]]
+id = "gh-repo"
+cat = "research"
+phrase = "looking around {thing|a GitHub repo}"
+tool = ["Bash"]
+cmd = ['^gh (repo|search|browse)\b(?: \w+ (?P<thing>[\w.-]+/[\w.-]+))?', '^gh api\b']
+conf = 0.8
+
+[[act]]
+id = "git-rebase"
+cat = "git"
+phrase = "rebasing[ onto {thing}]"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? rebase\b(?: (?P<thing>[\w./-]+))?']
+conf = 0.9
+
+[[act]]
+id = "git-merge"
+cat = "git"
+phrase = "merging {thing|branches}"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? merge\b(?: (?P<thing>[\w./-]+))?']
+conf = 0.85
+
+[[act]]
+id = "git-conflicts"
+cat = "git"
+phrase = "resolving merge conflicts"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? (mergetool|checkout --(ours|theirs))\b', '<<<<<<<']
+conf = 0.85
+
+[[act]]
+id = "git-cherry-pick"
+cat = "git"
+phrase = "cherry-picking a commit"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? cherry-pick\b']
+conf = 0.9
+
+[[act]]
+id = "git-revert"
+cat = "git"
+phrase = "undoing a change"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? (revert|reset|restore)\b', '^git( -C \S+)? checkout (HEAD )?-- ']
+conf = 0.8
+
+[[act]]
+id = "git-stash"
+cat = "git"
+phrase = "stashing changes"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? stash\b']
+conf = 0.85
+
+[[act]]
+id = "git-worktree"
+cat = "git"
+phrase = "setting up a worktree"
+tool = ["Bash", "EnterWorktree", "ExitWorktree"]
+cmd = ['^git( -C \S+)? worktree\b']
+conf = 0.85
+
+[[act]]
+id = "git-branch"
+cat = "git"
+phrase = "switching to {thing|a branch}"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? (switch|checkout)( -[bcB])? (?P<thing>[\w./-]+)\s*$', '^git( -C \S+)? branch\b']
+conf = 0.8
+
+[[act]]
+id = "git-pull"
+cat = "git"
+phrase = "pulling the latest changes"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? (pull|fetch|clone)\b']
+conf = 0.85
+
+[[act]]
+id = "git-stage"
+cat = "git"
+phrase = "staging changes"
+ask = "staging {what}"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? (add|update-index|hash-object|apply)\b']
+conf = 0.8
+
+[[act]]
+id = "git-diff"
+cat = "git"
+phrase = "reviewing the diff"
+ask = "reviewing the diff for {what}"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)?( --no-pager)? diff\b']
+conf = 0.8
+
+[[act]]
+id = "git-log"
+cat = "git"
+phrase = "reading the git history"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)?( --no-pager)? (log|show|blame|reflog|shortlog|bisect)\b']
+conf = 0.8
+
+[[act]]
+id = "git-status"
+cat = "git"
+phrase = "checking what changed"
+tool = ["Bash"]
+cmd = ['^git( -C \S+)? (status|rev-parse|ls-files|remote|config|describe|cat-file)\b']
+conf = 0.7
+
+[[act]]
+id = "git-other"
+cat = "git"
+phrase = "working in git"
+tool = ["Bash"]
+cmd = ['^git\b']
+conf = 0.6
+
+# ======================================================================================================
+# Verifying: tests, builds, type checks, linters
+# ======================================================================================================
+
+[[act]]
+id = "test-rust"
+cat = "verifying"
+phrase = "running the[ {project}] tests"
+progress = true
+tool = ["Bash"]
+cmd = ['^cargo (test|nextest|t)\b']
+conf = 0.9
+
+[[act]]
+id = "test-python"
+cat = "verifying"
+phrase = "running the[ {project}] tests"
+progress = true
+tool = ["Bash"]
+cmd = ['^(python3? -m )?pytest\b', '^python3? -m unittest\b', '^tox\b', '^nox\b']
+conf = 0.9
+
+[[act]]
+id = "test-js"
+cat = "verifying"
+phrase = "running the[ {project}] tests"
+progress = true
+tool = ["Bash"]
+cmd = ['^(npm|pnpm|yarn|bun) (run )?test\b', '^(vitest|jest|mocha|ava|playwright test)\b', '^bun test\b', '^deno test\b', '^node --test\b']
+conf = 0.9
+
+[[act]]
+id = "test-go"
+cat = "verifying"
+phrase = "running the[ {project}] tests"
+progress = true
+tool = ["Bash"]
+cmd = ['^go test\b', '^(mix|rspec|bundle exec rspec|phpunit|ctest|swift test|dotnet test|gradle test|mvn test)\b']
+conf = 0.9
+
+[[act]]
+id = "test-ui"
+cat = "verifying"
+icon = "📱"
+phrase = "running the {thing} UI test"
+ask = "testing {what} in a browser"
+alt = "testing the UI in a browser"
+progress = true
+tool = ["Bash"]
+cmd = ['^node \S*\bt-(?P<thing>[\w-]+)\.m?js\b', '^node \S*\b(test|e2e|spec)[\w-]*\.m?js\b']
+conf = 0.85
+
+[[act]]
+id = "screenshot-ui"
+cat = "verifying"
+icon = "📸"
+phrase = "screenshotting the app"
+ask = "screenshotting {what}"
+tool = ["Bash"]
+cmd = ['^node \S*(shoot|shot|screenshot|capture|snap|anim|probe)\w*\.m?js\b', '^(grim|scrot|spectacle|hyprshot|import -window)\b', 'page\.screenshot\(']
+conf = 0.85
+
+[[act]]
+id = "build-rust"
+cat = "verifying"
+icon = "🔨"
+phrase = "building[ {project}]"
+progress = true
+tool = ["Bash"]
+cmd = ['^cargo (build|b|run|install)\b']
+conf = 0.85
+
+[[act]]
+id = "typecheck-rust"
+cat = "verifying"
+phrase = "type-checking[ {project}]"
+tool = ["Bash"]
+cmd = ['^cargo (check|c)\b']
+conf = 0.85
+
+[[act]]
+id = "lint-rust"
+cat = "verifying"
+phrase = "linting[ {project}]"
+tool = ["Bash"]
+cmd = ['^cargo (clippy|fmt|audit|deny|udeps)\b', '^rustfmt\b']
+conf = 0.85
+
+[[act]]
+id = "build-js"
+cat = "verifying"
+icon = "🔨"
+phrase = "building[ {project}]"
+progress = true
+tool = ["Bash"]
+cmd = ['^(npm|pnpm|yarn|bun) (run )?build\b', '^(vite|webpack|esbuild|rollup|tsup|parcel|next) build\b', '^esbuild\b']
+conf = 0.85
+
+[[act]]
+id = "typecheck-ts"
+cat = "verifying"
+phrase = "type-checking[ {project}]"
+tool = ["Bash"]
+cmd = ['^(tsc|vue-tsc)\b', '^(npm|pnpm|yarn|bun) (run )?(typecheck|type-check|tsc)\b', '^(mypy|pyright|basedpyright)\b']
+conf = 0.85
+
+[[act]]
+id = "lint-js"
+cat = "verifying"
+phrase = "linting[ {project}]"
+tool = ["Bash"]
+cmd = ['^(eslint|biome|prettier|oxlint|stylelint|standard)\b', '^(npm|pnpm|yarn|bun) (run )?(lint|format|fmt)\b']
+conf = 0.85
+
+[[act]]
+id = "lint-python"
+cat = "verifying"
+phrase = "linting[ {project}]"
+tool = ["Bash"]
+cmd = ['^(ruff|black|flake8|pylint|isort)\b', '^python3? -m (ruff|black|flake8|pylint|py_compile|compileall)\b']
+conf = 0.85
+
+[[act]]
+id = "syntax-check"
+cat = "verifying"
+phrase = "checking the syntax of {file|a file}"
+tool = ["Bash"]
+cmd = ['^node (--check|-c) (?P<path>\S+)', '^bash -n (?P<path>\S+)', '^shellcheck\b ?(?P<path>\S+)?', '^python3? -c .?import ast', '^jq (empty|\.) (?P<path>\S+\.json)']
+conf = 0.8
+
+[[act]]
+id = "build-make"
+cat = "verifying"
+icon = "🔨"
+phrase = "building[ {project}]"
+progress = true
+tool = ["Bash"]
+cmd = ['^(make|ninja|cmake --build|meson compile|just build|gradle build|mvn package|go build|swift build|xcodebuild|zig build)\b', '^(gcc|g\+\+|clang|clang\+\+|rustc|javac) ']
+conf = 0.8
+
+[[act]]
+id = "bench"
+cat = "verifying"
+icon = "⏱"
+phrase = "benchmarking {thing|performance}"
+progress = true
+tool = ["Bash"]
+cmd = ['^cargo bench\b', '^(hyperfine|criterion)\b', '\bbench(mark)?[\w-]*\.(py|js|sh)\b']
+desc = ['^benchmark\b', '\bbenchmark (?P<thing>.+)$']
+conf = 0.8
+
+[[act]]
+id = "smoke-test"
+cat = "verifying"
+phrase = "{desc_ing|smoke-testing it}"
+ask = "smoke-testing {what}"
+desc = ['^(smoke|sanity)[ -]test\b', '^verify\b', '^confirm\b']
+conf = 0.65
+
+[[act]]
+id = "api-probe"
+cat = "verifying"
+phrase = "poking the local API"
+ask = "testing {what} against the local API"
+tool = ["Bash"]
+cmd = ['^curl\b.*\b(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?', '^(http|xh|httpie) \S*(localhost|127\.0\.0\.1)']
+conf = 0.75
+
+[[act]]
+id = "dev-server"
+cat = "verifying"
+phrase = "running a dev server"
+tool = ["Bash"]
+cmd = ['^(npm|pnpm|yarn|bun) (run )?(dev|start|serve|preview)\b', '^(vite|next dev|astro dev)\b', '^python3? -m http\.server\b', '^python3? \S*mock\w*\.py\b']
+conf = 0.8
+
+# ======================================================================================================
+# Browsing (agent-browser, Claude in Chrome, WebFetch)
+# ======================================================================================================
+
+[[act]]
+id = "sign-in-wait"
+cat = "browsing"
+icon = "🔑"
+phrase = "getting past a sign-in[ on {site}]"
+tool = ["Bash"]
+cmd = ['agent-browser\b.*\b(login|signin|sign-in|sign_in|captcha|2fa|otp|verify)\b']
+desc = ['\b(sign in|log ?in|signin|captcha|2fa|verification code|one-time code)\b']
+conf = 0.8
+
+[[act]]
+id = "book"
+cat = "browsing"
+icon = "📅"
+phrase = "booking {what|it}"
+tool = ["Bash", "mcp__claude-in-chrome__*"]
+desc = ['\b(book|reserve|reservation)\b']
+conf = 0.75
+
+[[act]]
+id = "form-fill"
+cat = "browsing"
+phrase = "filling in a form[ on {site}]"
+tool = ["Bash", "mcp__claude-in-chrome__form_input", "mcp__claude-in-chrome__*form*"]
+cmd = ['^agent-browser\b.*\b(fill|type|select|check|upload)\b']
+conf = 0.75
+
+[[act]]
+id = "browser-screenshot"
+cat = "browsing"
+icon = "📸"
+phrase = "looking at {site|a page}"
+ask = "looking at {what}"
+tool = ["Bash", "mcp__claude-in-chrome__computer", "mcp__claude-in-chrome__read_page", "mcp__claude-in-chrome__get_page_text"]
+cmd = ['^agent-browser\b.*\b(screenshot|snapshot|get (text|title|url|html)|eval)\b']
+conf = 0.7
+
+[[act]]
+id = "browser-click"
+cat = "browsing"
+phrase = "clicking through {site|a site}"
+ask = "clicking through {what}"
+tool = ["Bash"]
+cmd = ['^agent-browser\b.*\b(click|press|scroll|hover|wait|back|forward|reload|tab|key)\b']
+conf = 0.7
+
+[[act]]
+id = "browser-open"
+cat = "browsing"
+phrase = "opening {site|a page}"
+ask = "opening {what}"
+tool = ["Bash", "mcp__claude-in-chrome__navigate", "mcp__claude-in-chrome__tabs_create*"]
+cmd = ['^agent-browser\b.*\b(open|navigate|goto)\b', '^(xdg-open|firefox|chromium|google-chrome)\b']
+conf = 0.75
+
+[[act]]
+id = "browser-setup"
+cat = "browsing"
+phrase = "setting up the browser"
+tool = ["Bash"]
+cmd = ['^agent-browser\b.*\b(close|session|install|skills|--help|connect|launch|config)\b', '^agent-browser\s*$']
+conf = 0.65
+
+[[act]]
+id = "browser-chrome"
+cat = "browsing"
+phrase = "using the browser[ on {site}]"
+tool = ["mcp__claude-in-chrome__*", "mcp__claude_in_chrome__*", "mcp__playwright__*", "mcp__puppeteer__*"]
+conf = 0.7
+
+[[act]]
+id = "browser-other"
+cat = "browsing"
+phrase = "browsing {site|the web}"
+tool = ["Bash"]
+cmd = ['^agent-browser\b', 'AGENT_BROWSER_SESSION']
+conf = 0.65
+
+# ======================================================================================================
+# Running jobs: training, rendering, downloads, installs, containers
+# ======================================================================================================
+
+[[act]]
+id = "train-model"
+cat = "jobs"
+icon = "🏋"
+phrase = "training {thing|a model}"
+progress = true
+tool = ["Bash"]
+cmd = ['(^|/)train\w*\.py\b', '\b(--num[_-]envs|--max[_-]iterations|--epochs|--total[_-]timesteps)\b', '^(accelerate launch|torchrun|deepspeed)\b', '\b(rsl_rl|sb3|stable_baselines3|ppo)\b.*\btrain']
+desc = ['\btrain(ing)?\b(?: (?:the |a )?(?P<thing>[\w -]{3,30}?))?(?: on\b|,|$)']
+conf = 0.85
+
+[[act]]
+id = "eval-model"
+cat = "jobs"
+phrase = "evaluating {thing|a model}"
+progress = true
+tool = ["Bash"]
+cmd = ['(^|/)(eval|evaluate|play|rollout|infer|inference)\w*\.py\b']
+desc = ['\b(evaluate|eval) (?P<thing>.+)$', '\brollouts?\b']
+conf = 0.8
+
+[[act]]
+id = "simulate"
+cat = "jobs"
+icon = "🤖"
+phrase = "running a simulation"
+progress = true
+tool = ["Bash"]
+cmd = ['\b(mujoco|isaac|genesis|pybullet|gazebo|warp)\b.*\.py\b', '(^|/)sim\w*\.py\b']
+desc = ['\bsimulat', '\bsysid\b']
+conf = 0.8
+
+[[act]]
+id = "render-media"
+cat = "jobs"
+icon = "🎞"
+phrase = "rendering {thing|a video}"
+progress = true
+tool = ["Bash"]
+cmd = ['^(ffmpeg|blender|manim|remotion)\b', '\brender\w*\.(py|js|mjs|sh)\b']
+desc = ['\brender(ing)? (?P<thing>.+)$', '\b(encode|transcode) (?P<thing>.+)$']
+conf = 0.8
+
+[[act]]
+id = "download"
+cat = "jobs"
+icon = "⬇️"
+phrase = "downloading {thing|files}"
+progress = true
+tool = ["Bash"]
+cmd = ['^(wget|aria2c|yt-dlp|rclone (copy|sync)|huggingface-cli download|hf download|gsutil cp|aws s3 (cp|sync))\b', '^curl\b.*\s(-o|-O|--output|--remote-name)\b', '^git lfs pull\b', '^ollama pull\b']
+desc = ['\bdownload(ing)? (?P<thing>.+)$']
+conf = 0.85
+
+[[act]]
+id = "upload"
+cat = "jobs"
+icon = "⬆️"
+phrase = "uploading {thing|files}"
+progress = true
+tool = ["Bash"]
+cmd = ['^(scp|rsync)\b', '^(rclone|gsutil|aws s3)\b']
+desc = ['\bupload(ing)? (?P<thing>.+)$']
+conf = 0.8
+
+[[act]]
+id = "install-deps"
+cat = "jobs"
+icon = "📦"
+phrase = "installing {pkg|dependencies}"
+progress = true
+tool = ["Bash"]
+cmd = ['^(npm|pnpm|yarn|bun) (install|i|add|ci)\b ?(?P<pkg>[@\w./-]+)?', '^(pip3?|uv pip|uv) (install|add|sync)\b(?: -\S+)* ?(?P<pkg>[\w.\[\]-]+)?', '^python3? -m (pip|venv)\b', '^cargo (add|fetch|update)\b ?(?P<pkg>[\w-]+)?', '^(poetry|pdm|pipenv|bundle|gem|go get|go mod|composer|brew|mise) (install|add|get|tidy|use)\b', '^uv venv\b']
+conf = 0.85
+
+[[act]]
+id = "install-system"
+cat = "ops"
+icon = "📦"
+phrase = "installing {pkg|system packages}"
+progress = true
+tool = ["Bash"]
+cmd = ['^(pacman|yay|paru)\s+-S\w*(?:\s+--?\S+)*(?:\s+(?P<pkg>\w[\w.+-]*))?', '^(apt|apt-get|dnf|zypper|flatpak|snap) install(?:\s+-\S+)*(?:\s+(?P<pkg>\w[\w.+-]*))?', '^makepkg\b', '^omarchy-pkg-(add|install)\b ?(?P<pkg>[\w.-]+)?']
+conf = 0.85
+
+[[act]]
+id = "container"
+cat = "jobs"
+icon = "🐳"
+phrase = "running containers"
+progress = true
+tool = ["Bash"]
+cmd = ['^(docker|podman)( compose| buildx)? (build|run|up|compose|exec|pull|push)\b', '^docker-compose\b', '^(docker|podman)\b']
+conf = 0.8
+
+[[act]]
+id = "background-job"
+cat = "jobs"
+phrase = "{desc_ing|running a background job}"
+progress = true
+tool = ["Bash"]
+cmd = ['^nohup\b', '^setsid\b', '^systemd-run\b', '^tmux (new|send)', '^screen -']
+conf = 0.6
+
+[[act]]
+id = "db-migrate"
+cat = "jobs"
+phrase = "migrating the database"
+tool = ["Bash"]
+cmd = ['\b(migrate|migration)\b', '^(alembic|prisma migrate|diesel migration|sqlx migrate|knex migrate)\b']
+conf = 0.8
+
+# ======================================================================================================
+# Design, images, CAD
+# ======================================================================================================
+
+[[act]]
+id = "view-screenshot"
+cat = "verifying"
+icon = "👀"
+phrase = "looking at {thing|a screenshot}"
+ask = "checking screenshots of {what}"
+tool = ["Read"]
+path = ['(?i)(shot|screen|snap|frame|capture|after|before|light|dark|mock|probe)[^/]*\.(png|jpe?g|webp)$']
+conf = 0.8
+
+[[act]]
+id = "view-image"
+cat = "design"
+icon = "🖼"
+phrase = "looking at {file|an image}"
+ask = "looking at {what}"
+tool = ["Read"]
+ext = ["png", "jpg", "jpeg", "webp", "gif", "svg", "heic", "bmp", "tif", "tiff"]
+conf = 0.75
+
+[[act]]
+id = "read-pdf"
+cat = "research"
+icon = "📄"
+phrase = "reading {file|a PDF}"
+tool = ["Read", "Bash"]
+ext = ["pdf"]
+cmd = ['^(pdftotext|pdfinfo|qpdf|mutool)\b']
+conf = 0.8
+
+[[act]]
+id = "image-edit"
+cat = "design"
+icon = "🖼"
+phrase = "editing images"
+ask = "editing {what} images"
+tool = ["Bash"]
+cmd = ['^(magick|convert|montage|composite|mogrify|identify|vips|optipng|pngquant|cwebp|exiftool|rsvg-convert|inkscape|gimp|oxipng)\b', '\bPIL\b|from PIL import']
+conf = 0.8
+
+[[act]]
+id = "cad-model"
+cat = "design"
+icon = "📐"
+phrase = "modeling {thing|a CAD part}"
+ask = "modeling {what}"
+tool = ["Bash", "Write", "Edit"]
+cmd = ['\b(build123d|cadquery|openscad|freecad|ocp)\b', '\.(step|stp|stl|3mf|scad)\b', '(^|/)cad/', 'cadvenv']
+path = ['(^|/)cad/', '\.(scad|step|stp|stl|3mf)$']
+desc = ['\bcad\b']
+conf = 0.8
+
+[[act]]
+id = "mockup"
+cat = "design"
+icon = "🎨"
+phrase = "mocking up {what|a design}"
+tool = ["Bash", "Write", "Edit"]
+path = ['(?i)(mock|pitch|variant|proto|sketch|wireframe|hp/|hv/)[^/]*\.(html|js|mjs|css)$']
+desc = ['\b(mock ?up|mockups|wireframe|pitch|variant|prototype)\b']
+conf = 0.8
+
+[[act]]
+id = "palette"
+cat = "design"
+icon = "🎨"
+phrase = "tuning colors"
+desc = ['\b(colou?rs?|palette|pastels?|tints?|contrast)\b']
+not = ['(?i)^(read|check|find|locate|look|inspect|grep|search|list|show|see|test|verify)\b']
+conf = 0.7
+
+[[act]]
+id = "artifact-publish"
+cat = "docs"
+icon = "🌐"
+phrase = "publishing a page"
+ask = "publishing a page about {what}"
+tool = ["Artifact"]
+conf = 0.85
+
+[[act]]
+id = "artifact-data"
+cat = "docs"
+phrase = "updating a shared page"
+tool = ["ArtifactData", "ArtifactCheck"]
+conf = 0.8
+
+[[act]]
+id = "video-make"
+cat = "design"
+icon = "🎬"
+phrase = "making a video"
+desc = ['\b(video|walkthrough|gif|animation|frames)\b']
+conf = 0.7
+
+# ======================================================================================================
+# Docs and writing
+# ======================================================================================================
+
+[[act]]
+id = "claude-doc"
+cat = "docs"
+icon = "📄"
+phrase = "writing a doc"
+ask = "writing a doc about {what}"
+tool = ["mcp__claude_ai_Claude_Docs__*"]
+conf = 0.85
+
+[[act]]
+id = "drive-doc"
+cat = "docs"
+icon = "📄"
+phrase = "working in Google Drive"
+tool = ["mcp__claude_ai_Google_Drive__*", "mcp__claude_ai_Google_Docs__*"]
+conf = 0.85
+
+[[act]]
+id = "status-doc"
+cat = "docs"
+phrase = "updating the status notes"
+ask = "updating the status notes on {what}"
+tool = ["Write", "Edit", "Bash"]
+path = ['(?i)(^|/)(STATUS|TODO|NOTES|HANDOFF|PROGRESS)\.md$']
+not = ['^\s*(sed -n|head|tail|grep|less|wc)\b', '^cat\s[^>]*$']
+conf = 0.85
+
+[[act]]
+id = "readme"
+cat = "docs"
+phrase = "writing the README"
+tool = ["Write", "Edit", "Bash"]
+path = ['(?i)(^|/)README(\.\w+)?$']
+not = ['^\s*(sed -n|head|tail|grep|less|wc)\b', '^cat\s[^>]*$']
+conf = 0.85
+
+[[act]]
+id = "changelog"
+cat = "docs"
+phrase = "updating the changelog"
+tool = ["Write", "Edit", "Bash"]
+path = ['(?i)(^|/)(CHANGELOG|HISTORY|RELEASES?)\.md$']
+not = ['^\s*(sed -n|head|tail|grep|less|wc)\b', '^cat\s[^>]*$']
+conf = 0.85
+
+[[act]]
+id = "api-docs"
+cat = "docs"
+phrase = "documenting the API"
+ask = "documenting {what}"
+tool = ["Write", "Edit", "Bash"]
+path = ['(?i)(^|/)(API|SPEC|PROTOCOL|ARCHITECTURE|DESIGN)\.md$']
+not = ['^\s*(sed -n|head|tail|grep|less|wc)\b', '^cat\s[^>]*$']
+conf = 0.85
+
+[[act]]
+id = "claude-md"
+cat = "docs"
+phrase = "updating agent instructions"
+ask = "updating agent instructions for {what}"
+tool = ["Write", "Edit", "Bash"]
+path = ['(?i)(^|/)(CLAUDE|AGENTS|MEMORY)\.md$', '/memory/[^/]+\.md$', '/skills/[^/]+/SKILL\.md$']
+not = ['^\s*(sed -n|head|tail|grep|less|wc)\b', '^cat\s[^>]*$']
+conf = 0.85
+
+[[act]]
+id = "write-doc"
+cat = "docs"
+phrase = "writing {file|docs}"
+ask = "writing {what}"
+tool = ["Write", "Edit", "MultiEdit"]
+ext = ["md", "mdx", "rst", "adoc", "txt", "org"]
+conf = 0.8
+
+[[act]]
+id = "write-doc-shell"
+cat = "docs"
+phrase = "writing {file|docs}"
+ask = "writing {what}"
+tool = ["Bash"]
+cmd = ['^cat >>? ?(?P<path>\S+\.(md|mdx|rst|txt))\b', '^tee (-a )?(?P<path>\S+\.(md|txt))\b', 'p\s*=\s*[\x27"](?P<path>[^\x27"]+\.md)[\x27"]']
+conf = 0.8
+
+[[act]]
+id = "notebook"
+cat = "data"
+icon = "📓"
+phrase = "working in {file|a notebook}"
+tool = ["NotebookEdit", "Read", "Edit"]
+ext = ["ipynb"]
+conf = 0.85
+
+# ======================================================================================================
+# Coding: writing and editing files
+# ======================================================================================================
+
+[[act]]
+id = "write-tests"
+cat = "coding"
+icon = "🧪"
+phrase = "writing tests[ for {thing}]"
+ask = "writing tests for {what}"
+tool = ["Write", "Edit", "MultiEdit", "Bash"]
+path = ['(?i)(^|/)(tests?|spec|__tests__|e2e)/', '(?i)(_test\.(go|py|rs)|\.test\.[jt]sx?|\.spec\.[jt]sx?|(^|/)test_[\w]+\.py|(^|/)t-[\w-]+\.mjs)$']
+not = ['^\s*(cat|sed -n|head|tail|grep|less|wc|node|ls)\b']
+conf = 0.85
+
+[[act]]
+id = "edit-css"
+cat = "coding"
+icon = "🎨"
+phrase = "styling {thing|the UI}"
+ask = "styling {what}"
+tool = ["Write", "Edit", "MultiEdit", "Bash"]
+ext = ["css", "scss", "sass", "less"]
+not = ['^\s*(cat|sed -n|head|tail|grep|less|wc|ls|diff)\b', '^git\b']
+conf = 0.8
+
+[[act]]
+id = "edit-config"
+cat = "ops"
+icon = "🔧"
+phrase = "tweaking {file|config}"
+tool = ["Write", "Edit", "MultiEdit"]
+path = ['(^|/)\.config/', '(?i)(^|/)(settings|config|\.env|hyprland|bindings|keybind|waybar|mise)[\w.-]*\.(json|toml|ya?ml|conf|lua|ini)$', '(?i)\.(conf|ini|service|timer|desktop)$', '(^|/)Cargo\.toml$', '(^|/)package\.json$']
+conf = 0.8
+
+[[act]]
+id = "fix-bug"
+cat = "coding"
+icon = "🐞"
+phrase = "{desc_ing|fixing a bug}"
+ask = "fixing {what}"
+desc = ['^(fix|repair|patch|correct|resolve|handle)\b', '\bfix(es)?\b']
+conf = 0.75
+
+[[act]]
+id = "refactor"
+cat = "coding"
+phrase = "{desc_ing|refactoring code}"
+ask = "refactoring {what}"
+desc = ['^(refactor|restructure|rename|extract|simplify|clean ?up|tidy|split|move|consolidate|dedupe)\b']
+conf = 0.75
+
+[[act]]
+id = "add-feature"
+cat = "coding"
+phrase = "{desc_ing|adding a feature}"
+ask = "adding {what}"
+desc = ['^(add|implement|wire|hook up|introduce|support|enable|create|build|make)\b']
+conf = 0.7
+
+[[act]]
+id = "remove-code"
+cat = "coding"
+phrase = "{desc_ing|removing old code}"
+ask = "removing {what}"
+desc = ['^(remove|drop|delete|strip|unhook|revert)\b']
+not = ['^rm\b']
+conf = 0.7
+
+[[act]]
+id = "update-code"
+cat = "coding"
+phrase = "{desc_ing|updating code}"
+ask = "updating {what}"
+desc = ['^(update|change|tweak|adjust|improve|replace|swap|set|switch|bump|restore|tune|make)\b']
+conf = 0.65
+
+[[act]]
+id = "script-edit"
+cat = "coding"
+phrase = "editing {file|code}"
+ask = "editing {what}"
+tool = ["Bash"]
+cmd = ['p\s*=\s*[\x27"](?P<path>[^\x27"]+\.\w+)[\x27"]', '\.write_text\(', 'open\([^)]*[\x27"]w[\x27"]', '^sed -i\b.*\s(?P<path>[\w./~-]+\.\w+)\s*$', '^sed -i\b', '^perl -p?i\b']
+conf = 0.8
+
+[[act]]
+id = "write-file-shell"
+cat = "coding"
+phrase = "writing {file|a file}"
+ask = "writing {what}"
+tool = ["Bash"]
+cmd = ['^cat >>? ?(?P<path>[^\s<]+)', '^tee (-a )?(?P<path>\S+)']
+conf = 0.7
+
+[[act]]
+id = "edit-rust"
+cat = "coding"
+icon = "🦀"
+phrase = "editing {file}"
+ask = "editing {what}"
+tool = ["Write", "Edit", "MultiEdit"]
+ext = ["rs"]
+conf = 0.8
+
+[[act]]
+id = "edit-web"
+cat = "coding"
+phrase = "editing {file}"
+ask = "editing {what}"
+tool = ["Write", "Edit", "MultiEdit"]
+ext = ["js", "mjs", "cjs", "ts", "tsx", "jsx", "vue", "svelte", "html", "astro"]
+conf = 0.8
+
+[[act]]
+id = "edit-python"
+cat = "coding"
+icon = "🐍"
+phrase = "editing {file}"
+ask = "editing {what}"
+tool = ["Write", "Edit", "MultiEdit"]
+ext = ["py", "pyi"]
+conf = 0.8
+
+[[act]]
+id = "edit-shell"
+cat = "coding"
+phrase = "editing {file}"
+ask = "editing {what}"
+tool = ["Write", "Edit", "MultiEdit"]
+ext = ["sh", "bash", "zsh", "fish", "lua"]
+conf = 0.8
+
+[[act]]
+id = "edit-code"
+cat = "coding"
+phrase = "editing {file|code}"
+ask = "editing {what}"
+tool = ["Write", "Edit", "MultiEdit", "NotebookEdit"]
+conf = 0.75
+
+[[act]]
+id = "file-ops"
+cat = "coding"
+phrase = "moving files around"
+ask = "moving {what} around"
+tool = ["Bash"]
+cmd = ['^(mkdir|cp|mv|ln|chmod|chown|touch|install|unzip|tar|zip|gzip|gunzip|7z)\b']
+conf = 0.6
+
+[[act]]
+id = "cleanup"
+cat = "ops"
+icon = "🧹"
+phrase = "cleaning up"
+ask = "cleaning up {what}"
+tool = ["Bash"]
+cmd = ['^rm\b', '^(trash|trash-put|gio trash)\b']
+desc = ['^(clean ?up|tear down|teardown|remove temp)\b']
+conf = 0.7
+
+# ======================================================================================================
+# Data and analysis
+# ======================================================================================================
+
+[[act]]
+id = "mine-transcripts"
+cat = "data"
+phrase = "digging through past sessions"
+ask = "digging through past sessions for {what}"
+tool = ["Bash"]
+cmd = ['\.claude/projects\b', '\*\.jsonl\b', 'glob\(.*jsonl']
+conf = 0.8
+
+[[act]]
+id = "query-db"
+cat = "data"
+icon = "🗄"
+phrase = "querying the database"
+tool = ["Bash", "mcp__*sql*", "mcp__*postgres*", "mcp__*supabase*"]
+cmd = ['^(sqlite3|psql|mysql|duckdb|clickhouse|mongosh|redis-cli)\b']
+conf = 0.85
+
+[[act]]
+id = "plot"
+cat = "data"
+icon = "📈"
+phrase = "plotting {thing|results}"
+ask = "plotting {what}"
+tool = ["Bash"]
+cmd = ['\b(matplotlib|plotly|seaborn|plt\.(plot|savefig)|gnuplot)\b']
+desc = ['\b(plot|chart|graph)\b']
+conf = 0.8
+
+[[act]]
+id = "analyze-logs"
+cat = "data"
+phrase = "reading the {thing|logs}"
+ask = "reading the {what} logs"
+tool = ["Bash", "Read"]
+cmd = ['\.(log|output)\b', '/tasks/\w+\.output\b']
+path = ['\.(log|output)$']
+desc = ['\blogs?\b']
+conf = 0.75
+
+[[act]]
+id = "parse-json"
+cat = "data"
+phrase = "picking apart {thing|JSON}"
+tool = ["Bash"]
+cmd = ['^jq\b', 'json\.load\(sys\.stdin\)']
+conf = 0.65
+
+[[act]]
+id = "analyze-data"
+cat = "data"
+phrase = "{desc_ing|analyzing data}"
+ask = "analyzing {what}"
+tool = ["Bash"]
+cmd = ['\b(pandas|numpy|polars|pd\.read_|np\.)\b', '\.(csv|parquet|tsv|xlsx)\b']
+desc = ['^(analy[sz]e|count|tally|measure|survey|summari[sz]e|compute|aggregate|histogram|stats)\b']
+conf = 0.75
+
+[[act]]
+id = "classify"
+cat = "data"
+phrase = "{desc_ing|sorting things}"
+ask = "sorting {what}"
+desc = ['^(classify|categori[sz]e|sort|tag|label|rank|cluster|dedupe)\b']
+conf = 0.7
+
+# ======================================================================================================
+# Ops and system
+# ======================================================================================================
+
+[[act]]
+id = "logs-journal"
+cat = "ops"
+phrase = "reading the service logs"
+tool = ["Bash"]
+cmd = ['^journalctl\b', '^dmesg\b', '^coredumpctl\b']
+conf = 0.85
+
+[[act]]
+id = "service-status"
+cat = "ops"
+phrase = "checking {thing|a service}"
+tool = ["Bash"]
+cmd = ['^systemctl (--user )?(status|is-active|is-enabled|list-units|list-timers|cat|show-environment|show)(?: (?P<thing>[a-z][\w@.-]*))?']
+conf = 0.8
+
+[[act]]
+id = "processes"
+cat = "ops"
+phrase = "checking running processes"
+ask = "checking {what} processes"
+tool = ["Bash"]
+cmd = ['^(ps|pgrep|top|htop|btop|pidof|lsof|fuser)\b']
+conf = 0.75
+
+[[act]]
+id = "kill-process"
+cat = "ops"
+phrase = "stopping a process"
+tool = ["Bash"]
+cmd = ['^(kill|pkill|killall)\b']
+conf = 0.75
+
+[[act]]
+id = "network"
+cat = "ops"
+icon = "🌐"
+phrase = "checking the network"
+tool = ["Bash"]
+cmd = ['^(ss|netstat|ip|ping|dig|nslookup|host|traceroute|nmap|ufw|iptables|nft|nc|wg|resolvectl)\b', '^tailscale\b']
+conf = 0.8
+
+[[act]]
+id = "desktop"
+cat = "ops"
+icon = "🖥"
+phrase = "adjusting the desktop"
+ask = "adjusting {what} on the desktop"
+tool = ["Bash"]
+cmd = ['^(hyprctl|omarchy|omarchy-[\w-]+|swaymsg|wlr-randr|waybar|makoctl|swww|swaybg|hyprpaper|walker|gsettings|xdg-mime|xdg-settings|brightnessctl|wpctl|pactl|playerctl)\b', '\.config/(hypr|waybar|omarchy|alacritty|ghostty|kitty|foot|walker|mako)\b']
+conf = 0.8
+
+[[act]]
+id = "gpu-check"
+cat = "ops"
+icon = "🎛"
+phrase = "checking the GPU"
+tool = ["Bash"]
+cmd = ['^(nvidia-smi|nvtop|rocm-smi|intel_gpu_top|gpustat)\b', '\btorch\.cuda\.is_available\b']
+conf = 0.85
+
+[[act]]
+id = "disk-usage"
+cat = "ops"
+icon = "💽"
+phrase = "checking disk space"
+tool = ["Bash"]
+cmd = ['^(du|df|ncdu|duf|dust|lsblk|findmnt|mount|umount|btrfs|smartctl|fdisk|parted|mkfs)\b']
+conf = 0.8
+
+[[act]]
+id = "permissions"
+cat = "ops"
+icon = "🔐"
+phrase = "sorting out permissions"
+tool = ["Bash"]
+cmd = ['^(sudo|chmod|chown|setfacl|usermod|groups|id)\b', '^ssh-(keygen|add|copy-id)\b', '^gpg\b']
+conf = 0.7
+
+[[act]]
+id = "remote-shell"
+cat = "ops"
+phrase = "working on {thing|a remote machine}"
+tool = ["Bash"]
+cmd = ['^(ssh|mosh)\b(?: -\S+)* (?:\w+@)?(?P<thing>[\w.-]+)']
+conf = 0.8
+
+[[act]]
+id = "claude-config"
+cat = "ops"
+icon = "🔧"
+phrase = "configuring Claude Code"
+tool = ["Bash", "Read"]
+cmd = ['^claude (plugin|mcp|config|doctor|update|install|--version|--help)\b', '\.claude/(settings|plugins|hooks|keybindings)']
+path = ['\.claude/(settings[\w.]*\.json|keybindings\.json|hooks/)']
+conf = 0.8
+
+[[act]]
+id = "mod-hooks"
+cat = "coding"
+phrase = "working on the Claude mod"
+ask = "working on {what} in the Claude mod"
+tool = ["Bash", "Read", "Write", "Edit"]
+path = ['(^|/)mod/[\w-]+/hooks/', '(^|/)plugin/hooks/', 'register\.ts$']
+cmd = ['claude-code\.d\.ts']
+conf = 0.8
+
+[[act]]
+id = "env-check"
+cat = "ops"
+phrase = "checking the setup"
+tool = ["Bash"]
+cmd = ['^(which|type|command -v|whereis|env|printenv|uname|hostnamectl|hostname|whoami|date|uptime|locale|lscpu|free|nproc|sensors|lspci|lsusb|systemd-analyze|fastfetch|neofetch)\b', '\s--version\s*$', '^\S+ (-V|--version)\b']
+conf = 0.65
+
+[[act]]
+id = "inspect-binary"
+cat = "research"
+phrase = "inspecting a binary"
+tool = ["Bash"]
+cmd = ['^(strings|objdump|readelf|nm|ldd|file|xxd|hexdump|od|gdb|lldb|strace|ltrace)\b']
+conf = 0.75
+
+[[act]]
+id = "help-pages"
+cat = "research"
+icon = "📖"
+phrase = "reading the {thing} docs"
+alt = "reading a tool's help"
+tool = ["Bash"]
+cmd = ['^(?P<thing>[\w-]+)( [\w-]+)? (--help|-h|help)\b', '^(man|tldr|info) (?P<thing>[\w-]+)', '^(?P<thing>[\w-]+) --skill\b', '^agent-browser skills? get\b']
+conf = 0.8
+
+# ======================================================================================================
+# Research: reading code and docs, searching, the web
+# ======================================================================================================
+
+[[act]]
+id = "load-skill"
+cat = "research"
+icon = "📖"
+phrase = "reading the {skill|} skill"
+alt = "reading a skill"
+tool = ["Skill"]
+conf = 0.85
+
+[[act]]
+id = "load-tools"
+cat = "research"
+phrase = "loading tools"
+tool = ["ToolSearch", "ListMcpResourcesTool", "ReadMcpResourceTool"]
+conf = 0.6
+
+[[act]]
+id = "web-search"
+cat = "research"
+icon = "🌐"
+phrase = "searching the web[ for {query}]"
+ask = "searching the web for {what}"
+tool = ["WebSearch", "mcp__*search*", "mcp__exa__*", "mcp__perplexity__*"]
+conf = 0.85
+
+[[act]]
+id = "read-docs-web"
+cat = "research"
+icon = "📖"
+phrase = "reading {site|the docs}"
+tool = ["WebFetch", "Bash"]
+host = ['(^|\.)(docs|developer|developers|learn|api|code)\.', '(^|\.)(docs\.rs|readthedocs\.io|developer\.mozilla\.org|man7\.org|archlinux\.org|python\.org|rust-lang\.org|crates\.io|npmjs\.com|pypi\.org)$']
+conf = 0.8
+
+[[act]]
+id = "read-github"
+cat = "research"
+phrase = "reading {thing|code} on GitHub"
+tool = ["WebFetch", "Bash", "mcp__github__*"]
+host = ['(^|\.)(github\.com|githubusercontent\.com|gitlab\.com|codeberg\.org)$']
+url = ['github\.com/(?P<thing>[\w.-]+/[\w.-]+)']
+conf = 0.8
+
+[[act]]
+id = "fetch-page"
+cat = "research"
+icon = "🌐"
+phrase = "reading {site|a web page}"
+ask = "reading about {what}"
+tool = ["WebFetch", "mcp__fetch__*"]
+conf = 0.8
+
+[[act]]
+id = "fetch-web-shell"
+cat = "research"
+icon = "🌐"
+phrase = "fetching {site|a web page}"
+tool = ["Bash"]
+cmd = ['^curl\b.*https?://', '^(wget|http|xh) .*https?://']
+conf = 0.75
+
+[[act]]
+id = "read-own-docs"
+cat = "research"
+icon = "📖"
+phrase = "reading {file|the notes}"
+ask = "reading {what}"
+tool = ["Read", "Bash"]
+path = ['(?i)\.(md|mdx|rst|txt)$']
+not = ['^\s*(sed -i|cat >|tee|echo .*>)']
+conf = 0.75
+
+[[act]]
+id = "search-code"
+cat = "research"
+phrase = "searching the code[ for {thing}]"
+ask = "searching the code for {what}"
+tool = ["Grep", "Bash"]
+bare = ["Grep"]
+cmd = ['^(grep|egrep|rg|ag|ack|git grep|/usr/bin/grep)\b']
+conf = 0.75
+
+[[act]]
+id = "find-files"
+cat = "research"
+phrase = "looking for files"
+tool = ["Glob", "Bash"]
+bare = ["Glob"]
+cmd = ['^(find|fd|locate|plocate)\b']
+conf = 0.75
+
+[[act]]
+id = "explore-tree"
+cat = "research"
+phrase = "looking around[ {project}]"
+ask = "looking around {what}"
+tool = ["Bash", "LS"]
+bare = ["LS"]
+cmd = ['^(ls|tree|eza|exa|lsd|realpath|readlink|stat|basename|dirname)\b']
+conf = 0.7
+
+[[act]]
+id = "read-code"
+cat = "research"
+phrase = "reading {file|the code}"
+ask = "reading {what}"
+tool = ["Read", "Bash"]
+bare = ["Read"]
+cmd = ['^(cat|sed -n|head|tail|less|more|bat|wc|nl|awk|cut|sort|uniq|diff|cmp|column|tr)\b']
+conf = 0.7
+
+[[act]]
+id = "python-script"
+cat = "data"
+phrase = "{desc_ing|running a Python script}"
+ask = "running a script to {what}"
+tool = ["Bash"]
+cmd = ['^python3?\s+-\s*<<', '^python3? -c\b', '^(?:\S*/)?python3?\s+(?P<path>\S+\.py)\b', '^\S+/bin/python\b']
+conf = 0.55
+
+[[act]]
+id = "node-script"
+cat = "jobs"
+phrase = "{desc_ing|running a script}"
+tool = ["Bash"]
+cmd = ['^(node|bun|deno|tsx|ts-node) (?P<path>\S+\.[mc]?[jt]s)\b', '^(node|bun|deno) -e\b']
+conf = 0.55
+
+[[act]]
+id = "shell-script"
+cat = "jobs"
+phrase = "{desc_ing|running a script}"
+tool = ["Bash"]
+cmd = ['^(bash|sh|zsh) (?P<path>\S+\.sh)\b', '^\.?/?(?P<path>[\w./~$-]+\.sh)\b', '^(\./|~/|/)[\w./-]+\s*']
+conf = 0.5
+
+[[act]]
+id = "output-print"
+cat = "thinking"
+phrase = "jotting something down"
+tool = ["Bash"]
+cmd = ['\A(echo|printf)\b.*\z']
+conf = 0.4
+
+# ======================================================================================================
+# Fallbacks from the description alone (any tool with a description)
+# ======================================================================================================
+
+[[act]]
+id = "desc-read"
+cat = "research"
+phrase = "{desc_ing}"
+alt = "reading code"
+desc = ['^(read|inspect|check|look|view|show|see|print|dump|list|find|locate|grep|search|scan|peek|examine|review|study|explore|investigate|survey|map|trace|probe|identify|figure out|learn|understand|compare|diff|get|fetch|load|open|query|count)\b']
+conf = 0.6
+
+[[act]]
+id = "desc-test"
+cat = "verifying"
+phrase = "{desc_ing}"
+alt = "testing"
+desc = ['^(test|retest|rerun|re-run|run|validate|measure|time|reproduce|repro|debug|diagnose|try|retry|simulate)\b']
+conf = 0.6
+
+[[act]]
+id = "desc-write"
+cat = "coding"
+phrase = "{desc_ing}"
+alt = "writing code"
+desc = ['^(write|draft|generate|scaffold|port|convert|translate|wrap|hide|show|guard|limit|cap|pin|keep|allow|block|prefer|use|let|stop|start|launch|kill|close|reset|init|install|register|unregister|mark|record|save|store|cache|apply|commit|deploy|serve|restart|reload|clear|capture|screenshot|snap|shoot|render|crop|resize|annotate|document|note|log|append|insert|copy|move|rename|replace)\b']
+conf = 0.55
+
+[[act]]
+id = "desc-any"
+cat = "thinking"
+phrase = "{desc_ing}"
+alt = "working"
+desc = ['^\w']
+conf = 0.45
+
+# Between calls with nothing to go on (set by activity.rs, never matched against a call)
+[[act]]
+id = "thinking"
+cat = "thinking"
+phrase = "thinking it through"
+ask = "thinking through {what}"
+tool = ["@none"]
+conf = 0.3
+
+[[act]]
+id = "writing-reply"
+cat = "thinking"
+phrase = "writing up the answer"
+ask = "writing up {what}"
+tool = ["@none"]
+conf = 0.4
+
+# Last resorts per tool (never counted as "classified")
+[[act]]
+id = "bash-other"
+cat = "thinking"
+phrase = "running a command"
+tool = ["Bash", "PowerShell"]
+conf = 0.3
+
+[[act]]
+id = "mcp-other"
+cat = "comms"
+phrase = "using {thing|a connector}"
+tool = ["mcp__*"]
+conf = 0.4
+
+[[act]]
+id = "tool-other"
+cat = "thinking"
+phrase = "working"
+conf = 0.2

@@ -1,0 +1,28 @@
+{
+  "name": "sheprd",
+  "version": "0.1.0",
+  "description": "Surfaces screenshots, preview URLs, finished results and blockers to the sheprd phone app, and forwards You should know notes there.",
+  "author": {
+    "name": "sheprd contributors"
+  },
+  "userConfig": {
+    "baseUrl": {
+      "type": "string",
+      "title": "sheprd server URL",
+      "description": "Base URL of the sheprd server; surfaces are POSTed to <baseUrl>/api/surface.",
+      "default": "http://127.0.0.1:7878"
+    },
+    "autoSurface": {
+      "type": "boolean",
+      "title": "Auto-surface screenshots and dev servers",
+      "description": "Surface (info level) a PNG/JPEG a Bash command just wrote, or a screenshot an MCP tool returned (at most one per minute), and a local dev server URL a foreground Bash command printed (once per port per session), without the model asking.",
+      "default": true
+    },
+    "forwardYouShouldKnow": {
+      "type": "boolean",
+      "title": "Forward You should know",
+      "description": "Forward notes the built-in You should know mod shows above the prompt to the phone (attention level).",
+      "default": true
+    }
+  }
+}

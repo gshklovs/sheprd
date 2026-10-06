@@ -1,0 +1,81 @@
+/* Home "Briefing" (home.js): sentence · hero · In-flight tiles; rows below come from style.css */
+.agents .brand { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; display: flex; align-items: center; gap: 7px; text-align: left; }
+.brief { padding: 2px 4px 0; }
+.brief .kick { font-size: 13px; color: var(--fg2); font-weight: 500; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+.brief .bl { font-size: 26px; line-height: 1.2; font-weight: 700; letter-spacing: -.5px; margin: 0 0 14px; color: var(--fg); overflow-wrap: anywhere; }
+.brief .bn { color: var(--act, var(--accent)); }
+.brief .bcalm { color: var(--done); }
+.brief .bmore { display: inline-block; font-size: 14px; font-weight: 600; letter-spacing: 0; color: var(--fg2); background: var(--bg3); padding: 2px 9px; border-radius: 11px; vertical-align: 4px; }
+@media (max-width: 380px) { .brief .bl { font-size: 23px; } }
+
+/* hero: the queue's top item */
+.hero { position: relative; margin-bottom: 4px; }
+.hcard { --wash: var(--awash); background: var(--wash); border: .5px solid color-mix(in srgb, var(--accent) 26%, transparent); border-radius: 20px; padding: 13px 14px 12px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 12%, transparent); transition: transform .32s cubic-bezier(.2, .8, .2, 1), opacity .32s; touch-action: pan-y; cursor: pointer; }
+.hcard.in { transform: translateX(45%); opacity: 0; }
+.hcard.out { position: absolute; left: 0; right: 0; top: 0; pointer-events: none; opacity: 0; }
+.hcard.out.go-l { transform: translateX(-105%) rotate(-3deg); } .hcard.out.go-r { transform: translateX(105%) rotate(3deg); }
+.hcard.drag { transition: none; }
+.hcard .h-top { display: flex; align-items: center; gap: 10px; }
+.hcard .cring { --rb: var(--wash); }
+.h-tt { flex: 1; min-width: 0; display: flex; flex-direction: column; color: inherit; }
+.h-tt .tt { font-size: 16px; font-weight: 600; color: var(--act, var(--fg)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-tt small { font-size: 12.5px; color: var(--acct); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .h-tt small b { font-weight: 600; }
+.hpg { display: flex; align-items: center; gap: 4px; flex: none; font-size: 12px; color: var(--fg2); font-variant-numeric: tabular-nums; }
+.hpg i { width: 6px; height: 6px; border-radius: 3px; background: var(--fg3); } .hpg i.on { width: 16px; background: var(--accent); }
+.h-q { font-size: 17px; line-height: 1.32; font-weight: 500; margin: 10px 0 0; overflow-wrap: anywhere; } .h-q b { font-weight: 600; }
+.h-md { font-size: 14.5px; line-height: 1.35; color: var(--fg2); margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.h-code { font: 12.5px/1.35 var(--mono); background: var(--code); border-radius: 8px; padding: 7px 10px; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 5.6em; overflow: hidden; }
+.h-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.h-acts .hb { flex: 1 1 0; min-width: 0; min-height: 44px; border-radius: 12px; font-size: 15px; font-weight: 600; background: var(--bg3); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-acts.n3 .hb { flex-basis: calc(50% - 4px); } .h-acts.n3 .hb.pri { flex-basis: 100%; }
+.h-acts .hb.pri { background: var(--accent-fill); color: #fff; } .h-acts .hb.neg { color: var(--red); }
+.h-acts .hb:active { filter: brightness(.92); } .h-acts .hb .spin { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
+.h-rep { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.h-rep input { flex: 1; min-width: 0; height: 38px; border-radius: 19px; border: .5px solid var(--sep); background: var(--bg2); padding: 0 14px; font: inherit; font-size: 16px; color: var(--fg); outline: none; }
+.h-rep button { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--accent-fill); color: #fff; display: grid; place-items: center; }
+.h-rep button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.hcalm { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: var(--bg2); font-size: 15px; color: var(--fg2); }
+.hcalm .ok { display: inline-grid; } .hcalm .ok svg { width: 19px; height: 19px; fill: none; stroke: var(--done); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.hcalm b { color: var(--fg); font-weight: 600; } .hcalm .hsn { color: var(--accent); font-size: 13.5px; padding: 8px 0 8px 8px; }
+
+/* In flight */
+.tsec { margin-top: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ftile { background: var(--bg2); border-radius: 16px; padding: 11px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; color: var(--fg); border: .5px solid var(--sep); }
+.ftile:active { background: var(--bg3); }
+.ftile .tt { font-size: 14px; font-weight: 600; color: var(--act, var(--fg)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ftile .fbig { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.08; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; overflow: hidden; }
+.ftile .fbig small { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--fg2); margin-left: 2px; }
+.ftile > small { font-size: 12px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 16px; }
+.ftile .l1.doing { color: var(--work); font-family: var(--mono); font-size: 11.5px; }
+.ftile .dspin { width: 9px; height: 9px; margin-right: 5px; }
+.ftile .mono { font-family: var(--mono); font-size: 11.5px; }
+.pbar { --ac0: var(--ac, var(--work)); height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin: 5px 0 4px; position: relative; }
+.pbar i { display: block; height: 100%; background: var(--ac0); border-radius: 3px; position: relative; overflow: hidden; transition: width .6s ease; }
+.pbar:not(.seg):not(.ind) i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .5), transparent); transform: translateX(-100%); animation: pbsheen 1.9s ease-in-out infinite; }
+@keyframes pbsheen { to { transform: translateX(100%); } }
+.pbar.ind i { width: 34%; animation: pbind 1.6s ease-in-out infinite; }
+@keyframes pbind { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+.pbar.seg { display: flex; gap: 3px; background: none; overflow: visible; }
+.pbar.seg i { flex: 1; background: var(--bg3); } .pbar.seg i.f { background: var(--ac0); } .pbar.seg i.cur { background: color-mix(in srgb, var(--ac0) 40%, var(--bg3)); animation: pbcur 1.4s ease-in-out infinite; }
+@keyframes pbcur { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .pbar i, .pbar i::after { animation: none !important; } .hcard { transition: none; } }
+
+/* Scheduled: timers + services grouped in a small blue-tinted dashed box, "Scheduled" label notched into its top edge
+   (base look in style.css .bgs); rows keep 44pt tap targets */
+.agents .bgs { margin: 18px 0 6px; padding: 6px 12px 2px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
+.agents .bgs .bg-lbl { top: -8px; left: 10px; padding: 0 5px; background: var(--bg); color: var(--accent); }
+.agents .bgs .bg-row { min-height: 44px; padding: 0 2px; gap: 8px; }
+.agents .bgs .bg-row + .bg-row { border-top-color: color-mix(in srgb, var(--accent) 18%, var(--sep)); }
+.agents .bgs .bg-ic { width: 20px; color: var(--accent); } .agents .bgs .bg-ic svg { width: 16px; height: 16px; }
+.agents .bgs .bg-chip { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.agents .tsec + .surfs:not(:empty) { margin-top: 12px; }
+
+/* activity phrases (server/src/activity.rs): words, not tool calls; a category icon instead of the spinner */
+.doing.aphr { font-family: inherit; font-size: inherit; }
+.ftile .l1.doing.aphr { font-family: inherit; font-size: 12px; line-height: 16px; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: 32px; }
+.aico { display: inline-block; width: 1.25em; margin-right: 3px; text-align: center; font-size: .95em; font-style: normal; }
+.rawdo { margin: -4px 0 10px; color: var(--fg2); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.rawdo code { font-family: var(--mono); font-size: 11.5px; color: var(--fg3); }

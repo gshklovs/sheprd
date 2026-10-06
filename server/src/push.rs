@@ -1,0 +1,138 @@
+//! Web Push (VAPID) to the installed iPhone PWA.
+
+use base64::Engine;
+use serde_json::Value;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use web_push::{
+    ContentEncoding, HyperWebPushClient, PartialVapidSignatureBuilder, SubscriptionInfo, Urgency, VapidSignatureBuilder,
+    WebPushClient, WebPushError, WebPushMessageBuilder,
+};
+
+pub struct Push {
+    pem: Vec<u8>,
+    pub public_key: String,
+    subs: Mutex<Vec<SubscriptionInfo>>,
+    subs_path: PathBuf,
+    client: HyperWebPushClient,
+    subject: String,
+}
+
+impl Push {
+    pub fn load(dir: &std::path::Path, subject: String) -> Option<Push> {
+        let pem_path = dir.join("vapid.pem");
+        if !pem_path.exists() {
+            let ok = std::process::Command::new("openssl")
+                .args(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out"])
+                .arg(&pem_path)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                eprintln!("push: could not generate VAPID key with openssl; push disabled");
+                return None;
+            }
+        }
+        let pem = std::fs::read(&pem_path).ok()?;
+        let partial: PartialVapidSignatureBuilder = VapidSignatureBuilder::from_pem_no_sub(&pem[..])
+            .map_err(|e| eprintln!("push: bad VAPID key: {e}"))
+            .ok()?;
+        let public_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(partial.get_public_key());
+        let subs_path = dir.join("push-subscriptions.json");
+        let subs: Vec<SubscriptionInfo> =
+            std::fs::read(&subs_path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        Some(Push { pem, public_key, subs: Mutex::new(subs), subs_path, client: HyperWebPushClient::new(), subject })
+    }
+
+    pub fn subscribe(&self, v: &Value) -> Result<(), String> {
+        let endpoint = v.get("endpoint").and_then(Value::as_str).ok_or("missing endpoint")?;
+        let keys = v.get("keys").ok_or("missing keys")?;
+        let p256dh = keys.get("p256dh").and_then(Value::as_str).ok_or("missing p256dh")?;
+        let auth = keys.get("auth").and_then(Value::as_str).ok_or("missing auth")?;
+        let info = SubscriptionInfo::new(endpoint, p256dh, auth);
+        let mut subs = self.subs.lock().unwrap();
+        subs.retain(|s| s.endpoint != info.endpoint);
+        subs.push(info);
+        self.save(&subs);
+        Ok(())
+    }
+
+    fn save(&self, subs: &[SubscriptionInfo]) {
+        if let Ok(b) = serde_json::to_vec_pretty(subs) {
+            let _ = std::fs::write(&self.subs_path, b);
+        }
+    }
+
+    pub fn has_subscribers(&self) -> bool {
+        !self.subs.lock().unwrap().is_empty()
+    }
+
+    /// Sends `payload` (JSON: title, body, url, tag) to every subscription,
+    /// dropping subscriptions the push service says are gone.
+    pub async fn send(&self, payload: &Value, urgent: bool) {
+        let subs = self.subs.lock().unwrap().clone();
+        if subs.is_empty() {
+            return;
+        }
+        let body = serde_json::to_vec(&in_app(payload)).unwrap_or_default();
+        let mut dead = Vec::new();
+        for sub in &subs {
+            let msg = (|| {
+                let mut sig = VapidSignatureBuilder::from_pem(&self.pem[..], sub)?;
+                sig.add_claim("sub", self.subject.as_str());
+                let mut b = WebPushMessageBuilder::new(sub);
+                b.set_payload(ContentEncoding::Aes128Gcm, &body);
+                b.set_vapid_signature(sig.build()?);
+                b.set_ttl(3600);
+                if urgent {
+                    b.set_urgency(Urgency::High);
+                }
+                b.build()
+            })();
+            let msg = match msg {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("push: build failed: {e}");
+                    continue;
+                }
+            };
+            match tokio::time::timeout(std::time::Duration::from_secs(15), self.client.send(msg)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(WebPushError::EndpointNotValid(_))) | Ok(Err(WebPushError::EndpointNotFound(_))) => {
+                    dead.push(sub.endpoint.clone())
+                }
+                Ok(Err(e)) => eprintln!("push: send failed: {e}"),
+                Err(_) => eprintln!("push: send timed out"),
+            }
+        }
+        if !dead.is_empty() {
+            let mut subs = self.subs.lock().unwrap();
+            subs.retain(|s| !dead.contains(&s.endpoint));
+            self.save(&subs);
+        }
+    }
+}
+
+/// Tapping a notification always opens the app (the sending agent's chat, a card, …), never an external link:
+/// a `url` that is not one of the app's own `/#/…` routes becomes `/#/`.
+fn in_app(payload: &Value) -> Value {
+    let mut p = payload.clone();
+    let ok = p["url"].as_str().is_some_and(|u| u.starts_with("/#/"));
+    if !ok {
+        p["url"] = Value::from("/#/");
+    }
+    p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn urls_stay_in_the_app() {
+        let u = |x: Value| in_app(&serde_json::json!({"title": "t", "url": x}))["url"].clone();
+        assert_eq!(u("/#/a/w6:pE?i=403".into()), "/#/a/w6:pE?i=403");
+        assert_eq!(u("https://example.com/x".into()), "/#/");
+        assert_eq!(u("//evil.example/#/".into()), "/#/");
+        assert_eq!(u(Value::Null), "/#/");
+    }
+}

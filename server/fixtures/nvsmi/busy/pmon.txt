@@ -1,0 +1,5 @@
+# gpu         pid   type     sm    mem    enc    dec    jpg    ofa     fb   ccpm    command 
+# Idx           #    C/G      %      %      %      %      %      %     MB     MB    name 
+    0        975     G      -      -      -      -      -      -    181      0    Hyprland       
+    0     694963     G      -      -      -      -      -      -    263      0    quickshell     
+    0      81234     C     97     40      -      -      -      -   6144      0    python3        

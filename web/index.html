@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="sheprd">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="format-detection" content="telephone=no">
+<title>sheprd</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+<link rel="modulepreload" href="md.js">
+<link rel="modulepreload" href="ansi.js">
+</head>
+<body>
+<div id="app"></div>
+<script>
+// Report client errors to the server journal (journalctl --user -u sheprd).
+(function () {
+  function send(o) { try { navigator.sendBeacon('/api/clientlog', JSON.stringify(o)); } catch (e) {} }
+  addEventListener('error', function (e) { send({ t: 'error', msg: String(e.message || e.type), src: (e.filename || (e.target && (e.target.src || e.target.href)) || '') + ':' + (e.lineno || 0) + ':' + (e.colno || 0), stack: e.error && String(e.error.stack || '').slice(0, 1500) }); }, true);
+  addEventListener('unhandledrejection', function (e) { send({ t: 'rejection', msg: String(e.reason && (e.reason.stack || e.reason.message) || e.reason).slice(0, 1500) }); });
+  setTimeout(function () {
+    var v = [].slice.call(document.querySelectorAll('.view')).map(function (x) { var r = x.getBoundingClientRect(); return x.className + (x.hidden ? '(h)' : '') + ' ' + Math.round(r.x) + ',' + Math.round(r.y) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' op=' + getComputedStyle(x).opacity; });
+    var vvp = window.visualViewport; send({ t: 'boot', hash: location.hash, w: innerWidth, h: innerHeight, vvh: vvp && Math.round(vvp.height), vvTop: vvp && Math.round(vvp.offsetTop), scr: screen.width + 'x' + screen.height, appH: (document.getElementById('app') || document.body).getBoundingClientRect().height, comp: (function(){ var c = document.querySelector('.view:not([hidden]) .composer'); if (!c) return null; var r = c.getBoundingClientRect(); return Math.round(r.top) + '-' + Math.round(r.bottom); })(), standalone: !!navigator.standalone, views: v, dark: matchMedia('(prefers-color-scheme: dark)').matches, bodyLen: document.body.innerHTML.length });
+  }, 5000);
+})();
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

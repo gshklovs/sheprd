@@ -1,0 +1,13 @@
+/* Voice notes (web/voice.js): status chip above the composer row */
+.vnote { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px 6px; font-size: 13px; color: var(--fg2); }
+.vnote[hidden] { display: none; }
+.vnote .vl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vnote .vt, .vnote .vp { font-variant-numeric: tabular-nums; color: var(--fg); }
+.vnote .btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; margin-right: -2px; }
+.vnote.rec .vt { font-size: 17px; font-weight: 600; min-width: 3ch; }
+.vnote.rec .vl { color: var(--red); }
+.vdot { width: 11px; height: 11px; border-radius: 50%; background: var(--red); flex: none; animation: vpulse 1.2s ease-in-out infinite; }
+@keyframes vpulse { 50% { opacity: .25; transform: scale(.8); } }
+.vnote.err .vl { color: var(--red); white-space: normal; }
+.vok { color: var(--done); display: inline-flex; } .vok svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; }
+.crow .mic.on { color: var(--red); }

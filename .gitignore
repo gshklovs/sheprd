@@ -1,0 +1,5 @@
+target/
+server/target/
+node_modules/
+*.pid
+.DS_Store

@@ -1,0 +1,42 @@
+/* talk.js: TL;DR cards, catch-up / auto-mode denial cards, read-aloud player, take-back × on queued pills */
+.tldr { margin: 10px 0 4px; padding: 9px 12px 10px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); border: .5px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.tldr .tl-h { display: flex; align-items: center; gap: 4px; font-size: 12px; letter-spacing: .04em; color: var(--accent); }
+.tldr .tl-t { font-size: 15px; line-height: 1.4; margin-top: 2px; }
+.tldr button, .tk-card .tk-say { color: var(--accent); display: inline-flex; align-items: center; gap: 3px; min-height: 32px; min-width: 32px; justify-content: center; font-size: 12px; border-radius: 8px; }
+.tldr button svg, .tk-say svg { width: 18px; height: 18px; }
+.tl-all span { font-weight: 600; }
+
+.tkcards:empty { display: none; }
+.tkcards { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.tk-card { background: var(--bg2); border: .5px solid var(--sep); border-left: 4px solid var(--accent); border-radius: 14px; padding: 9px 12px 11px; }
+.tk-card.den { border-left-color: var(--warn); }
+.tk-card.error { border-left-color: var(--idle); }
+.tk-h { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+.tk-x { width: 32px; height: 32px; font-size: 20px; line-height: 1; color: var(--fg2); border-radius: 8px; }
+.tk-b { margin-top: 4px; font-size: 15px; line-height: 1.4; }
+.tk-cmd { margin: 6px 0 2px; padding: 7px 9px; background: var(--code); border-radius: 8px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
+.tk-card .btns { margin-top: 8px; display: flex; gap: 8px; }
+.tk-why { margin-top: 4px; }
+
+.qpill { display: inline-flex; align-items: center; gap: 4px; }
+.qpill .qt { overflow: hidden; text-overflow: ellipsis; }
+.qx { flex: none; width: 26px; height: 26px; margin: -4px -8px -4px 2px; border-radius: 50%; color: var(--fg2); font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.qx:active { background: var(--bg4); }
+
+.sayer { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 54px);
+  display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 32px); padding: 4px 6px 4px 4px; border-radius: 99px;
+  background: var(--bar); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: .5px solid var(--sep); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); font-size: 13px; }
+.sayer button { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); }
+.sayer .sy-pp { background: var(--accent-fill); color: #fff; }
+.sayer svg { width: 18px; height: 18px; }
+.sayer .sy-l { font-weight: 600; white-space: nowrap; }
+.sayer .sy-x { font-size: 20px; color: var(--fg2); }
+.tk-b > :first-child { margin-top: 0; }
+.tk-b > :last-child { margin-bottom: 0; }
+.ak-q + .ak-q { margin-top: 12px; padding-top: 10px; border-top: .5px solid var(--sep); }
+.ak-q .opt.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ak-q .ak-m .on::before { content: '☐'; }
+.ak-q .ak-m.sel .on::before { content: '☑'; }
+.ak-t { display: block; width: 100%; margin-top: 6px; resize: none; border: .5px solid var(--sep); background: var(--bg2); border-radius: 12px; padding: 9px 12px; line-height: 1.3; min-height: 40px; outline: none; -webkit-appearance: none; font: inherit; color: inherit; }
+.ak-go { width: 100%; margin-top: 12px; }
+.ak-q .opt { width: 100%; margin-top: 6px; }

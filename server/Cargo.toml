@@ -1,0 +1,29 @@
+[package]
+name = "sheprd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "http2", "tokio", "json", "query"] }
+base64 = "0.23.1"
+# Disk scans run in a short-lived child process (`sheprd disk-scan`), never in the server.
+disktree-core = { git = "https://github.com/tobi/disktree", rev = "6c8d4ce6211bf135ff4e42890faebff1040e1846" }
+futures-util = "0.3.34"
+hyper = "1.11.1"
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+libc = "0.2.190"
+regex-lite = "0.1.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+# Activity taxonomy (server/data/activities.toml, activity.rs)
+toml = { version = "1.1", default-features = false, features = ["std", "serde", "parse"] }
+tokio = { version = "1.53.2", features = ["rt", "net", "fs", "time", "macros", "sync", "io-util", "process", "rt-multi-thread"] }
+tower-http = { version = "0.7.1", features = ["compression-gzip"] }
+web-push = { version = "0.11.0", default-features = false, features = ["hyper-client"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "abort"

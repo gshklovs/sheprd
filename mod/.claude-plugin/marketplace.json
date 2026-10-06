@@ -1,0 +1,13 @@
+{
+  "name": "sheprd-local",
+  "owner": { "name": "sheprd contributors" },
+  "description": "Local marketplace for the sheprd Claude Code mod.",
+  "plugins": [
+    {
+      "name": "sheprd",
+      "source": "./sheprd",
+      "description": "Surfaces screenshots, preview URLs, finished results and blockers to the sheprd phone app.",
+      "version": "0.1.0"
+    }
+  ]
+}
