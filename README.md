@@ -11,8 +11,9 @@ sheprd is a tiny server and an iPhone/Android web app for the Claude Code agents
 questions, approve plans and read diffs from the couch, and get a push notification the moment an agent
 is blocked.
 
-<!-- TODO: demo GIF (phone on the left, terminal on the right, ~15 s) -->
-<img src="docs/img/agents.png" width="260" alt="The agents list"> &nbsp; <img src="docs/img/chat.png" width="260" alt="A chat with an agent">
+<img src="docs/img/demo.gif" width="300" alt="Three agents start; one needs a decision, answered with one tap; all finish"> &nbsp; <img src="docs/img/chat.png" width="300" alt="A chat with an agent">
+
+<sub>Three agents start. One asks a question, answered with one tap, and they all finish. (<a href="docs/img/demo.mp4">MP4</a>)</sub>
 
 </div>
 
