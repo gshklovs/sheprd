@@ -60,7 +60,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { reping_min: 30 }
+        Settings { reping_min: 10 }
     }
 }
 
@@ -965,7 +965,7 @@ async fn tick(app: &Shared) {
             let p = json!({"title": format!("Still waiting {mins} min · {title}"), "body": cut(&what, 300).0,
                            "url": format!("/#/a/{pane}"), "tag": pane});
             eprintln!("re-ping {pane} after {mins} min");
-            crate::send_push(app, &p, false).await;
+            crate::send_push(app, &p, true).await;
         }
     }
 }

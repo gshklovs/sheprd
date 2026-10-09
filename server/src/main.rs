@@ -5,6 +5,8 @@
 
 mod activity;
 mod alerts;
+mod apps;
+mod asks;
 mod artifacts;
 mod chips;
 mod cli;
@@ -21,12 +23,16 @@ mod live;
 mod modbridge;
 mod newagent;
 mod prefs;
+mod ranged;
+mod repos;
 mod push;
 mod res;
 mod scan;
 mod talk;
 mod sched;
+mod schedicon;
 mod services;
+mod slash;
 mod surfaces;
 mod theme;
 mod transcript;
@@ -97,10 +103,14 @@ struct App {
     refresh: Notify,
     agent_panes: watch::Sender<Vec<String>>,
     push: Option<push::Push>,
+    /// Thins out routine pushes (push.rs `Gate`).
+    push_gate: push::Gate,
     host: String,
     ts_name: String,
     ts_ip: String,
     web_dir: Option<PathBuf>,
+    /// Web build id (`/api/build`, SSE `build`, `<meta name="mm-build">`): the phone reloads itself when it changes.
+    build: String,
     /// `SHEPRD_NO_PUSH=1`: log pushes instead of sending them (test instances).
     no_push: bool,
     prefs: Mutex<prefs::Prefs>,
@@ -148,7 +158,6 @@ struct Inner {
 struct Ask {
     ts: i64,
     questions: Value,
-    was_blocked: bool,
 }
 
 /// A rename/recolor from the phone. `applied` = when it was typed into the agent
@@ -207,10 +216,12 @@ async fn main() {
         refresh: Notify::new(),
         agent_panes,
         push,
+        push_gate: push::Gate::default(),
         host,
         ts_name,
         ts_ip: ts_ip.clone(),
         web_dir: std::env::var_os("SHEPRD_WEB_DIR").map(PathBuf::from),
+        build: build_id(std::env::var_os("SHEPRD_WEB_DIR").map(PathBuf::from).as_deref()),
         no_push: std::env::var("SHEPRD_NO_PUSH").is_ok_and(|v| !v.is_empty() && v != "0"),
         prefs: Mutex::new(prefs::Prefs::load(&state_dir())),
         v3: v3::V3::load(&state_dir()),
@@ -223,16 +234,19 @@ async fn main() {
     tokio::spawn(refresh_loop(app.clone()));
     tokio::spawn(v3::run(app.clone()));
     tokio::spawn(sched::run(app.clone()));
+    tokio::spawn(asks::run(app.clone()));
     tokio::spawn(git::run(app.clone()));
     tokio::spawn(artifacts::run(app.clone()));
     tokio::spawn(subscription_loop(app.clone(), panes_rx));
     alerts::init(&app, &state_dir());
     tokio::spawn(theme::run(app.clone()));
+    tokio::spawn(push_digests(app.clone()));
 
     let api = Router::new()
         .route("/api/health", get(api_health))
         .route("/api/state", get(api_state))
         .route("/api/events", get(api_events))
+        .route("/api/build", get(api_build))
         .route("/api/t/{tid}", get(api_transcript))
         .route("/api/t/{tid}/full/{i}", get(api_full))
         .route("/api/t/{tid}/stream", get(api_stream))
@@ -277,6 +291,7 @@ async fn main() {
         .merge(modbridge::routes())
         .merge(services::routes())
         .merge(activity::routes())
+        .merge(apps::routes())
         .merge(talk::routes())
         .merge(res::routes())
         .merge(disk::routes())
@@ -285,9 +300,19 @@ async fn main() {
         .merge(usage::routes())
         .merge(voice::routes())
         .merge(theme::routes())
+        .merge(asks::routes())
+        .merge(repos::routes())
+        .merge(slash::routes())
         .fallback(get(static_file))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
-        .layer(tower_http::compression::CompressionLayer::new())
+        // never gzip media: it is already compressed, and a gzipped 200 drops Accept-Ranges (ranged.rs)
+        .layer(tower_http::compression::CompressionLayer::new().compress_when({
+            use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
+            DefaultPredicate::new()
+                .and(NotForContentType::const_new("video/"))
+                .and(NotForContentType::const_new("audio/"))
+                .and(NotForContentType::const_new("application/octet-stream"))
+        }))
         .with_state(app.clone());
 
     // Tailscale may come up after us (boot); keep trying to bind its address.
@@ -494,6 +519,10 @@ struct TInfo {
     first_prompt: Option<String>,
     /// An AskUserQuestion call is waiting for its answer.
     asking: bool,
+    /// that call's (timestamp, questions), read from the transcript
+    ask_q: Option<(i64, Value)>,
+    /// when the newest AskUserQuestion call got its answer (0: none yet), for clearing the mod's hint
+    ask_answered: i64,
     /// transcript context estimate (modbridge::decorate turns it into `ctx` when the mod has not reported)
     ctx_est: Value,
     /// the agent's task list progress {done,total,cur,ts} (TodoWrite / TaskCreate+TaskUpdate)
@@ -522,6 +551,8 @@ impl Default for TInfo {
             custom_title: None,
             first_prompt: None,
             asking: false,
+            ask_q: None,
+            ask_answered: 0,
             ctx_est: Value::Null,
             todo: Value::Null,
             first_text: None,
@@ -596,6 +627,24 @@ fn surface_row(items: &[transcript::Item], title: &str, claimed: &[usize]) -> Op
             && it.input.as_ref().and_then(|v| v["title"].as_str()).map(str::trim) == Some(title)
             && !claimed.contains(&it.i)
     })
+}
+
+/// Surfaces a chat draws inline with the surface card: those posted through `POST /api/surface` (curl, the mod's
+/// own notes) that have no `mcp__sheprd__surface` tool row of their own; a mod-tool surface is already drawn from
+/// its row. `row` is set when `i` was resolved to the tool row; older surfaces are checked against the item at `i`.
+/// Reviewer results are drawn by v3.js.
+fn chat_surfaces(items: &[transcript::Item], list: Vec<Value>) -> Vec<Value> {
+    list.into_iter()
+        .filter(|s| s["review"].is_null() && s["row"].as_bool() != Some(true))
+        .filter(|s| {
+            let Some(i) = s["i"].as_u64() else { return true };
+            !items.get(i as usize).is_some_and(|it| {
+                it.k == "tool"
+                    && it.name.as_deref() == Some("mcp__sheprd__surface")
+                    && it.input.as_ref().and_then(|v| v["title"].as_str()).map(str::trim) == s["title"].as_str().map(str::trim)
+            })
+        })
+        .collect()
 }
 
 /// Types a phone rename/recolor into an idle agent as Claude's own commands.
@@ -676,7 +725,8 @@ async fn refresh(app: &Shared) {
                 let subs = transcript::list_subagents(&t.path, &sid);
                 t.link_subagents(&subs);
                 let running = subs.iter().filter(|s| s.running).count();
-                let jobs_running = t.jobs.iter().filter(|j| j.ended.is_none()).count();
+                // running apps (servers) are not jobs in flight: Home lists them on their own
+                let jobs_running = t.jobs.iter().filter(|j| j.ended.is_none() && !activity::app_cmd(&j.cmd)).count();
                 let title = t.title().unwrap_or("").to_string();
                 let (act, turn) = activity::of_transcript(&t, t.todo.as_ref(), &activity::Ctx { title: &title, cwd: &cwd });
                 let info = TInfo {
@@ -693,6 +743,8 @@ async fn refresh(app: &Shared) {
                     custom_title: t.custom_title.clone(),
                     first_prompt: t.first_prompt.clone(),
                     asking: t.waiting_on("AskUserQuestion"),
+                    ask_q: t.pending_ask(),
+                    ask_answered: t.ask_answered(),
                     ctx_est: t.ctx_est.as_ref().map(modbridge::est_json).unwrap_or(Value::Null),
                     todo: t.todo.as_ref().map(|x| json!(x)).unwrap_or(Value::Null),
                     first_text: t.first_prompt.as_ref().and_then(|_| {
@@ -735,11 +787,36 @@ async fn refresh(app: &Shared) {
             let sid = sids.remove(&ix).unwrap_or_default();
             let mut info = by_ix.remove(&ix).unwrap_or_default();
             act_cands.push(activity::Cand { pane: pane.clone(), act: info.act.take(), turn: std::mem::take(&mut info.turn) });
-            // herdr reports an AskUserQuestion menu as idle/done: it is waiting on the human.
-            if info.asking && (status == "idle" || status == "done") {
+            // Pending question: the transcript's open AskUserQuestion call wins (complete and current); else the
+            // mod's hint (Claude Code writes the call to the transcript only once it is answered). The hint lives
+            // until the mod's ask_clear, the call's answer in the transcript, or 30 min — never herdr's status,
+            // which flips between blocked and idle while the dialog is open (that dropped the card mid-question).
+            let mut ask = Value::Null;
+            if let Some((ts, qs)) = info.ask_q.take() {
+                ask = json!({"ts": ts, "questions": qs});
+                inner.asks.remove(&pane); // superseded: a stale hint must not outlive this call
+            } else if let Some(q) = inner.asks.get(&pane) {
+                if info.ask_answered > q.ts || now - q.ts > 30 * 60_000 {
+                    inner.asks.remove(&pane);
+                } else {
+                    ask = json!({"ts": q.ts, "questions": q.questions});
+                }
+            }
+            // herdr reports an AskUserQuestion menu as idle/done (or working, while a background agent runs):
+            // it is waiting on the human.
+            if (info.asking || !ask.is_null()) && matches!(status.as_str(), "idle" | "done" | "working") {
                 status = "blocked".into();
             }
-            let (pinned, muted) = if sid.is_empty() { (false, false) } else { app.prefs.lock().unwrap().flags(&sid) };
+            let (pinned, muted) = if sid.is_empty() {
+                (false, false)
+            } else {
+                let mut prefs = app.prefs.lock().unwrap();
+                // pins and mutes belong to the pane, not to one Claude session of it
+                if let Some(old) = inner.pane_sessions.get(&pane).filter(|o| !o.is_empty()) {
+                    prefs.carry_flags(old, &sid);
+                }
+                prefs.flags(&sid)
+            };
             // Phone renames/recolors: show them at once, type them in once idle,
             // drop them when the transcript has them (or after a minute).
             let mut meta = inner.meta.get(&pane).cloned();
@@ -784,18 +861,6 @@ async fn refresh(app: &Shared) {
                 Some(_) => now,
                 None => if last_ts > 0 && status != "working" { last_ts } else { now },
             };
-            // Pending question from the mod: cleared once the agent leaves `blocked`, or after 30 min.
-            let mut ask = Value::Null;
-            if let Some(q) = inner.asks.get_mut(&pane) {
-                if status == "blocked" {
-                    q.was_blocked = true;
-                }
-                if (q.was_blocked && status != "blocked") || now - q.ts > 30 * 60_000 {
-                    inner.asks.remove(&pane);
-                } else {
-                    ask = json!({"ts": q.ts, "questions": q.questions});
-                }
-            }
             let is_home = home_pane.as_deref() == Some(pane.as_str());
             // Push triggers (never on the first observation).
             if let Some((pstatus, psince, pseq)) = &prev {
@@ -932,6 +997,7 @@ fn publish_state(app: &App, agents: Value, shells: Value, workspaces: Value, her
         "host": app.host, "workDir": work_dir(), "tsName": app.ts_name, "tsIp": app.ts_ip, "herdr": herdr_ok,
         "agents": agents, "shells": shells, "workspaces": workspaces, "surfaces": surfaces,
     });
+    v["services"] = services::standalone(app, &v["agents"], herdr_ok);
     let jobs_running: u64 = v["agents"].as_array().map(|l| l.iter().filter_map(|a| a["jobs"]["running"].as_u64()).sum()).unwrap_or(0);
     v["jobsRunning"] = json!(jobs_running);
     let key = v.to_string();
@@ -974,8 +1040,31 @@ fn republish(app: &App) {
     );
 }
 
-/// Sends a Web Push to every subscriber (only logged on `SHEPRD_NO_PUSH` instances).
+/// Sends a Web Push to every subscriber (only logged on `SHEPRD_NO_PUSH` instances). Routine (non-urgent) pushes go
+/// through the gate: quiet while the phone is in use, at most one per agent per 10 min, the rest as a digest.
 async fn send_push(app: &App, payload: &Value, urgent: bool) {
+    if !urgent {
+        let last_visible = app.inner.lock().unwrap().last_visible;
+        match app.push_gate.routine(payload, now_ms(), last_visible) {
+            push::Verdict::Now => {}
+            push::Verdict::Quiet | push::Verdict::Held => return,
+        }
+    }
+    deliver_push(app, payload, urgent).await;
+}
+
+/// Sends the held routine pushes whose window ended (push.rs `Gate::due`).
+async fn push_digests(app: Shared) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        let last_visible = app.inner.lock().unwrap().last_visible;
+        for p in app.push_gate.due(now_ms(), last_visible) {
+            deliver_push(&app, &p, false).await;
+        }
+    }
+}
+
+async fn deliver_push(app: &App, payload: &Value, urgent: bool) {
     if app.no_push {
         eprintln!("push (not sent): {payload}");
         return;
@@ -1063,11 +1152,54 @@ async fn api_state(State(app): State<Shared>) -> Response {
     json_raw(app.inner.lock().unwrap().state.clone())
 }
 
+/// The web build id: `SHEPRD_BUILD_ID` (tests), else a hash of `SHEPRD_WEB_DIR` read at startup, else the
+/// hash of the embedded assets computed by build.rs. It only changes on restart.
+fn build_id(web_dir: Option<&Path>) -> String {
+    if let Some(b) = std::env::var("SHEPRD_BUILD_ID").ok().filter(|b| valid_build(b)) {
+        return b;
+    }
+    let Some(d) = web_dir else { return assets::BUILD.to_string() };
+    fn walk(d: &Path, root: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        let Ok(rd) = std::fs::read_dir(d) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, root, out);
+            } else if let Ok(b) = std::fs::read(&p) {
+                out.push((p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/"), b));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(d, d, &mut files);
+    files.sort();
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (rel, b) in &files {
+        rel.hash(&mut h);
+        b.hash(&mut h);
+    }
+    format!("b{:012x}", h.finish() & 0xffff_ffff_ffff)
+}
+
+/// `b` + 12 lowercase hex: the only shape the client and the telemetry allowlist accept.
+fn valid_build(b: &str) -> bool {
+    b.len() == 13 && b.starts_with('b') && b[1..].bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+async fn api_build(State(app): State<Shared>) -> Response {
+    ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], json!({"build": app.build}).to_string()).into_response()
+}
+
 async fn api_events(State(app): State<Shared>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = app.events.subscribe();
     let initial = app.inner.lock().unwrap().state.clone();
     app.refresh.notify_one();
-    let first = stream::once(async move { Ok(Event::default().event("state").data(initial.as_str())) });
+    let build = json!({"build": app.build}).to_string();
+    let first = stream::iter([
+        Ok(Event::default().event("build").data(build)),
+        Ok(Event::default().event("state").data(initial.as_str())),
+    ]);
     let rest = stream::unfold(rx, |mut rx| async move {
         loop {
             match rx.recv().await {
@@ -1113,9 +1245,24 @@ async fn api_transcript(State(app): State<Shared>, AxPath(tid): AxPath<String>, 
         }
         return json_err(StatusCode::NOT_FOUND, "no such transcript");
     };
+    // surfaces posted for this agent (incl. dismissed ones: the chat keeps its history); the ones without their
+    // own surface tool row are drawn inline at `i` (chat_surfaces)
+    let surfs: Vec<Value> = if agent_id.is_none() {
+        let inner = app.inner.lock().unwrap();
+        inner
+            .surfaces
+            .iter()
+            .filter(|s| s["tid"].as_str() == Some(sid.as_str()) || (s["tid"].is_null() && pane.is_some() && s["pane"].as_str() == pane.as_deref()))
+            .take(60)
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
     let body = tokio::task::spawn_blocking(move || {
         let mut t = t.lock().unwrap();
         t.refresh();
+        let surfs = chat_surfaces(&t.items, surfs);
         let subs = if agent_id.is_none() { transcript::list_subagents(&t.path, &sid) } else { Vec::new() };
         t.link_subagents(&subs);
         let total = t.items.len();
@@ -1130,6 +1277,7 @@ async fn api_transcript(State(app): State<Shared>, AxPath(tid): AxPath<String>, 
         json!({
             "tid": t.tid, "session": sid, "agentId": agent_id, "title": t.title(), "cwd": t.cwd, "color": t.color,
             "total": total, "first": start, "items": &t.items[start..end], "subagents": subs, "pane": pane,
+            "surfaces": surfs,
         })
         .to_string()
     })
@@ -1243,11 +1391,12 @@ fn forget_nonce(app: &App, nonce: Option<&str>) {
     }
 }
 
-async fn api_prompt(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json(b): Json<PromptBody>) -> Response {
+async fn api_prompt(State(app): State<Shared>, AxPath(pane): AxPath<String>, headers: HeaderMap, Json(b): Json<PromptBody>) -> Response {
     if seen_nonce(&app, b.nonce.as_deref()) {
         return Json(json!({"ok": true, "dup": true})).into_response();
     }
     let mut text = b.text;
+    let phone_ask = b.from.as_deref().is_none_or(|f| f.trim().is_empty()).then(|| text.clone());
     if let Some(from) = b.from.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
         if !transcript::is_pane(from) || from == pane {
             forget_nonce(&app, b.nonce.as_deref());
@@ -1258,6 +1407,9 @@ async fn api_prompt(State(app): State<Shared>, AxPath(pane): AxPath<String>, Jso
     }
     // A just-started agent: the prompt waits for Claude to be ready (newagent.rs).
     if newagent::boot_queue(&pane, &text) {
+        if let Some(t) = &phone_ask {
+            asks::record(&app, &headers, &pane, t, "prompt");
+        }
         app.refresh.notify_one();
         return Json(json!({"ok": true, "queued": true})).into_response();
     }
@@ -1266,6 +1418,9 @@ async fn api_prompt(State(app): State<Shared>, AxPath(pane): AxPath<String>, Jso
     let _turn = lock.lock().await;
     match herdr::quick("agent.prompt", json!({"target": pane, "text": text})).await {
         Ok(_) => {
+            if let Some(t) = &phone_ask {
+                asks::record(&app, &headers, &pane, t, "prompt");
+            }
             app.refresh.notify_one();
             Json(json!({"ok": true})).into_response()
         }
@@ -1457,7 +1612,12 @@ struct ChooseBody {
 }
 
 async fn api_choose(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json(b): Json<ChooseBody>) -> Response {
-    let r = choose_option(&pane, b.index).await;
+    // one menu action at a time per pane (a second tap waits for the first instead of fighting it)
+    let lock = app.bridge.pane_lock(&pane);
+    let r = {
+        let _one = lock.lock().await;
+        choose_option(&pane, b.index).await
+    };
     app.refresh.notify_one();
     match r {
         Ok(()) => Json(json!({"ok": true})).into_response(),
@@ -1691,6 +1851,10 @@ fn parse_menu(screen: &str) -> Vec<MenuOption> {
         let (n, rest) = t.split_once(". ")?;
         Some((n.parse().ok()?, rest.trim().to_string()))
     };
+    // AskUserQuestion multiSelect: an unnumbered "Next" (more questions follow) or "Submit" row closes the ticks
+    let is_nav = |l: &str| matches!(l.trim().trim_start_matches('❯').trim(), "Next" | "Submit");
+    let num_menu = numbered(sel_line).is_some()
+        || (is_nav(sel_line) && lines[sel.saturating_sub(12)..sel].iter().any(|l| numbered(l).is_some_and(|_| col(l) == text_col)));
     let is_option = |i: usize| -> bool {
         let l = lines[i];
         if l.trim().is_empty() {
@@ -1699,8 +1863,8 @@ fn parse_menu(screen: &str) -> Vec<MenuOption> {
         if i == sel {
             return true;
         }
-        if numbered(sel_line).is_some() {
-            return numbered(l).is_some() && (col(l) == text_col || col(l) == marker_col);
+        if num_menu {
+            return (numbered(l).is_some() && (col(l) == text_col || col(l) == marker_col)) || is_nav(l);
         }
         col(l) == text_col && !l.trim_start().starts_with('❯')
     };
@@ -1709,12 +1873,12 @@ fn parse_menu(screen: &str) -> Vec<MenuOption> {
     let mut i = sel;
     while i > 0 {
         i -= 1;
-        if is_option(i) { idx.push(i) } else if skippable(lines[i]) && numbered(sel_line).is_some() { continue } else { break }
+        if is_option(i) { idx.push(i) } else if skippable(lines[i]) && num_menu { continue } else { break }
     }
     let mut i = sel;
     while i + 1 < lines.len() {
         i += 1;
-        if is_option(i) { idx.push(i) } else if skippable(lines[i]) && numbered(sel_line).is_some() { continue } else { break }
+        if is_option(i) { idx.push(i) } else if skippable(lines[i]) && num_menu { continue } else { break }
     }
     idx.sort();
     if idx.len() < 2 {
@@ -1740,11 +1904,21 @@ async fn read_screen(pane: &str) -> String {
         .unwrap_or_default()
 }
 
+/// A multiSelect row ("[ ] red", "[✔] red"): Enter toggles it and the menu stays.
+fn is_checkbox(label: &str) -> bool {
+    ["[ ]", "[✔]", "[✓]", "[x]", "[X]"].iter().any(|p| label.starts_with(p))
+}
+
 /// Moves the menu selection to option `target` and confirms, one key at a time
 /// against the live screen (a menu can ignore keys while it is still drawing).
+/// Enter goes once: on a multiSelect row it toggles the tick and the menu stays, so pressing it again
+/// "until the menu is gone" would untick it (the tap flickered on and off for 7 s, then failed). Done
+/// once the screen changes; a plain row whose Enter was ignored gets one more.
 async fn choose_option(pane: &str, target: usize) -> Result<(), String> {
-    for _ in 0..12 {
-        let menu = parse_menu(&read_screen(pane).await);
+    let mut enters = 0;
+    for _ in 0..14 {
+        let screen = read_screen(pane).await;
+        let menu = parse_menu(&screen);
         if menu.len() < 2 {
             return Ok(()); // menu gone: answered
         }
@@ -1752,9 +1926,23 @@ async fn choose_option(pane: &str, target: usize) -> Result<(), String> {
             return Err("no such option".into());
         }
         let cur = menu.iter().position(|o| o.selected).unwrap_or(0);
-        let key = if cur == target { "enter" } else if cur < target { "down" } else { "up" };
-        herdr::quick("pane.send_keys", json!({"pane_id": pane, "keys": [key]})).await.map_err(|e| e.to_string())?;
-        tokio::time::sleep(Duration::from_millis(if key == "enter" { 600 } else { 180 })).await;
+        if cur != target {
+            let key = if cur < target { "down" } else { "up" };
+            herdr::quick("pane.send_keys", json!({"pane_id": pane, "keys": [key]})).await.map_err(|e| e.to_string())?;
+            tokio::time::sleep(Duration::from_millis(180)).await;
+            continue;
+        }
+        if enters == 2 || (enters == 1 && is_checkbox(&menu[target].label)) {
+            break;
+        }
+        herdr::quick("pane.send_keys", json!({"pane_id": pane, "keys": ["enter"]})).await.map_err(|e| e.to_string())?;
+        enters += 1;
+        for _ in 0..15 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            if read_screen(pane).await != screen {
+                return Ok(());
+            }
+        }
     }
     Err("menu did not respond".into())
 }
@@ -2003,6 +2191,8 @@ async fn api_upload(Query(q): Query<UploadQ>, headers: HeaderMap, body: Bytes) -
 struct FileQ {
     path: String,
     tail: Option<u64>,
+    /// `?download=1`: Content-Disposition attachment (the phone's Save fallback)
+    download: Option<String>,
 }
 
 fn content_type(p: &Path) -> &'static str {
@@ -2018,11 +2208,20 @@ fn content_type(p: &Path) -> &'static str {
         Some("css") => "text/css; charset=utf-8",
         Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("json" | "webmanifest") => "application/json",
+        Some("avif") => "image/avif",
         Some("mp4") => "video/mp4",
+        Some("m4v") => "video/x-m4v",
         Some("webm") => "video/webm",
         Some("mov") => "video/quicktime",
+        Some("mkv") => "video/x-matroska",
+        Some("ogv") => "video/ogg",
         Some("mp3") => "audio/mpeg",
+        Some("m4a") => "audio/mp4",
+        Some("aac") => "audio/aac",
         Some("wav") => "audio/wav",
+        Some("ogg" | "oga") => "audio/ogg",
+        Some("opus") => "audio/opus",
+        Some("flac") => "audio/flac",
         Some("woff2") => "font/woff2",
         Some("ico") => "image/x-icon",
         Some(
@@ -2033,13 +2232,14 @@ fn content_type(p: &Path) -> &'static str {
     }
 }
 
-async fn api_file(Query(q): Query<FileQ>) -> Response {
+async fn api_file(headers: HeaderMap, Query(q): Query<FileQ>) -> Response {
+    let download = q.download.as_deref().is_some_and(|v| !v.is_empty() && v != "0");
     let Ok(p) = tokio::fs::canonicalize(&q.path).await else {
         // gone (an agent's /tmp screenshot): the copy kept when it was surfaced or last shown (keep.rs)
         let raw = q.path.clone();
         if let Ok(Some(k)) = tokio::task::spawn_blocking(move || keep::find(&raw)).await {
-            if let Ok(bytes) = tokio::fs::read(&k).await {
-                return ([(header::CONTENT_TYPE, content_type(&k)), (header::CACHE_CONTROL, "no-cache")], bytes).into_response();
+            if k.is_file() {
+                return ranged::serve(&k, content_type(&k), &headers, download).await;
             }
         }
         return json_err(StatusCode::NOT_FOUND, "not found");
@@ -2081,22 +2281,21 @@ async fn api_file(Query(q): Query<FileQ>) -> Response {
             Err(e) => json_err(StatusCode::INTERNAL_SERVER_ERROR, e),
         };
     }
-    match tokio::fs::read(&p).await {
-        Ok(bytes) => {
-            let ct = content_type(&p);
-            if ct.starts_with("image/") && !ct.starts_with("image/svg") {
-                let (raw, p2) = (q.path.clone(), p.clone());
-                tokio::task::spawn_blocking(move || keep::stash(&raw, &p2));
-            }
-            let mut r = ([(header::CONTENT_TYPE, ct), (header::CACHE_CONTROL, "no-cache")], bytes).into_response();
-            // Agent-written HTML/SVG runs in an opaque-origin sandbox that cannot call this API (artifacts.rs).
-            if ct.starts_with("text/html") || ct.starts_with("image/svg") {
-                r.headers_mut().insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static(artifacts::CSP));
-            }
-            r
-        }
-        Err(e) => json_err(StatusCode::NOT_FOUND, e),
+    // streamed from disk, honouring Range (iOS plays <video> only with 206 Partial Content; ranged.rs)
+    let ct = content_type(&p);
+    let mut r = ranged::serve(&p, ct, &headers, download).await;
+    if !r.status().is_success() {
+        return r;
     }
+    if ct.starts_with("image/") && !ct.starts_with("image/svg") {
+        let (raw, p2) = (q.path.clone(), p.clone());
+        tokio::task::spawn_blocking(move || keep::stash(&raw, &p2));
+    }
+    // Agent-written HTML/SVG runs in an opaque-origin sandbox that cannot call this API (artifacts.rs).
+    if ct.starts_with("text/html") || ct.starts_with("image/svg") {
+        r.headers_mut().insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static(artifacts::CSP));
+    }
+    r
 }
 
 async fn api_push_key(State(app): State<Shared>) -> Response {
@@ -2279,7 +2478,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
     let app2 = app.clone();
     let (id2, body) = (id.clone(), Some(body_text.clone()).filter(|t| !t.is_empty()));
     tokio::spawn(async move {
-        let mut at = None;
+        let (mut at, mut row) = (None, false);
         if let Some(t) = tx {
             let mut fallback = None;
             for k in 0..if from_tool { 28 } else { 1 } {
@@ -2298,7 +2497,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
                 };
                 fallback = fallback.or(last);
                 if hit.is_some() {
-                    at = hit;
+                    (at, row) = (hit, true);
                     break;
                 }
             }
@@ -2308,6 +2507,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
             let mut inner = app2.inner.lock().unwrap();
             if let Some(s) = inner.surfaces.iter_mut().find(|s| s["id"] == id2.as_str()) {
                 s["i"] = json!(at);
+                s["row"] = json!(row); // a surface tool row of its own: the chat draws it from there
             }
             save_surfaces(&inner.surfaces);
         }
@@ -2339,7 +2539,7 @@ async fn api_hint(State(app): State<Shared>, Json(b): Json<Value>) -> Response {
             let Some(qs) = b["questions"].as_array().filter(|q| !q.is_empty()) else {
                 return json_err(StatusCode::BAD_REQUEST, "questions required");
             };
-            let ask = Ask { ts: now_ms(), questions: Value::Array(qs.iter().take(4).cloned().collect()), was_blocked: false };
+            let ask = Ask { ts: now_ms(), questions: Value::Array(qs.iter().take(4).cloned().collect()) };
             app.inner.lock().unwrap().asks.insert(pane, ask);
         }
         Some("ask_clear") => {
@@ -2486,6 +2686,7 @@ async fn api_jobs(State(app): State<Shared>) -> Response {
         let i = app.inner.lock().unwrap();
         (i.pane_sessions.iter().map(|(p, s)| (s.clone(), p.clone())).collect(), i.pane_titles.clone())
     };
+    let (ts_name, ts_ip) = (app.ts_name.clone(), app.ts_ip.clone());
     let mut jobs: Vec<Value> = tokio::task::spawn_blocking(move || {
         let now = now_ms();
         let mut out = Vec::new();
@@ -2509,6 +2710,13 @@ async fn api_jobs(State(app): State<Shared>) -> Response {
                 v["pane"] = json!(pane);
                 v["tid"] = json!(t.tid);
                 v["agentTitle"] = json!(title);
+                // a server (http.server, npm run dev, tailscale serve…) is a running app, not work in flight
+                if v["status"] == "running" {
+                    let a = apps::info(&j.id, &j.cmd, &ts_name, &ts_ip);
+                    if !a.is_null() {
+                        v["app"] = a;
+                    }
+                }
                 out.push(v);
             }
         }
@@ -2519,6 +2727,7 @@ async fn api_jobs(State(app): State<Shared>) -> Response {
     let key = |j: &Value| (j["status"] != "running", -j["ended"].as_i64().unwrap_or(j["started"].as_i64().unwrap_or(0)));
     jobs.sort_by_key(key);
     res::decorate_jobs(&mut jobs);
+    apps::remember(&jobs);
     Json(json!({"jobs": jobs})).into_response()
 }
 
@@ -2761,6 +2970,10 @@ async fn static_file(State(app): State<Shared>, headers: HeaderMap, uri: Uri) ->
         let v = format!("sheprd-shell-{:x}", shell_hash(app.web_dir.as_deref()).await);
         b = String::from_utf8_lossy(&b).replace("sheprd-shell-v1", &v).into_bytes();
     }
+    // the shell carries the build it belongs to (web/app.js self-update compares it with /api/build)
+    if rel == "index.html" {
+        b = String::from_utf8_lossy(&b).replace("__MM_BUILD__", &app.build).into_bytes();
+    }
     // Always revalidate (ETag -> 304), so a deploy can never leave the phone
     // running a mix of old and new modules, which breaks module linking.
     use std::hash::{Hash, Hasher};
@@ -2795,6 +3008,22 @@ mod menu_tests {
         assert_eq!(m.iter().map(|o| o.number.unwrap()).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
         assert_eq!(m[1].label, "Coffee");
     }
+    // Claude Code 2.1 AskUserQuestion, multiSelect with more questions after it (captured screen)
+    const MULTI: &str = "←  ☒ Fruit  ☐ Colors  ✔ Submit  →\nPick fruits\n❯ 1. [ ] apple\n         A red or green fruit\n  2. [✔] banana\n         A yellow fruit\n  3. [ ] Type something\n     Next\n────────\n  4. Chat about this\nEnter to select · Tab/Arrow keys to navigate";
+    #[test]
+    fn multiselect_lists_next() {
+        let m = parse_menu(MULTI);
+        let labels: Vec<_> = m.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, vec!["[ ] apple", "[✔] banana", "[ ] Type something", "Next", "Chat about this"]);
+        assert!(m[0].selected && m[3].number.is_none() && super::is_checkbox(&m[1].label) && !super::is_checkbox(&m[3].label));
+    }
+    #[test]
+    fn multiselect_cursor_on_next() {
+        let s = MULTI.replace("❯ 1. [ ] apple", "  1. [ ] apple").replace("     Next", "❯    Next");
+        let m = parse_menu(&s);
+        assert_eq!(m.len(), 5);
+        assert!(m[3].selected && m[3].label == "Next");
+    }
 }
 
 #[cfg(test)]
@@ -2824,7 +3053,7 @@ mod git_tests {
 
 #[cfg(test)]
 mod push_tests {
-    use super::{done_url, fallback_title, suppress_done, surface_row, surface_url, transcript};
+    use super::{chat_surfaces, done_url, fallback_title, suppress_done, surface_row, surface_url, transcript};
     use serde_json::json;
     #[test]
     fn urls() {
@@ -2855,6 +3084,22 @@ mod push_tests {
         assert_eq!(surface_row(&items, "QA two", &[3]), Some(1));
         assert_eq!(surface_row(&items, "QA three", &[]), None);
         assert_eq!(surface_row(&items, "QA one", &[0]), None);
+    }
+    #[test]
+    fn chat_surfaces_skip_tool_rows_and_reviews() {
+        let row = transcript::Item {
+            i: 0, k: "tool", name: Some("mcp__sheprd__surface".into()), input: Some(json!({"title": "From the tool"})), ..Default::default()
+        };
+        let items = vec![row, transcript::Item { i: 1, k: "text", text: Some("x".into()), ..Default::default() }];
+        let l = vec![
+            json!({"id": "a", "title": "From the tool", "i": 0}),        // old: its row is at i
+            json!({"id": "b", "title": "Pick a design", "i": 1}),        // curl: anchored after the last item
+            json!({"id": "c", "title": "Tool, resolved", "i": 0, "row": true}),
+            json!({"id": "d", "title": "Review", "i": 1, "review": {"pane": "w1:p2"}}),
+            json!({"id": "e", "title": "Not resolved yet", "i": null}),
+        ];
+        let ids: Vec<_> = chat_surfaces(&items, l).iter().map(|s| s["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(ids, ["b", "e"]);
     }
     #[test]
     fn suppression() {

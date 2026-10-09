@@ -1,9 +1,9 @@
 /* Omarchy looks. theme.js sets the colour tokens inline, html[data-pal=ipal|desk|site] for the colour rules
    and html[data-look=desk|site] for the structure rules below.
    ipal: the iOS look (style.css structure, system font, rounded grouped panels) in an Omarchy palette;
-         Omarchy touches: the Hyprland border gradient on the hero card, JetBrains Mono for code and numbers.
+         Omarchy touch: JetBrains Mono for code and numbers.
    desk: the live Omarchy desktop theme — Hyprland's square windows, the active-border gradient on focused
-         surfaces (sheets, menus, toasts, the hero card), flat opaque panels, JetBrains Mono chrome.
+         surfaces (sheets, menus, toasts), flat opaque panels, JetBrains Mono chrome.
    site: omarchy.org — JetBrains Mono everywhere, Geist headings, 0px corners, 1px rings instead of
          shadows, solid brand buttons with dark ink, uppercase brand labels, underlined links.
    Structure only; sizes, layouts and tap targets are style.css's. No look attribute = iOS look. */
@@ -17,6 +17,9 @@ html[data-pal] {
   --head: "MM Geist", var(--sans);
 }
 html[data-pal], html[data-pal] body { background: var(--bg); color: var(--fg); }
+/* cards: a soft shadow by the palette's mode (style.css --card-sh), never an outline or a coloured edge */
+html[data-pal][data-mode=light] { --card-sh: 0 1px 2px rgba(0, 0, 0, .04), 0 2px 8px rgba(0, 0, 0, .05); }
+html[data-pal][data-mode=dark] { --card-sh: none; }
 html[data-pal] ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 /* ---- square corners (Hyprland rounding 0 / the site's --radius-*: 0); real circles stay circles ---- */
@@ -26,15 +29,13 @@ html[data-look] :is(.conn, .pill i, .seg i, .cring, .cring::after, .tdot, .spin,
   .vdot, .br-tap, .bl-opts .opt .on, .send[data-n]::after, .hpg i, .cxbar i) { border-radius: 50% !important; }
 html[data-look] .hpg i.on { border-radius: 0 !important; }
 
-/* ---- flat, opaque panels; borders instead of shadows ---- */
+/* ---- flat, opaque bars; cards keep the style.css rule (no outline, no coloured edge: --card-sh) ---- */
 html[data-look] :is(.bar, .tabbar, .composer, .sayer) { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bar); }
 html[data-look] :is(.bar) { border-bottom: 1px solid var(--sep); }
 html[data-look] :is(.tabbar, .composer) { border-top: 1px solid var(--sep); }
-html[data-look] :is(.toast, .popm, .newpill, .hcard, .segc button.on, .fseg button.on, .sayer, .rflash) { box-shadow: none; }
+html[data-look] :is(.toast, .popm, .newpill, .segc button.on, .fseg button.on, .sayer, .rflash) { box-shadow: none; }
 html[data-look] .ib.plus.big svg { box-shadow: none; }
-html[data-look] :is(.gl, .group, .grp:not(.hfold), .quiet, .agents .bgs, .hcalm, .resv .hl, .resv .rc, .ftile, .surf, .dirs) { border: 1px solid var(--sep); }
-html[data-look] .surf { border-left: 4px solid var(--work); }
-html[data-look] .surf.l-attention { border-left-color: var(--blocked); } html[data-look] .surf.l-done { border-left-color: var(--done); }
+html[data-look] .agents .bgs { border: 1px solid var(--sep); }
 html[data-look] :is(.grp, .group, .sheet) { background: var(--bg1); }
 html[data-look] .sheet { background: var(--bg); }
 html[data-look] :is(.segc button.on, .fseg button.on) { background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
@@ -47,7 +48,7 @@ html[data-look] :is(.btn.primary, .h-acts .hb.pri, .tab.on) { box-shadow: none; 
 html[data-look] :is(.crow textarea, .rawin input, .dsearch, .form input, .form select, .form textarea, .rn-in, .h-rep input) { border: 1px solid var(--line); background: var(--bg); }
 html[data-look] :is(.crow textarea, .rawin input, .dsearch, .form input, .form textarea, .rn-in, .h-rep input):focus { border-color: var(--accent); }
 html[data-look] .qchip { border-width: 1px; }
-html[data-look] .strip { border: 1px solid var(--sep); background: var(--bg1); }
+html[data-look] .strip { background: var(--bg1); }
 
 /* text on filled colours uses the computed on-colour, never a fixed white */
 html[data-pal] :is(.newpill, .send, .btn.primary, .tab.on, .sf-rep .btn, .popm .mchip.on, .h-rep button, .br-kbb.want, .sayer .sy-pp,
@@ -93,8 +94,7 @@ html[data-pal=ipal] :is(.segc button.on, .fseg button.on) { background: var(--bg
 html[data-pal=ipal][data-mode=light] :is(.segc button.on, .fseg button.on) { background: var(--bg2); box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
 html[data-pal=ipal] .sheet-ov.open { background: rgba(0, 0, 0, .5); }
 html[data-pal=ipal] .tabbar a:not(.on) { color: var(--fg2); }
-/* Omarchy touches: the focused-window border on the hero card only; numbers and code in JetBrains Mono */
-html[data-pal=ipal] .hcard { border: 2px solid transparent; background: linear-gradient(var(--wash), var(--wash)) padding-box, var(--hb) border-box; }
+/* Omarchy touch: numbers and code in JetBrains Mono */
 html[data-pal=ipal] .ftile .fbig { font-family: var(--mono); letter-spacing: -1.5px; font-weight: 700; }
 
 /* ================= desk: the desktop ================= */
@@ -107,11 +107,7 @@ html[data-look=desk] .agents .gh { text-transform: none; font-weight: 600; color
 html[data-look=desk] .agents .gh::before { content: "#"; color: var(--accent); margin-right: 1px; }
 /* focused surfaces wear the Hyprland active border (2px gradient), like a focused window */
 html[data-look=desk] :is(.popm, .toast) { border: 2px solid transparent; background: linear-gradient(var(--bg1), var(--bg1)) padding-box, var(--hb) border-box; }
-html[data-look=desk] .toast { box-shadow: inset 4px 0 0 var(--bg4); }
-html[data-look=desk] .toast.err { box-shadow: inset 4px 0 0 var(--red); } html[data-look=desk] :is(.toast.ok, .toast.l-done) { box-shadow: inset 4px 0 0 var(--done); }
-html[data-look=desk] .toast.l-attention { box-shadow: inset 4px 0 0 var(--blocked); } html[data-look=desk] .toast.l-info { box-shadow: inset 4px 0 0 var(--work); }
 html[data-look=desk] .sheet { border-top: 2px solid transparent; background: linear-gradient(var(--bg), var(--bg)) padding-box, var(--hb) border-box; }
-html[data-look=desk] .hcard { border: 2px solid transparent; background: linear-gradient(var(--wash), var(--wash)) padding-box, var(--hb) border-box; }
 html[data-look=desk] .chat .composer:focus-within { border-top: 2px solid transparent; border-image: var(--hb) 1; }
 html[data-look=desk] .bl-keys .key:nth-child(-n+3) { box-shadow: none; }
 
@@ -130,10 +126,7 @@ html[data-look=site] .md code { background: var(--bg3); }
 html[data-look=site] .md pre.code { border: 1px solid var(--sep); }
 /* elevation = a 1px ring (--t-elevation), solid brand buttons, outlined secondary ones */
 html[data-look=site] :is(.popm, .toast, .rflash, .sayer) { border: 1px solid var(--line); background-color: var(--bg2); }
-html[data-look=site] .toast.err { border-left: 4px solid var(--red); } html[data-look=site] :is(.toast.ok, .toast.l-done) { border-left: 4px solid var(--done); }
-html[data-look=site] .toast.l-attention { border-left: 4px solid var(--blocked); } html[data-look=site] .toast.l-info { border-left: 4px solid var(--work); }
 html[data-look=site] .sheet { border-top: 1px solid var(--line); }
-html[data-look=site] .hcard { border: 1px solid color-mix(in srgb, var(--blocked) 55%, var(--line)); }
 html[data-look=site] .btn.primary { background: var(--accent); color: var(--on-accent); }
 html[data-look=site] .tabbar a.on { color: var(--accent); }
 html[data-look=site] .tabbar a.on::before { content: ""; position: absolute; top: -5px; left: 22%; right: 22%; height: 2px; background: var(--accent); }

@@ -6,11 +6,18 @@
 //    item and the next one slides in; swipe right = primary action, left = snooze 15 min. Tapping the card's body
 //    opens the agent's chat at the item (there is no deck any more).
 //    With nothing open it turns into a calm "All clear · N working" line.
-// 3. In flight: one tile per working agent / running background job, with live progress: a job's own log
+// 3. In flight: one tile per working agent / running background job (not servers: those are running apps), with live progress: a job's own log
 //    (tqdm "63%|", "945/1500 [", "iter 945/1500") gives % and "done ≈ 2:55"; an agent's task list (state todo)
 //    gives a segmented bar; otherwise an indeterminate bar and the now-doing line.
+// 4. Running apps (a mini list in a Scheduled-style box, right under the Scheduled box): servers the
+//    server marks `app` on /api/jobs (http.server, npm run dev, vite, tailscale serve…), one row per agent + port.
+//    Owner → its chat, Open → the tailnet / https URL; tapping or holding a row opens the app sheet: what it is in a
+//    sentence or two (Haiku), Open or why the phone can't, owner + Copy / Log / Stop (a steer asking the owner agent;
+//    the server never kills processes). No proxy for local-only apps (its JS would
+//    run on sheprd's origin).
 // app.js keeps the rows (Ready, Everyone, Quiet), swipes, long-press and the keyed morph.
-import { G, $, h, esc, morph, patchHTML, tick, agentHref, dispStatus, longPress, lazy, MODS, nav } from './app.js';
+import { G, $, h, esc, morph, patchHTML, tick, agentHref, dispStatus, longPress, lazy, MODS, nav, sheet, post, toast, haptic, copyText } from './app.js';
+import { thumbs, fileUrl } from './md.js';
 
 (() => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'home.css'; document.head.append(l); })();
 
@@ -25,6 +32,7 @@ const hm = ms => {
 };
 const cmdName = c => one(c).replace(/^(cd [^&;]+(&&|;)\s*)+/, '').replace(/^(python3?|uv run|bash|node)\s+/, '').split(/\s+/).slice(0, 3).join(' ');
 const refresh = () => G.view?.onState?.(G.st);
+const asImg = p => /^(\/api\/|https?:)/.test(p) ? p : fileUrl(p); // same as app.js: paths go through /api/file
 
 // ---------- job progress from the job's log tail ----------
 const PROG = new Map(); // job id → {pct, cur, tot, at}
@@ -128,7 +136,7 @@ function heroHTML(it, n, idx) {
   const btn = (x, k) => x.reply != null
     ? `<button class="hb${k ? '' : ' pri'}" data-reply="${esc(x.reply)}">${esc(x.label)}</button>`
     : `<button class="hb${k ? '' : ' pri'}${x.cls ? ' ' + x.cls : ''}" data-hact="${k}"${x.wait ? ' disabled' : ''}>${x.wait ? '<span class="spin"></span>' : ''}${esc(x.label)}</button>`;
-  const box = sp.surf ? ` data-sfkey="${esc(tr.surfKey(sp.surf))}" data-pane="${esc(it.pane)}"` : '';
+  const box = sp.surf ? ` data-sfkey="${esc(tr.surfKey(sp.surf))}" data-id="${esc(sp.surf.id)}" data-pane="${esc(it.pane)}"` : '';
   const md = sp.md ? one(sp.md) : '';
   const dots = n > 1 ? `<span class="hpg" aria-label="${idx + 1} of ${n}">${n <= 5 ? Array.from({ length: n }, (_, k) => `<i${k === idx ? ' class="on"' : ''}></i>`).join('') : `<span>${idx + 1}/${n}</span>`}</span>` : '';
   const rep = it.kind === 'phone' || it.kind === 'surf';
@@ -136,6 +144,7 @@ function heroHTML(it, n, idx) {
       <a class="h-tt" href="${MODS.queue.hrefOf(it)}"><b class="tt">${esc(it.nm)}</b><small><b>${esc(sp.pill)}</b> · <span data-since="${it.ts || a.since}"></span>${par ? ` · ↳ ${esc(par.home ? 'Master' : nm(par))}` : ''}</small></a>${dots}</div>
     ${sp.ctx ? `<div class="h-q">${sp.ctx}</div>` : ''}
     ${md ? `<div class="h-md">${esc(md.slice(0, 400))}</div>` : ''}
+    ${sp.imgs?.length ? thumbs(sp.imgs.map(asImg)) : ''}
     ${sp.code ? `<pre class="h-code">${esc(sp.code)}</pre>` : ''}
     <div class="h-acts${acts.length > 2 ? ' n3' : ''}"${box}>${acts.map(btn).join('')}</div>
     ${rep ? `<form class="h-rep"><input type="text" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" placeholder="Reply to ${esc(it.nm)}…"><button type="submit" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button></form>` : ''}`;
@@ -184,7 +193,7 @@ function wireHero(box) {
     const b = e.target.closest('[data-hact]');
     if (b && !b.disabled) { mark('r'); tr.heroAct(it, +b.dataset.hact); return; }
     if (e.target.closest('[data-reply]')) { mark('r'); setTimeout(() => { tr.hold(it.key); refresh(); }, 0); return; } // app.js sends it
-    if (e.target.closest('a, button, input, form, pre')) return;
+    if (e.target.closest('a, button, input, form, pre, .thumbs')) return; // a picture opens the gallery (app.js)
     e.preventDefault(); nav(tr.hrefOf(it)); // the card's body opens the chat at the item
   });
   box.addEventListener('submit', async e => {
@@ -194,7 +203,7 @@ function wireHero(box) {
   });
   // swipe the card: right = primary action, left = snooze (next item)
   box.addEventListener('pointerdown', e => {
-    const c = e.target.closest('.hcard:not(.out)'); if (!c || e.button > 0 || e.target.closest('input, form, pre, button, a')) return;
+    const c = e.target.closest('.hcard:not(.out)'); if (!c || e.button > 0 || e.target.closest('input, form, pre, button, a, .thumbs')) return; // the picture strip scrolls sideways itself
     HERO.drag = { c, x: e.clientX, y: e.clientY, id: e.pointerId, lock: null }; HERO.dragged = false;
   });
   box.addEventListener('pointermove', e => {
@@ -267,6 +276,110 @@ function drawTiles(box, tiles) {
   place(box, nodes);
 }
 
+// ---------- Running apps (box under Scheduled) ----------
+// "Serve art web build on Tailscale address" → "art web"; "Run the vite dev server" → "vite dev server"
+export const appName = (d, cmd) => {
+  const n = one(d).replace(/^(serve|run|start|host|launch|keep)\s+(up\s+)?(the\s+)?/i, '').replace(/\s+(on|at|via|from|over|with|for)\s+.*$/i, '').replace(/\s+(locally|in (the )?background)$/i, '').replace(/\s+build$/i, '');
+  return n || cmdName(cmd);
+};
+const ageS = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60e3)); return m < 60 ? m + 'm' : m < 2880 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
+const REACH = { tailscale: 'https', tailnet: 'tailnet', local: 'local only' };
+const AICON = {
+  globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  lap: '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>',
+};
+/** One app per (agent, port): an art build can run twice on :4180 (tailnet + localhost). Oldest first. */
+export function groupApps(jobs) {
+  const G2 = new Map();
+  for (const j of jobs) {
+    if (j.status !== 'running' || !j.app) continue;
+    const k = (j.pane || j.tid || '') + ':' + (j.app.port ?? j.id);
+    const g = G2.get(k) || { key: k, name: appName(j.desc, j.cmd), port: j.app.port, url: null, via: 'local', started: j.started, pane: j.pane, owner: j.agentTitle, jobs: [] };
+    g.jobs.push(j); g.started = Math.min(g.started, j.started);
+    if (j.app.url && !g.url) { g.url = j.app.url; g.via = j.app.via; }
+    G2.set(k, g);
+  }
+  return [...G2.values()].sort((a, b) => a.started - b.started);
+}
+let APPS = [];
+function appsHTML(apps, byPane) {
+  return `<span class="bg-lbl"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9h17M10 12.5v4l3.5-2z"/></svg>Running apps</span>${apps.map(x => {
+    const a = x.pane && byPane.get(x.pane), ic = x.via === 'tailscale' ? AICON.lock : x.url ? AICON.globe : AICON.lap;
+    const who = a ? (a.home ? 'Master' : nm(a)) : x.owner || '';
+    return `<div class="ra-it${x.url ? '' : ' loc'}" data-app="${esc(x.key)}"><span class="ra-fav${colCls(a?.color)}">${esc((x.name[0] || '?').toUpperCase())}<i class="ra-live"></i></span>`
+      + `<span class="ra-tx"><span class="ra-l1"><b>${esc(x.name)}</b>${x.port ? `<span class="ra-port">:${x.port}</span>` : ''}</span>`
+      + `<small>${ic}${esc(REACH[x.via])}${who ? ` · ${a ? `<a class="ra-own${colCls(a.color)}" href="${agentHref(a)}">↳ ${esc(who)}</a>` : `↳ ${esc(who)}`}` : ''} · ${ageS(x.started)}</small></span>`
+      + (x.url ? `<a class="ra-open" href="${esc(x.url)}" target="_blank" rel="noopener">Open</a>` : '<span class="ra-chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>') + '</div>';
+  }).join('')}`;
+}
+const logOf = x => lazy('sheets').then(m => m.jobSheet(x.jobs[0]));
+// The app sheet (tap or hold a row): what it is in a sentence or two (Haiku, /api/apps/about; the job description until
+// it is ready), one big Open when the phone can reach it, else why not; owner + Copy / Log / Stop in a small row.
+const ABOUT = new Map(); // app key → sentence
+function appSheet(x) {
+  const a = x.pane && G.st?.agents.find(y => y.pane === x.pane);
+  const who = a ? (a.home ? 'Master' : nm(a)) : x.owner || 'its agent';
+  const ids = x.jobs.map(j => j.id).join(', ');
+  const desc = one(x.jobs[0]?.desc || '') || cmdName(x.jobs[0]?.cmd || '');
+  const known = ABOUT.get(x.key);
+  const why = x.url ? '' : `<p class="ras-why">${AICON.lap}<span>Only listening on this computer, so the phone can’t open it. Ask its agent to serve it on Tailscale.</span></p>`;
+  const sh = sheet(`<div class="ras"><h2>${esc(x.name)}</h2>
+    <p class="ras-about${known ? '' : ' wait'}">${esc(known || desc)}</p>
+    ${x.url ? `<a class="ras-open" href="${esc(x.url)}" target="_blank" rel="noopener">Open<small>${esc(x.url.replace(/^https?:\/\//, ''))}</small></a>` : why}
+    <p class="ras-meta">${x.port ? `<span class="mono">:${x.port}</span> · ` : ''}${esc(REACH[x.via])} · running ${ageS(x.started)}</p>
+    <div class="ras-row">${a ? `<button data-a="owner" class="ras-own${colCls(a.color)}">↳ ${esc(who)}</button>` : `<span class="ras-own">↳ ${esc(who)}</span>`}<span class="sp"></span>
+      ${x.url ? '<button data-a="copy">Copy</button>' : ''}<button data-a="log">Log</button>${a ? '<button data-a="stop" class="ras-stop">Stop</button>' : ''}</div></div>`, 'compact');
+  const ab = sh.querySelector('.ras-about');
+  if (!known && x.jobs[0]) {
+    let tries = 0, alive = true;
+    const ask = async () => {
+      if (!alive) return;
+      try {
+        const r = await post('apps/about', { id: x.jobs[0].id });
+        if (r.about) { ABOUT.set(x.key, r.about); ab.textContent = r.about; ab.classList.remove('wait'); return; }
+        if (r.pending && ++tries < 15) { setTimeout(ask, 2500); return; }
+      } catch { }
+      ab.classList.remove('wait');
+    };
+    ask();
+    const close0 = sh.close; sh.close = () => { alive = false; close0(); };
+  }
+  sh.addEventListener('click', async e => {
+    if (e.target.closest('.ras-open')) { sh.close(); return; } // the link opens the app
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    const k = b.dataset.a;
+    if (k === 'stop') {
+      // two taps: the agent stops it (Claude kills its own background job); the server never kills processes
+      if (!b.classList.contains('arm')) { b.classList.add('arm'); b.textContent = `Ask ${who.length > 18 ? 'its agent' : who} to stop?`; haptic(); setTimeout(() => { if (b.isConnected) { b.classList.remove('arm'); b.textContent = 'Stop'; } }, 3500); return; }
+      sh.close();
+      try {
+        await post(`a/${encodeURIComponent(a.pane)}/steer`, { text: `Stop the background server on :${x.port ?? '?'} (${x.name}; job ${ids}).` });
+        toast(`Asked ${esc(who)} to stop ${esc(x.name)}`);
+      } catch (err) { toast('Couldn’t send: ' + esc(err.message || err), 'err'); }
+      return;
+    }
+    if (k === 'copy') { await copyText(x.url); toast('Copied'); return; }
+    sh.close();
+    if (k === 'owner') nav(agentHref(a));
+    else if (k === 'log') setTimeout(() => logOf(x), 120);
+  });
+}
+function wireApps(box) {
+  box.addEventListener('click', e => {
+    const r = e.target.closest('.ra-it'); if (!r || e.target.closest('a')) return; // owner / Open links do their own thing
+    const x = APPS.find(y => y.key === r.dataset.app); if (x) appSheet(x);
+  });
+  longPress(box, '.ra-it', r => { const x = APPS.find(y => y.key === r.dataset.app); if (!x) return false; appSheet(x); });
+}
+function drawApps(el, jobs, byPane) {
+  let box = $('.rapps', el);
+  if (!box) { box = h('<div class="rapps" hidden></div>'); $('.bgs', el).after(box); wireApps(box); }
+  APPS = groupApps(jobs);
+  box.hidden = !APPS.length;
+  if (patchHTML(box, APPS.length ? appsHTML(APPS, byPane) : '')) tick(box);
+}
+
 // ---------- entry (app.js Agents view render) ----------
 // o: { list: visible agents (sorted, no quiet, no quiet services), jobs: [/api/jobs], failing: [service agents in error] }
 // → { hero: pane of the hero item | null, tiles: Set of panes drawn as tiles }
@@ -277,24 +390,27 @@ export function draw(el, st, o) {
   if (wired !== el) { wired = el; wireHero(heroBox); tilesBox.addEventListener('click', e => { const t = e.target.closest('.ftile.fjob:not([href])'); if (t) { e.preventDefault(); const j = lastJobs.find(x => x.id === t.dataset.job); if (j) lazy('sheets').then(m => m.jobSheet(j)); } }); longPress(tilesBox, '.ftile[data-pane]', t => { const a = G.st?.agents.find(x => x.pane === t.dataset.pane); if (!a) return false; lazy('sheets').then(m => m.cardSheet(a)); }); }
   const items = MODS.queue ? MODS.queue.items(st).filter(x => x.rank <= 2) : [];
   const byPane = new Map((st?.agents || []).map(a => [a.pane, a]));
-  // tiles: running jobs (with their owner), then working agents without a running job
-  const run = (o.jobs || []).filter(j => j.status === 'running');
+  // tiles: running jobs (with their owner), then working agents without a running job. A server job (the server's
+  // `app`: http.server, npm run dev, tailscale serve…) is a running app, not work in flight: no tile, no clause.
+  const run = (o.jobs || []).filter(j => j.status === 'running' && !j.app);
   const tiles = [], tilePanes = new Set();
   for (const j of run) {
     const a = j.pane && byPane.get(j.pane);
     tiles.push({ key: 'j:' + j.id, a: a || null, j, p: PROG.get(j.id) || null, title: j.desc || (a ? nm(a) : cmdName(j.cmd)) });
     if (a) tilePanes.add(a.pane);
   }
-  for (const a of o.list) if (!a.home && dispStatus(a) === 'working' && !tilePanes.has(a.pane)) { tiles.push({ key: 'a:' + a.pane, a, j: null, p: null, title: nm(a) }); tilePanes.add(a.pane); }
-  const workingPanes = new Set(o.list.filter(a => !a.home && dispStatus(a) === 'working').map(a => a.pane));
+  // pinned agents stay rows in their own section at the top (app.js), not tiles
+  for (const a of o.list) if (!a.home && !a.pinned && dispStatus(a) === 'working' && !tilePanes.has(a.pane)) { tiles.push({ key: 'a:' + a.pane, a, j: null, p: null, title: nm(a) }); tilePanes.add(a.pane); }
+  const workingPanes = new Set(o.list.filter(a => !a.home && !a.pinned && dispStatus(a) === 'working').map(a => a.pane));
   if (run.length) loadProg(run);
   const ready = o.list.filter(a => !a.home && dispStatus(a) === 'done');
   if (patchHTML(brief, `<div class="kick">${esc(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${o.list.length} agent${o.list.length === 1 ? '' : 's'}${run.length ? ` · ${run.length} job${run.length > 1 ? 's' : ''}` : ''}</div><h1 class="bl">${briefHTML(st, items, tiles, ready, o.failing || [])}</h1>`)) tick(brief);
   drawHero(heroBox, items, tiles.length);
+  drawApps(el, o.jobs || [], byPane);
   tilesSec.hidden = !tiles.length;
   drawTiles(tilesBox, tiles);
   return { hero: items[0]?.pane || null, tiles: workingPanes };
 }
 // re-render when the triage queue changes underneath us (held, snoozed, a menu loaded)
 lazy('queue').then(tr => tr.setHook(refresh));
-export const _test = { briefHTML, parseProg, tileHTML };
+export const _test = { briefHTML, parseProg, tileHTML, groupApps, appName };

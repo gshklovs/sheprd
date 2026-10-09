@@ -25,7 +25,19 @@ fn table(name: &str, dir: &str) -> String {
     let mut files = Vec::new();
     walk(&root, &root, &mut files);
     files.sort();
-    let mut code = format!("pub static {name}: &[(&str, &[u8])] = &[\n");
+    let mut code = String::new();
+    if name == "ASSETS" {
+        // Build id = hash of every embedded web file (path + bytes): the phone compares it with the build it booted
+        // with and reloads itself when they differ (web/app.js "self-update").
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (rel, abs) in &files {
+            rel.hash(&mut h);
+            std::fs::read(abs).unwrap().hash(&mut h);
+        }
+        code.push_str(&format!("pub static BUILD: &str = \"b{:012x}\";\n", h.finish() & 0xffff_ffff_ffff));
+    }
+    code.push_str(&format!("pub static {name}: &[(&str, &[u8])] = &[\n"));
     for (rel, abs) in files {
         code.push_str(&format!("    ({rel:?}, include_bytes!({abs:?})),\n"));
     }

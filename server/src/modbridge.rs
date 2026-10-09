@@ -212,7 +212,7 @@ pub fn routes() -> Router<Shared> {
         .route("/api/mod/ask", post(api_ask))
         .route("/api/mod/ask/{id}/wait", get(api_ask_wait))
         .route("/api/mod/ask/{id}/cancel", post(api_ask_cancel))
-        .route("/api/a/{pane}/steer", post(api_steer))
+        .route("/api/a/{pane}/steer", post(api_steer_http))
         .route("/api/a/{pane}/compact", post(api_compact))
         .route("/api/a/{pane}/answer", post(api_answer))
 }
@@ -748,6 +748,21 @@ struct SteerBody {
     from: Option<String>,
 }
 
+
+/// `/steer` for the server's own messages to an agent (asks.rs Nudge).
+pub async fn steer(app: Shared, pane: String, text: String) -> Response {
+    api_steer(State(app), AxPath(pane), Json(SteerBody { text, nonce: None, from: None })).await
+}
+
+/// The HTTP route: a steer from the phone (no `from`) is also tracked as an ask (asks.rs).
+async fn api_steer_http(State(app): State<Shared>, AxPath(pane): AxPath<String>, headers: axum::http::HeaderMap, Json(b): Json<SteerBody>) -> Response {
+    let ask = b.from.as_deref().is_none_or(|f| f.trim().is_empty()).then(|| b.text.clone());
+    let r = api_steer(State(app.clone()), AxPath(pane.clone()), Json(b)).await;
+    if let Some(t) = ask.filter(|_| r.status().is_success()) {
+        crate::asks::record(&app, &headers, &pane, &t, "steer");
+    }
+    r
+}
 
 /// Steer a running turn: through the mod (`$.session.append`, read at the turn's
 /// next step) when the agent is working and its mod is connected, else typed in

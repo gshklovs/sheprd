@@ -9,7 +9,11 @@ const LOCAL = /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?=[:/?#
 export const fixUrl = u => (L.ts ? u.replace(LOCAL, 'http://' + L.ts) : u);
 
 export const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i;
-const BIN_EXT = /\.(pdf|zip|gz|tgz|xz|bz2|zst|7z|tar|mp4|mov|webm|mkv|mp3|wav|m4a|ogg|flac|bin|so|o|a|exe|whl|pt|pth|onnx|npz|npy|pkl|db|sqlite|ttf|otf|woff2?|ico|xlsx?|docx?|pptx?)$/i;
+// video/audio play inline (<video>/<audio>, server answers Range: ranged.rs) and open the app's player, never a raw tab
+export const VID_EXT = /\.(mp4|m4v|mov|webm)$/i;
+export const AUD_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac)$/i;
+export const isMedia = u => { let p = String(u || ''); const q = p.match(/[?&]path=([^&#]+)/); if (q) try { p = decodeURIComponent(q[1]); } catch { } return VID_EXT.test(p.split(/[?#]/)[0]) ? 'video' : AUD_EXT.test(p.split(/[?#]/)[0]) ? 'audio' : null; };
+const BIN_EXT = /\.(pdf|zip|gz|tgz|xz|bz2|zst|7z|tar|mkv|bin|so|o|a|exe|whl|pt|pth|onnx|npz|npy|pkl|db|sqlite|ttf|otf|woff2?|ico|xlsx?|docx?|pptx?)$/i;
 const absPath = p => p.replace(/^~(?=\/|$)/, L.home);
 export const fileUrl = p => '/api/file?path=' + encodeURIComponent(absPath(p));
 export const docUrl = p => '#/f?path=' + encodeURIComponent(absPath(p));
@@ -39,6 +43,11 @@ function pathA(p, ctx, inner) {
     const href = fileUrl(p);
     if (ctx) ctx.imgs.add(href);
     return `<a href="${esc(href)}" class="path pimg">${inner}</a>`;
+  }
+  if (VID_EXT.test(p) || AUD_EXT.test(p)) {
+    const href = fileUrl(p);
+    if (ctx) ctx.imgs.add(href);
+    return `<a href="${esc(href)}" class="path pvid">${inner}</a>`;
   }
   if (BIN_EXT.test(p)) return `<a href="${esc(fileUrl(p))}" target="_blank" rel="noopener" class="path">${inner}</a>`;
   return `<a href="${esc(docUrl(p))}" class="path">${inner}</a>`;
@@ -106,7 +115,7 @@ function inl(s, ctx) {
     let local = /^(~|\/)/.test(u) && !u.startsWith('/api/') ? u : null;
     if (!local && !/^(https?:|\/api\/|#)/.test(u)) local = resolveRel(u);
     if (local) {
-      if (bang) return put(`<img class="thumb" loading="lazy" alt="${esc(t)}" src="${esc(fileUrl(local))}">`);
+      if (bang) return put(isMedia(local) ? mediaEl(fileUrl(local)) : `<img class="thumb" loading="lazy" alt="${esc(t)}" src="${esc(fileUrl(local))}">`);
       return put(pathA(local, ctx, esc(t) || esc(u)));
     }
     if (!/^(https?:|\/api\/|#)/.test(u)) return put(esc(m));
@@ -226,8 +235,13 @@ export function md(src, ctx, depth = 0) {
   return out;
 }
 
+// an inline player: plays in place (playsinline), first frame as the poster (#t=0.001 makes iOS draw it), ⤢ = the
+// fullscreen player with Save (app.js mediaViewer)
+export const mediaEl = u => isMedia(u) === 'audio'
+  ? `<div class="vthumb aud"><audio controls preload="metadata" src="${esc(u)}"></audio><button class="vopen" data-media="${esc(u)}" aria-label="Open player">⤢</button></div>`
+  : `<div class="vthumb"><video class="vid" controls playsinline preload="metadata" src="${esc(u)}#t=0.001"></video><button class="vopen" data-media="${esc(u)}" aria-label="Open player">⤢</button></div>`;
 export const thumbs = urls =>
-  urls && (urls.length || urls.size) ? `<div class="thumbs">${[...urls].map(u => `<img class="thumb" loading="lazy" src="${esc(u)}" alt="">`).join('')}</div>` : '';
+  urls && (urls.length || urls.size) ? `<div class="thumbs">${[...urls].map(u => isMedia(u) ? mediaEl(u) : `<img class="thumb" loading="lazy" src="${esc(u)}" alt="">`).join('')}</div>` : '';
 
 // markdown with image-path thumbnails appended
 export function mdx(src, panes) {

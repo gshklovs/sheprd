@@ -712,6 +712,14 @@ pub fn classify(tool: &str, input: &Value, ctx: &Ctx) -> Hit {
     classify_sig(&sig_of(tool, input), ctx)
 }
 
+/// Activity types that keep running and serve something: a background job running one is a running app.
+pub const APP_ACTS: [&str; 2] = ["dev-server", "serve-app"];
+
+/// Whether a background Bash command is a server (a running app on Home, not In-flight work).
+pub fn app_cmd(cmd: &str) -> bool {
+    APP_ACTS.contains(&classify("Bash", &serde_json::json!({"command": cmd}), &Ctx::default()).id.as_str())
+}
+
 // ---------- per agent ----------
 
 #[derive(Clone, Debug)]

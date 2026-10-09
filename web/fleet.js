@@ -1,7 +1,7 @@
 // Fleet (lazy): Sessions (+ Resume), Schedules (recurring agents), Cloud routines, Screen (desktop
 // screenshots), the parent/child agent tree in the workspace, "Why is it blocked?" and the live
 // terminal stream. Routes: #/fleet, #/fleet/sched, #/fleet/cloud, #/fleet/desk. API.md "Fleet".
-import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, goBack, debounce, closeSheets, lightbox, dispStatus, LABEL, lazy } from './app.js';
+import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, goBack, debounce, closeSheets, lightbox, dispStatus, LABEL, lazy, sicon, schedIconSheet, longPress } from './app.js';
 
 await new Promise(r => {
   if (document.querySelector('link[data-fleet]')) return r();
@@ -25,16 +25,17 @@ const inT = ms => { const s = Math.round((ms - Date.now()) / 1000); return s <= 
 const isoMs = s => s ? Date.parse(s) || 0 : 0;
 
 // ---------- router ----------
-const TABS = [['', 'Sessions'], ['sched', 'Schedules'], ['cloud', 'Cloud'], ['desk', 'Screen']];
+const TABS = [['', 'Sessions'], ['asks', 'Asks'], ['sched', 'Schedules'], ['cloud', 'Cloud'], ['desk', 'Screen']];
 // segments per tab-bar tab (app.js tabBar): History · Automations · Machine; "#…" entries live outside fleet.js
-const SEGS = { '': [['', 'Sessions'], ['#/search', 'Search']], sched: [['sched', 'Schedules'], ['cloud', 'Cloud']],
+const SEGS = { '': [['', 'Sessions'], ['asks', 'Asks'], ['#/search', 'Search']], sched: [['sched', 'Schedules'], ['cloud', 'Cloud']],
   desk: [['#/r', 'Live'], ['#/r/disk', 'Disk'], ['desk', 'Screen'], ['#usage', 'Usage']] };
 SEGS.cloud = SEGS.sched;
+SEGS.asks = SEGS[''];
 const VIEWS = {};
 export function route(hs) {
   const seg = (hs.match(/^\/fleet\/?([a-z]*)/) || [])[1] || '';
   const k = TABS.some(t => t[0] === seg) ? seg : '';
-  const make = () => (VIEWS[k] ||= new ({ '': SessionsView, sched: SchedView, cloud: CloudView, desk: DeskView })[k]());
+  const make = () => (VIEWS[k] ||= new ({ '': SessionsView, asks: AsksView, sched: SchedView, cloud: CloudView, desk: DeskView })[k]());
   return { key: 'fleet/' + k, make, focus: null };
 }
 function shell(cls, on, title, extra = '') {
@@ -134,6 +135,64 @@ class SessionsView {
   }
 }
 
+// ---------- My asks (asks.rs): every request sent from the phone, followed until it's done ----------
+const ASK_ST = { sent: 'Sent', working: 'Working', replied: 'Replied', lost: 'Agent closed', done: 'Done', dropped: 'Dropped' };
+class AsksView {
+  constructor() {
+    this.keep = true; this.pane = null; this.showClosed = false;
+    this.el = shell('asks', 'asks', 'My asks');
+    wire(this);
+    this.body.innerHTML = '<div class="alist"></div>';
+    this.list = $('.alist', this.el);
+    this.list.onclick = e => this.act(e);
+    this.load();
+  }
+  onVisible() { this.load(); }
+  resume() { this.load(); }
+  async load() {
+    try { this.d = await api('asks'); this.render(); }
+    catch (e) { this.list.innerHTML = `<div class="stline">${e.status === 404 ? 'This server has no asks ledger yet (update the server).' : 'Failed: ' + esc(e.message)}</div>`; }
+  }
+  row(k) {
+    const live = G.st?.agents.find(a => a.pane === k.pane);
+    const href = live ? '#/a/' + enc(k.pane) + (k.answer_i != null ? '?i=' + k.answer_i : '') : k.session ? '#/t/' + enc(k.session) : '';
+    const open = !['done', 'dropped'].includes(k.status), stale = Date.now() - k.status_ts > 10 * 60e3;
+    const btns = !open ? '' : [
+      k.status === 'replied' ? `<button class="btn sm primary" data-ak="done" data-ev="ask-done">Done</button>` : '',
+      live && (k.status === 'replied' || stale) ? `<button class="btn sm" data-ak="nudge" data-ev="ask-nudge">Nudge</button>` : '',
+      `<button class="btn sm" data-ak="dropped" data-ev="ask-drop">Drop</button>`].join('');
+    return `<div class="arow s-${k.status}" data-id="${esc(k.id)}">
+      <${href ? `a href="${href}"` : 'div'} class="ab">
+        <div class="at1"><span class="apill">${ASK_ST[k.status] || esc(k.status)}</span><b>${esc(k.agent)}</b><span class="dim">${ago(k.ts)}${k.nudges ? ` · nudged ${k.nudges}×` : ''}</span></div>
+        <div class="at2">${esc(k.text)}</div>
+        ${k.outcome ? `<div class="at3">↳ ${esc(k.outcome)}</div>` : k.status === 'lost' ? '<div class="at3">↳ the agent closed before replying</div>' : ''}
+      </${href ? 'a' : 'div'}>${btns ? `<div class="aacts">${btns}</div>` : ''}</div>`;
+  }
+  render() {
+    const all = this.d.asks || [];
+    const check = all.filter(k => k.status === 'replied' || k.status === 'lost');
+    const wait = all.filter(k => k.status === 'sent' || k.status === 'working');
+    const closed = all.filter(k => k.status === 'done' || k.status === 'dropped');
+    const sec = (t, list, note) => list.length ? `<div class="ahead">${t} <span class="dim">${list.length}</span></div>${note ? `<div class="stline small">${note}</div>` : ''}${list.map(k => this.row(k)).join('')}` : '';
+    this.list.innerHTML = (all.length ? '' : '<div class="stline">Nothing yet. Requests you send agents from the phone show up here until you mark them done.</div>')
+      + sec('Check these', check, check.length ? 'The agent answered: mark Done, Nudge if it isn\'t really done, or Drop.' : '')
+      + sec('Waiting on agents', wait)
+      + (closed.length ? `<button class="ahead atog" data-ak="closed">${this.showClosed ? '▾' : '▸'} Closed this week <span class="dim">${closed.length}</span></button>${this.showClosed ? closed.map(k => this.row(k)).join('') : ''}` : '');
+    tick(this.list);
+  }
+  async act(e) {
+    const b = e.target.closest('[data-ak]'); if (!b) return;
+    e.preventDefault();
+    if (b.dataset.ak === 'closed') { this.showClosed = !this.showClosed; this.render(); return; }
+    const id = b.closest('.arow').dataset.id; haptic(); b.disabled = true;
+    try {
+      if (b.dataset.ak === 'nudge') { await post(`asks/${enc(id)}/nudge`); toast('Nudged', 'ok', null, 1400); }
+      else await post(`asks/${enc(id)}`, { status: b.dataset.ak });
+    } catch (x) { toast(esc(x.message), 'err'); }
+    this.load();
+  }
+}
+
 // ---------- Schedules ----------
 class SchedView {
   constructor() {
@@ -142,6 +201,8 @@ class SchedView {
     wire(this);
     $('.add', this.el).onclick = () => schedSheet(null, () => this.load());
     this.body.addEventListener('click', e => this.onClick(e));
+    // long-press a schedule / timer card → pick its icon
+    longPress(this.body, '.schc', c => schedIconSheet(c.dataset.key, c.dataset.icon, c.dataset.by, () => this.load()));
     // every "Tell me when…" watch, cancellable (was only in Settings)
     this.wbox = h('<div class="fwatch"><h3>Watches</h3><div class="wl"></div><p class="dim small">Add one from an agent’s menu: Tell me when…</p></div>');
     $('.fsc', this.el).append(this.wbox);
@@ -162,8 +223,8 @@ class SchedView {
     const html = this.list.length ? this.list.map(s => {
       const a = s.lastPane && by.get(s.lastPane);
       const st = s.pending ? (s.pending.working ? 'running' : 'starting') : s.lastStatus;
-      return `<div class="schc${s.paused ? ' paused' : ''}" data-id="${esc(s.id)}">
-        <div class="sh1"><b>${esc(s.label)}</b><span class="sp"></span>${s.paused ? '<span class="pill">Paused</span>' : s.next ? `<span class="nx">${inT(s.next)}</span>` : ''}</div>
+      return `<div class="schc${s.paused ? ' paused' : ''}" data-id="${esc(s.id)}" data-key="s:${esc(s.id)}" data-icon="${esc(s.icon || 'clock')}" data-by="${esc(s.iconBy || '')}">
+        <div class="sh1"><span class="sic">${sicon(s.icon)}</span><b>${esc(s.label)}</b><span class="sp"></span>${s.paused ? '<span class="pill">Paused</span>' : s.next ? `<span class="nx">${inT(s.next)}</span>` : ''}</div>
         <div class="sh2">${esc(s.desc)}${s.next && !s.paused ? ` · next ${esc(when(s.next))}` : ''}</div>
         <div class="sh3">${esc(shortPath(s.cwd))}${s.reuse ? ' · reuses its pane' : ''}</div>
         <div class="sh4">${esc(s.prompt)}</div>
@@ -183,8 +244,8 @@ class SchedView {
       const a = t.agentPane && (by.get(t.agentPane) || byName.get(t.agentPane));
       const title = t.agentPane ? (a ? (a.title || a.name || a.pane) : `agent ${t.agentPane}`) : t.name;
       const st = t.next ? `<span class="nx">${inT(t.next)}</span>` : '<span class="pill">Idle</span>';
-      return `<div class="schc tmr${t.next ? '' : ' paused'}">
-        <div class="sh1"><b>${esc(title)}</b><span class="sp"></span>${st}</div>
+      return `<div class="schc tmr${t.next ? '' : ' paused'}" data-key="t:${esc(t.name)}" data-icon="${esc(t.icon || 'clock')}" data-by="${esc(t.iconBy || '')}">
+        <div class="sh1"><span class="sic">${sicon(t.icon)}</span><b>${esc(title)}</b><span class="sp"></span>${st}</div>
         <div class="sh2">${t.next ? 'next ' + esc(when(t.next)) : 'no next run'}${t.last ? ` · last ${esc(when(t.last))}` : ''}</div>
         <div class="sh3">${esc(t.unit)}${t.transient ? ' · transient' : ''}${t.spec ? ' · ' + esc(t.spec) : ''}</div>
         ${t.agentPane ? `<div class="sh4">Prompts ${a ? `<a href="#/a/${enc(a.pane)}">${esc(a.title || a.pane)}</a>` : esc(t.agentPane) + ' (not running)'}: ${esc(t.agentPrompt || '')}</div>` : ''}

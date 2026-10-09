@@ -68,6 +68,17 @@ impl Prefs {
         self.save();
     }
 
+    /// A pane moved to a new session (`/clear`, resume, a fresh session): its pin and mute go with it, unless the
+    /// new session already has its own.
+    pub fn carry_flags(&mut self, from: &str, to: &str) {
+        let old = self.v["sessions"][from].clone();
+        let set = |k: &str| old[k].as_bool().unwrap_or(false);
+        if from == to || self.v["sessions"][to].is_object() || !(set("pinned") || set("muted")) {
+            return;
+        }
+        self.set_flags(to, Some(set("pinned")), Some(set("muted")));
+    }
+
     /// Replaces the snippet list (max 50, text ≤ 4000 chars, label defaults to the text).
     pub fn set_snippets(&mut self, list: &[Value]) -> Result<(), String> {
         if list.len() > 50 {
@@ -86,5 +97,27 @@ impl Prefs {
         self.v["snippets"] = Value::Array(out);
         self.save();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flags_follow_the_pane_to_a_new_session() {
+        let dir = std::env::temp_dir().join(format!("mm-prefs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut p = Prefs::load(&dir);
+        p.set_flags("s1", Some(true), None);
+        p.carry_flags("s1", "s2");
+        assert_eq!(p.flags("s2"), (true, false));
+        // a session with flags of its own keeps them; nothing to carry from an unflagged one
+        p.set_flags("s3", Some(false), Some(true));
+        p.carry_flags("s1", "s3");
+        assert_eq!(p.flags("s3"), (false, true));
+        p.carry_flags("s9", "s4");
+        assert!(!p.v["sessions"]["s4"].is_object());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

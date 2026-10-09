@@ -36,17 +36,15 @@
 .segc button { flex: 1; height: 30px; border-radius: 7px; font-size: 14px; font-weight: 600; color: var(--fg); }
 .segc button.on { background: var(--bg4); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); }
 @media (prefers-color-scheme: light) { .segc button.on { background: #fff; } }
-.resv .hl { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: var(--bg2); border: .5px solid var(--sep); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; font-size: 15px; font-weight: 500; line-height: 1.45; min-height: 48px; }
+.resv .hl { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; font-size: 15px; font-weight: 500; line-height: 1.45; min-height: 48px; }
 .resv .hl > svg { width: 20px; height: 20px; color: var(--fg2); flex: none; }
 .resv .hl .hlt { flex: 1; min-width: 0; }
 .resv .hl b { font-weight: 650; }
 .resv .hl .go { margin-left: auto; flex: none; }
 .resv .hl .pchip { vertical-align: 0; }
-.resv .hl.lv-busy { background: color-mix(in srgb, var(--work) 14%, var(--bg2)); border-color: color-mix(in srgb, var(--work) 45%, var(--sep)); }
 .resv .hl.lv-busy > svg { color: var(--work); }
-.resv .hl.lv-warn, .resv .hl.lv-alert { background: color-mix(in srgb, var(--warn) 14%, var(--bg2)); border-color: color-mix(in srgb, var(--warn) 55%, var(--sep)); }
 .resv .hl.lv-warn > svg, .resv .hl.lv-alert > svg { color: var(--warn); }
-.resv .rc { background: var(--bg2); border: .5px solid var(--sep); border-radius: 14px; padding: 10px 12px 11px; margin-bottom: 10px; }
+.resv .rc { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; padding: 10px 12px 11px; margin-bottom: 10px; }
 .resv .rc-h { display: flex; align-items: baseline; gap: 8px; }
 .resv .rc-h b { font-size: 15px; font-weight: 650; }
 .resv .rc-h .dim { color: var(--fg2); font-size: 12px; }
@@ -89,7 +87,7 @@
 .resv .sc, .rsh .sc { height: 30px; padding: 0 12px; border-radius: 99px; font-size: 13px; font-weight: 600; color: var(--fg2); background: var(--bg3); }
 .resv .sc.on, .rsh .sc.on { background: var(--accent-fill); color: #fff; }
 .rsh .sc:disabled { opacity: .45; }
-.resv .grpbox { background: var(--bg2); border: .5px solid var(--sep); border-radius: 14px; overflow: hidden; margin-bottom: 10px; }
+.resv .grpbox { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; overflow: hidden; margin-bottom: 10px; }
 .resv .legend { display: flex; justify-content: flex-end; padding: 6px 4px 0 10px; }
 .resv .legend .cols span { font: 600 10.5px -apple-system, system-ui, sans-serif; letter-spacing: .5px; color: var(--fg3); }
 .resv .lsp { width: 40px; flex: none; }
@@ -123,7 +121,6 @@
 .rsh .lab.tr { background: color-mix(in srgb, var(--c-green) 20%, transparent); color: var(--c-green); }
 .rsh .lab.endp { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
 .resv .more2 { padding: 0 12px 0 26px; min-height: 36px; display: flex; align-items: center; font-size: 12.5px; color: var(--fg3); }
-.resv .grpbox.closed { border-color: color-mix(in srgb, var(--warn) 50%, var(--sep)); box-shadow: inset 4px 0 0 var(--warn); }
 .resv .grpbox.closed .gt b { color: var(--warn); }
 .resv .grpbox.closed > * + * { border-top: .5px solid var(--sep); }
 .resv .askrow { padding: 8px 10px 10px 26px; }
@@ -139,7 +136,7 @@
 .rsh .pills .lab { font-size: 12px; line-height: 22px; padding: 0 8px; border-radius: 6px; }
 .rsh .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
 .rsh .stats.gone { opacity: .55; }
-.rsh .stat { background: var(--bg2); border: .5px solid var(--sep); border-radius: 12px; padding: 8px 10px; min-width: 0; }
+.rsh .stat { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 8px 10px; min-width: 0; }
 .rsh .stat .cap { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--fg2); font-weight: 600; }
 .rsh .stat .v { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .rsh .stat .s2 { font-size: 11.5px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -159,7 +156,7 @@
 .rsh .chain { font: 12px var(--mono); color: var(--fg2); line-height: 1.9; overflow-wrap: anywhere; }
 .rsh .chain a { color: var(--accent); cursor: pointer; padding: 4px 0; }
 .rsh .chain b { color: var(--fg); }
-.rsh .lbox, .resv .lbox { background: var(--bg2); border: .5px solid var(--sep); border-radius: 14px; overflow: hidden; }
+.rsh .lbox, .resv .lbox { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; overflow: hidden; }
 .rsh .lbox .pr { padding-left: 12px; }
 .rsh .lbox .pr + .pr { border-top: .5px solid var(--sep); }
 /* alerts sheet */
@@ -190,7 +187,7 @@
 .resv .fr { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 12px; min-height: 54px; cursor: pointer; }
 .resv .fr:active, .resv .br:active { background: var(--bg3); }
 .resv .fr + .fr { border-top: .5px solid var(--sep); }
-.resv .kd { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+.resv .kd { width: 10px; height: 10px; border-radius: 3px; flex: none; } /* kind swatch (the strip's legend), not an edge */
 .resv .hatch { background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, .3) 0 2px, transparent 2px 5px); }
 .resv .fr .fb { flex: 1; min-width: 0; }
 .resv .fr .fb div { font: 13.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -221,7 +218,7 @@
 .resv .scr2 { display: flex; font-size: 13px; color: var(--fg2); min-height: 28px; align-items: center; }
 .resv .scr2 span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resv .empty1 { padding: 12px; font-size: 14px; color: var(--fg2); }
-.resv .scanb { background: var(--bg2); border: .5px solid var(--sep); border-radius: 12px; padding: 10px 12px; margin-top: 12px; font-size: 14px; }
+.resv .scanb { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 10px 12px; margin-top: 12px; font-size: 14px; }
 .resv .sct { font-size: 12px; color: var(--fg2); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .resv .pbar { height: 3px; background: var(--bg4); border-radius: 2px; overflow: hidden; margin-top: 8px; }
 .resv .pbar i { display: block; height: 100%; width: 35%; background: var(--work); border-radius: 2px; animation: rprog 1.2s ease-in-out infinite; }

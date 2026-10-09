@@ -1,5 +1,5 @@
 // sheprd — iPhone client for herdr-managed Claude agents.
-import { codeHTML, md, mdx, esc, textx, linkify, thumbs, L, fixUrl, fileUrl, IMG_EXT, pathLink } from './md.js';
+import { codeHTML, md, mdx, esc, textx, linkify, thumbs, L, fixUrl, fileUrl, IMG_EXT, pathLink, isMedia } from './md.js';
 import { ansi, stripAnsi } from './ansi.js';
 
 const VERSION = 'v2';
@@ -71,8 +71,42 @@ const I = {
   bolt: '<svg viewBox="0 0 24 24"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg>',
   bellx: '<svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 9.3-5M18 8c0 7 3 9 3 9H9M13.7 21a2 2 0 0 1-3.4 0M3 3l18 18M6 8c0 2.3-.3 4-.8 5.3"/></svg>',
   pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 5 4 4H6l4-4zM12 13v8"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
 };
+
+// scheduled-item icons (server picks the key: GET /api/sched → icon; long-press a row → schedIconSheet)
+const SICON = {
+  plane: ['Travel', '<svg viewBox="0 0 24 24"><path transform="rotate(45 12 12)" d="M12 2.5c.9 0 1.5.8 1.5 1.8V9l7 4.3v2l-7-2.1v4.6l2 1.6v1.6l-3.5-1-3.5 1v-1.6l2-1.6v-4.6l-7 2.1v-2l7-4.3V4.3c0-1 .6-1.8 1.5-1.8z"/></svg>'],
+  checkin: ['Check-in', '<svg viewBox="0 0 24 24"><path d="M3.5 6.5h17V10a2 2 0 0 0 0 4v3.5h-17V14a2 2 0 0 0 0-4z"/><path d="M14.5 6.5v2M14.5 11v2M14.5 15.5v2"/></svg>'],
+  train: ['Train', '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 10.5h14M9 17l-2.5 4M15 17l2.5 4M8.5 13.8h.01M15.5 13.8h.01"/></svg>'],
+  car: ['Ride', '<svg viewBox="0 0 24 24"><path d="M5 17H3.5v-4.5L5.6 7.4A2 2 0 0 1 7.4 6h9.2a2 2 0 0 1 1.8 1.4l2.1 5.1V17H19M9 17h6M3.5 12.5h17"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>'],
+  calendar: ['Meeting', '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>'],
+  mail: ['Mail', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>'],
+  chart: ['Report', '<svg viewBox="0 0 24 24"><path d="M4 20h16M7 16v-4M12 16V6M17 16v-7"/></svg>'],
+  disk: ['Backup', '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>'],
+  deploy: ['Deploy', '<svg viewBox="0 0 24 24"><path d="M12 15l-3-3a20 20 0 0 1 2-4 12.5 12.5 0 0 1 11-6c0 2.7-.8 7.5-6 11a21 21 0 0 1-4 2z"/><path d="M9 12H4.5s.6-3 2-4c1.6-1.1 4.5 0 4.5 0M12 15v4.5s3-.6 4-2c1.1-1.6 0-4.5 0-4.5M5 15.5c-1.5 1.3-2 4.5-2 4.5s3.2-.5 4.5-2c.7-.8.6-2-.2-2.7a1.8 1.8 0 0 0-2.3.2z"/></svg>'],
+  gpu: ['Training', '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".5"/><path d="M9.5 2.5V6M14.5 2.5V6M9.5 18v3.5M14.5 18v3.5M2.5 9.5H6M2.5 14.5H6M18 9.5h3.5M18 14.5h3.5"/></svg>'],
+  cart: ['Shopping', '<svg viewBox="0 0 24 24"><path d="M2.5 3.5h3l2.4 11.6a1.8 1.8 0 0 0 1.8 1.4h8a1.8 1.8 0 0 0 1.8-1.4L21 8H6.6"/><circle cx="10" cy="20" r="1.3"/><circle cx="18" cy="20" r="1.3"/></svg>'],
+  bell: ['Reminder', '<svg viewBox="0 0 24 24"><path d="M6 8.5a6 6 0 0 1 12 0c0 6.5 2.5 8.5 2.5 8.5h-17S6 15 6 8.5M10.3 20.5a2 2 0 0 0 3.4 0"/></svg>'],
+  health: ['Health', '<svg viewBox="0 0 24 24"><path d="M19.6 13.4L12 20.5l-7.6-7.1A4.9 4.9 0 0 1 12 6.6a4.9 4.9 0 0 1 7.6 6.8z"/></svg>'],
+  money: ['Bills', '<svg viewBox="0 0 24 24"><path d="M12 2.5v19M16.5 6H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H6.5"/></svg>'],
+  monitor: ['Watch', '<svg viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>'],
+  photo: ['Photos', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/></svg>'],
+  clock: ['Clock', '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>'],
+};
+const sicon = k => (SICON[k] || SICON.clock)[1];
+// manual pick for one scheduled row (key t:<timer> / s:<schedule id>); "Automatic" clears it
+function schedIconSheet(key, cur, by, done) {
+  const sh = sheet(`<h2>Icon</h2><div class="sicg">${Object.entries(SICON).map(([k, [l, svg]]) =>
+    `<button class="sicb${k === cur ? ' on' : ''}" data-k="${k}">${svg}<span>${esc(l)}</span></button>`).join('')}</div>
+    <button class="btn sicauto"${by === 'manual' ? '' : ' disabled'}>Automatic</button>`);
+  const save = async icon => {
+    try { await post('sched/icon', { key, icon }); sh.close(); done?.(); } catch (e) { toast(esc(e.message), 'err'); }
+  };
+  sh.addEventListener('click', e => { const b = e.target.closest('.sicb'); if (b) { haptic(); save(b.dataset.k); } });
+  $('.sicauto', sh).onclick = () => save(null);
+}
 
 // ---------- global state ----------
 const G = {
@@ -330,6 +364,7 @@ function connect() {
   const s = es = new EventSource('/api/events');
   s.addEventListener('state', e => { esTry = 0; setConn('on'); try { setState(JSON.parse(e.data)); } catch (x) { console.warn(x); } });
   s.addEventListener('surface', e => { try { surfaceToast(JSON.parse(e.data)); } catch { } });
+  s.addEventListener('build', e => { try { gotBuild(JSON.parse(e.data).build); } catch { } });
   s.onopen = () => { esTry = 0; setConn('on'); obFlush(); flushDismiss(); };
   s.onerror = () => {
     if (es !== s) return;
@@ -498,6 +533,22 @@ function placeAbove(m, anchor) {
   requestAnimationFrame(place); setTimeout(place, 350);
 }
 
+// Slash commands (the composer's `/` menu): skills and commands the agent can run, from GET /api/a/<pane>/commands.
+// Ranked: name prefix, prefix after a `plugin:` namespace, name substring, then (3+ chars) description substring.
+function slashMatch(cmds, q) {
+  q = q.toLowerCase();
+  if (!q) return cmds;
+  const tiers = [[], [], [], []];
+  for (const c of cmds) {
+    const n = c.name.toLowerCase(), tail = n.slice(n.lastIndexOf(':') + 1);
+    if (n.startsWith(q)) tiers[0].push(c);
+    else if (tail.startsWith(q)) tiers[1].push(c);
+    else if (n.includes(q)) tiers[2].push(c);
+    else if (q.length >= 3 && (c.desc || '').toLowerCase().includes(q)) tiers[3].push(c);
+  }
+  return tiers.flat();
+}
+
 // ---------- toast / sheet / lightbox ----------
 let toastBox;
 function toast(html, kind = '', onClick = null, ms = 3200) {
@@ -512,7 +563,7 @@ function surfaceToast(s) {
   if (s.links?.some(l => l.url && l.url === location.hash)) return; // already looking at it
   if (G.st && !G.st.surfaces?.some(x => x.id === s.id)) { G.st.surfaces = [s, ...(G.st.surfaces || [])]; G.view?.onState?.(G.st); }
   const k = surfKey(s);
-  toast(`<b>${esc(s.title)}</b>${s.agentTitle ? `<span>${esc(s.agentTitle)}</span>` : ''}${s.replies?.length && !REPLIED[k] ? `<div class="sf-rep" data-sfkey="${esc(k)}" data-pane="${esc(s.pane || '')}">${s.replies.map(r => `<button class="btn sm${DONE_REP.test(r.trim()) ? ' did' : ''}" data-reply="${esc(r)}">${esc(repLabel(r))}</button>`).join('')}</div>` : ''}`,
+  toast(`<b>${esc(s.title)}</b>${s.agentTitle ? `<span>${esc(s.agentTitle)}</span>` : ''}${s.images?.length ? thumbs(s.images.map(asImg)) : ''}${s.replies?.length && !REPLIED[k] && !REPLIED['s:' + s.id] ? `<div class="sf-rep" data-sfkey="${esc(k)}" data-id="${esc(s.id)}" data-pane="${esc(s.pane || '')}">${s.replies.map(r => `<button class="btn sm${DONE_REP.test(r.trim()) ? ' did' : ''}" data-reply="${esc(r)}">${esc(repLabel(r))}</button>`).join('')}</div>` : ''}`,
     'l-' + s.level, () => openSurface(s), s.replies?.length ? 9000 : 5000);
 }
 
@@ -565,8 +616,19 @@ const repBtns = (rs, cls = 'btn') => {
   return (todo ? '<div class="sf-todo">Your turn — tap after you’ve done it</div>' : '')
     + `<div class="sf-rep">${rs.map(r => `<button class="${cls}${DONE_REP.test(r.trim()) ? ' did' : ''}" data-reply="${esc(r)}">${esc(repLabel(r))}</button>`).join('')}</div>`;
 };
+// A chat card with nothing to show (no text, image, video, link or button) is dropped, never drawn as an empty box.
+const hasContent = el => !!el && (!!el.textContent.trim() || !!el.querySelector('img, video, audio, iframe, a[href], button, input, textarea'));
+function dropEmpty(el) { if (el && !hasContent(el)) { el.remove(); return true; } return false; }
+// art.js failed to load: a plain link card from the publish result alone, or nothing.
+const ART_URL = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[\w-]+/;
+function artFallback(el) {
+  const r = el.res, x = el.item?.input || {}, url = r && !r.err ? String(r.text || '').match(ART_URL)?.[0] : null;
+  if (!url) { el.remove(); return; }
+  el.onres = null;
+  el.innerHTML = `<div class="ac-link"><span class="ac-ico">✦</span><div class="ac-tx"><b>${esc(x.title || String(x.file_path || '').split('/').pop() || 'Artifact')}</b><small>claude.ai</small></div><a class="btn sm ac-open" href="${esc(url)}" target="_blank" rel="noopener">Open</a></div>`;
+}
 function surfHTML(s, { inline, pane } = {}) {
-  const k = surfKey(s), done = REPLIED[k];
+  const k = surfKey(s), done = REPLIED[k] || REPLIED['s:' + s.id]; // `i` resolves a few seconds after posting: the key changes
   const links = (s.links || []).map(l => typeof l === 'string' ? { url: l } : l).filter(l => l?.url);
   return `<div class="surf l-${esc(s.level || 'info')}${inline ? ' inl' : ''}"${s.id != null ? ` data-id="${esc(s.id)}"` : ''}${inline ? ` data-i="${s.i}"` : ''} data-sfkey="${esc(k)}" data-pane="${esc(pane || s.pane || '')}">
       ${inline ? '' : `<button class="x" data-dismiss="${esc(s.id)}" aria-label="Dismiss">${I.x}</button>`}
@@ -610,9 +672,10 @@ document.addEventListener('click', e => {
   if (!pane) { toast('Agent is gone', 'err'); return; }
   if (G.view instanceof ChatView && G.view.target === pane && G.view.target === G.view.pane) G.view.send(text);
   else { haptic(); post(`a/${enc(pane)}/prompt`, { text, nonce: rid() }).then(() => toast('Sent: ' + esc(text), 'ok', null, 1600), x => toast('Not sent: ' + esc(x.message), 'err')); }
-  REPLIED[k] = text; ls.set('replied', REPLIED);
+  REPLIED[k] = text; if (box.dataset.id) REPLIED['s:' + box.dataset.id] = text; ls.set('replied', REPLIED);
   rb.closest('.toast')?.remove();
-  document.querySelectorAll(`[data-sfkey="${CSS.escape(k)}"] .sf-rep`).forEach(r => r.replaceWith(h(`<div class="sf-sent">✓ Sent: ${esc(text)}</div>`)));
+  const sid = box.dataset.id && !box.dataset.id.startsWith('toolu') ? `, .surf[data-id="${CSS.escape(box.dataset.id)}"] .sf-rep` : '';
+  document.querySelectorAll(`[data-sfkey="${CSS.escape(k)}"] .sf-rep${sid}`).forEach(r => r.replaceWith(h(`<div class="sf-sent">✓ Sent: ${esc(text)}</div>`)));
 }, true);
 function openSurface(s) {
   s = G.st?.surfaces?.find(x => x.id === s.id) || s; // `i` is resolved a moment after the surface arrives
@@ -723,13 +786,70 @@ function lightbox(src, list = [src]) {
   document.body.append(ov);
 }
 
+// Videos / audio (2026-10-06): the server answers Range (ranged.rs), so they play inline; a path link or ⤢ opens this
+// fullscreen player. Save = the share sheet with the file (iOS: "Save Video" → Photos), else a download.
+const mediaName = u => { try { return decodeURIComponent(String(u).match(/[?&]path=([^&#]+)/)?.[1] || '').split('/').pop() || 'file'; } catch { return 'file'; } };
+const MEDIA_FILES = new Map(); // url → File, so a second tap shares synchronously (iOS wants a fresh user gesture)
+async function saveMedia(u, btn) {
+  const base = String(u).split('#')[0], name = mediaName(base);
+  const dl = () => { const a = h(`<a href="${esc(base + (base.includes('?') ? '&' : '?') + 'download=1')}" download="${esc(name)}" hidden></a>`); document.body.append(a); a.click(); a.remove(); };
+  if (!navigator.canShare) return dl();
+  const label = btn?.innerHTML;
+  try {
+    let f = MEDIA_FILES.get(base);
+    if (!f) {
+      if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
+      const r = await fetch(base);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const b = await r.blob();
+      f = new File([b], name, { type: b.type || 'application/octet-stream' });
+      MEDIA_FILES.clear(); MEDIA_FILES.set(base, f);
+    }
+    if (!navigator.canShare({ files: [f] })) { MEDIA_FILES.delete(base); return dl(); }
+    try { await navigator.share({ files: [f], title: name }); MEDIA_FILES.delete(base); }
+    catch (e) {
+      if (e.name === 'NotAllowedError' && btn) { btn.disabled = false; btn.textContent = 'Tap to save'; return; } // the fetch outlived the tap
+      if (e.name !== 'AbortError') throw e;
+    }
+  } catch (e) { toast('Couldn’t save: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.innerHTML = label; }
+}
+function mediaViewer(u) {
+  const kind = isMedia(u) || 'video', base = String(u).split('#')[0];
+  const el = kind === 'audio' ? `<audio controls autoplay src="${esc(base)}"></audio>` : `<video controls playsinline autoplay preload="metadata" src="${esc(base)}"></video>`;
+  const ov = h(`<div class="lb mv"><div class="mv-in">${el}</div><button class="ib close" aria-label="Close">${I.x}</button><div class="mv-bar"><span class="mv-n">${esc(mediaName(base))}</span><button class="btn sm mv-save">${I.share}Save</button></div></div>`);
+  const close = () => { $('video, audio', ov)?.pause(); ov.classList.add('out'); setTimeout(() => ov.remove(), 160); removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  addEventListener('keydown', onKey);
+  $('.close', ov).onclick = close;
+  ov.addEventListener('click', e => { if (e.target === ov || e.target.classList.contains('mv-in')) close(); });
+  const sb = $('.mv-save', ov); sb.onclick = () => saveMedia(base, sb);
+  document.body.append(ov);
+  return ov;
+}
+// The app's own files never take the installed app out of itself: a raw /api/file tab opens outside the PWA and
+// coming back cold-loads it (4 times on 2026-10-06). Pictures and documents go to the share sheet instead (Save
+// Image, Save to Files, a PDF's preview); video and audio open the in-app player (below).
+document.addEventListener('click', e => {
+  if (e.defaultPrevented || !(navigator.standalone || matchMedia('(display-mode: standalone)').matches)) return;
+  const a = e.target.closest('a[href][target="_blank"]'); // the lightbox's Open carries an absolute URL
+  if (!a || a.origin !== location.origin || a.pathname !== '/api/file' || isMedia(a.href)) return;
+  e.preventDefault(); e.stopPropagation();
+  saveMedia(a.pathname + a.search);
+}, true);
+document.addEventListener('click', e => {
+  const t = e.target.closest('a.pvid, button.vopen'); if (!t) return;
+  e.preventDefault(); e.stopPropagation();
+  const box = t.closest('.vthumb'); box?.querySelector('video, audio')?.pause();
+  mediaViewer(t.dataset.media || t.getAttribute('href'));
+}, true);
 document.addEventListener('click', e => {
   const im = e.target.closest('img.thumb');
   const pa = !im && e.target.closest('a.pimg');
   if (!im && !pa) return;
   e.preventDefault();
   // Gallery = every image in the same message / card / tool row, in order.
-  const box = (im || pa).closest('.msg, .row, .card, .scard, .sfc, .note, article, .sheet, .view') || document;
+  const box = (im || pa).closest('.surf, .hcard, .msg, .row, .card, .scard, .sfc, .note, article, .sheet, .view') || document;
   const list = [...new Set([...box.querySelectorAll('img.thumb, a.pimg')].map(x => x.tagName === 'A' ? x.href : (x.currentSrc || x.src)))];
   const src = im ? (im.currentSrc || im.src) : pa.href;
   lightbox(src, list.includes(src) ? list : [src]);
@@ -902,6 +1022,8 @@ function getAgentsView() {
   // (Master first). Working agents are tiles and the hero's agent is the hero, so neither repeats as a row; quiet
   // agents fold away at the bottom. Without home.js (still loading) every agent is a row.
   const GRP = [['ready', 'Ready'], ['all', 'Everyone']];
+  // Pinned agents (long-press → Pin to top) lead Everyone, right under Master, whatever their status: never a tile,
+  // never in Ready, never in Quiet. A blocked one can also be the hero card.
   const groupOf = (a, s) => s === 'done' && !a.home ? 'ready' : 'all';
   const grpEl = k => {
     let g = groups.get(k);
@@ -927,12 +1049,13 @@ function getAgentsView() {
     if (patchHTML(surfsEl, shown.map(surfHTML).join('') + (surfs.length > 1 ? `<div class="sf-foot">${surfs.length > 2 ? `<button class="more">${surfOpen ? 'Show less' : `Show ${surfs.length - 2} more`}</button>` : ''}`
       + `<button class="sf-clr" data-n="${surfs.length}" data-ids="${esc(surfs.map(s => s.id).join(' '))}">Clear all</button></div>` : ''))) tick(surfsEl);
     // cards (keyed), placed into their group or the Quiet folder
-    const live = new Set(), byG = new Map(), quiet = [];
+    const live = new Set(), byG = new Map(), quiet = [], pinned = [];
     const vis = list.filter(a => !(a.service && !svcNeeds(a)) && !isQuiet(a));
     const hb = MODS.home && MODS.queue ? MODS.home.draw(el, st, { list: vis, jobs, failing: list.filter(a => svcIssue(a)) }) : null;
     for (const a of MODS.fleet ? MODS.fleet.order(list) : list) {
       if (a.service && !svcNeeds(a)) continue; // in the Scheduled strip
-      if (hb && (hb.tiles.has(a.pane) || a.pane === hb.hero)) continue; // a tile / the hero
+      const pin = a.pinned && !a.home;
+      if (!pin && hb && (hb.tiles.has(a.pane) || a.pane === hb.hero)) continue; // a tile / the hero
       live.add(a.pane);
       const html = cardHTML(a); let c = cards.get(a.pane);
       if (!c) { c = { el: h(`<div class="cwrap" data-pane="${esc(a.pane)}"><div class="cact l"></div><div class="cact r"></div></div>`) }; cards.set(a.pane, c); }
@@ -947,11 +1070,13 @@ function getAgentsView() {
         c.el.children[0].innerHTML = m ? `<button data-act="pin">${I.pin}${a.pinned ? 'Unpin' : 'Pin'}</button><button data-act="mute">${I.bellx}${a.muted ? 'Unmute' : 'Mute'}</button>` : '';
         c.el.children[1].innerHTML = `<button data-act="stop">${I.stop}Stop</button>${a.home ? '' : `<button data-act="close">${I.x}Close</button>`}`;
       }
-      if (isQuiet(a)) quiet.push(c.el);
+      if (pin) pinned.push(c.el);
+      else if (isQuiet(a)) quiet.push(c.el);
       else { const k = groupOf(a, dispStatus(a)); if (!byG.has(k)) byG.set(k, []); byG.get(k)[a.home ? 'unshift' : 'push'](c.el); }
       MODS.fleet?.deco(c, a);
     }
     for (const [k, c] of cards) if (!live.has(k)) { c.el.remove(); cards.delete(k); }
+    if (pinned.length) { const all = byG.get('all') || []; all.splice(list.some(a => a.home && cards.get(a.pane)?.el === all[0]) ? 1 : 0, 0, ...pinned); byG.set('all', all); }
     const secs = [];
     for (const [k, label] of GRP) {
       const els = byG.get(k); if (!els) continue;
@@ -970,10 +1095,10 @@ function getAgentsView() {
     const qc = $('.qclose', quietEl); qc.hidden = !tests; if (!qc.classList.contains('arm')) qc.textContent = 'Close tests';
     patchHTML($('.qsh', quietEl), shells.map(s => `<a class="shell" href="#/s/${enc(s.pane)}"><span>${esc(s.title || s.pane)}</span><small>${esc(shortPath(s.cwd))}</small></a>`).join(''));
   }
-  // Scheduled strip: the next agent wake-up / schedule (GET /api/sched, polled while Home is visible) and one line per
+  // Scheduled strip: the next 3 agent wake-ups / schedules (GET /api/sched, polled while Home is visible) and one line per
   // background service. Not a card: a tinted strip with time chips; hidden when there is nothing.
   const bgsEl = $('.bgs', el);
-  const CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>';
+  const CLOCK = SICON.clock[1];
   let sched = null, schedAt = 0, schedBusy = false;
   const loadSched = async force => {
     if (schedBusy || G.noSched || (!force && Date.now() - schedAt < 60e3)) return;
@@ -983,24 +1108,50 @@ function getAgentsView() {
     finally { schedBusy = false; }
   };
   setInterval(() => { if (!document.hidden && G.view === agentsView) loadSched(); }, 15e3);
+  // Pane-less service rows (state `services`, API.md "Background services"): no chat to open, so a tap follows the
+  // report's `link` (an app path like "/#/fleet" stays in the app, https opens a tab), else shows a detail sheet.
+  const soloOf = r => (G.st?.services || []).find(v => v.id === r.dataset.sid);
+  const soloHref = l => !l ? '' : l.startsWith('/#/') ? l.slice(1) : l;
+  const soloRow = v => {
+    const l = soloHref(v.link), ext = /^https:/.test(l), err = v.error || (v.lastError && now() - v.lastError.ts < 3600e3 && 'error');
+    const st = v.error ? `<i class="bg-err">${esc(v.error)}</i>` : v.stale ? `<i class="bg-late">late · due ${esc(atTime(v.nextRun || v.ts + (v.everyMs || 0)))}</i>`
+      : esc(v.status || '') + (err ? ` · <i class="bg-err">error <span data-since="${v.lastError.ts}" data-ago></span></i>` : '');
+    return `<a class="bg-row svc solo${v.stale ? ' late' : ''}" href="${esc(l || '#')}"${l ? ` data-link="1"` : ''}${ext ? ' target="_blank" rel="noopener"' : ''} data-sid="${esc(v.id)}"><span class="bg-ic">${esc(v.icon || '●')}</span><b>${esc(v.name)}</b>`
+      + (v.lastRun ? `<span class="bg-chip">${esc(v.verb || 'ran')} <span data-since="${v.lastRun}" data-ago></span></span>` : '')
+      + `<span class="bg-st">${st}</span></a>`;
+  };
+  const soloSheet = v => {
+    const l = soloHref(v.link), when = ms => ms ? `${esc(atTime(ms))} (<span data-since="${ms}" data-ago></span>)` : '—';
+    const rows = [['Status', esc(v.status || '—')], v.lastRun && [esc(cap(v.verb || 'ran')), when(v.lastRun)], v.nextRun && (v.nextRun > now() ? ['Next', `${esc(atTime(v.nextRun))} · ${esc(inTime(v.nextRun))}`] : ['Due', esc(atTime(v.nextRun))]),
+      v.stale && ['Late', `no report since ${esc(atTime(v.ts))}`], v.error && ['Failing', `<span class="bg-err">${esc(v.error)}</span>`],
+      v.lastError && ['Last error', `${esc(v.lastError.msg)} · <span data-since="${v.lastError.ts}" data-ago></span>`], ['Source', `<code>${esc(v.id)}</code> (no agent pane)`]].filter(Boolean);
+    const sh = sheet(`<h2>${esc(v.icon || '')} ${esc(v.name)}</h2><dl class="solo-dl">${rows.map(([k, x]) => `<dt>${k}</dt><dd>${x}</dd>`).join('')}</dl>`
+      + (l ? `<div class="btns"><a class="btn sm" href="${esc(l)}"${/^https:/.test(l) ? ' target="_blank" rel="noopener"' : ''}>Open</a></div>` : ''));
+    tick(sh); sh.addEventListener('click', e => { if (e.target.closest('a')) sh.close(); });
+  };
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
   const upcoming = () => {
     const agents = G.st?.agents || [], t = now(), out = [];
     for (const x of sched?.timers || []) {
       if (!x.agentPane || !x.next || x.next < t - 60e3) continue;
       const a = agents.find(a => a.pane === x.agentPane || a.name === x.agentPane);
-      out.push({ name: humanName(x.name), next: x.next, href: a ? agentHref(a) : '#/fleet/sched' });
+      out.push({ name: humanName(x.name), next: x.next, href: a ? agentHref(a) : '#/fleet/sched', icon: x.icon, by: x.iconBy, key: 't:' + x.name });
     }
     for (const x of sched?.schedules || []) {
       if (x.paused || !x.next) continue;
       const a = x.lastPane && agents.find(a => a.pane === x.lastPane);
-      out.push({ name: x.label, next: x.next, href: a ? agentHref(a) : '#/fleet/sched' });
+      out.push({ name: x.label, next: x.next, href: a ? agentHref(a) : '#/fleet/sched', icon: x.icon, by: x.iconBy, key: 's:' + x.id });
     }
     return out.sort((a, b) => a.next - b.next);
   };
   function drawBgs() {
-    const svcs = (G.st?.agents || []).filter(a => a.service && !svcNeeds(a)), up = upcoming(), n = up[0], rows = [];
-    if (n) rows.push(`<a class="bg-row tmr" href="${esc(n.href)}"><span class="bg-ic">${CLOCK}</span><b>${esc(n.name)}</b><span class="bg-chip">${esc(atTime(n.next))}</span><span class="bg-in">${esc(inTime(n.next))}</span>`
-      + `<span class="sp"></span>${up.length > 1 ? `<span class="bg-more" data-go="#/fleet/sched">+${up.length - 1} more</span>` : ''}</a>`);
+    // up to 3 rows of pane-less services (a systemd timer's report, e.g. the nightly backup) and upcoming wake-ups /
+    // schedules, services first, then soonest first; "+N more" only beyond 3. Pane-bound services follow, uncapped.
+    const svcs = (G.st?.agents || []).filter(a => a.service && !svcNeeds(a)), up = upcoming(), rows = [], NT = 3;
+    const solo = (G.st?.services || []).slice(0, NT);
+    for (const v of solo) rows.push(soloRow(v));
+    up.slice(0, NT - solo.length).forEach(n => rows.push(`<a class="bg-row tmr" href="${esc(n.href)}" data-key="${esc(n.key)}" data-icon="${esc(n.icon || 'clock')}" data-by="${esc(n.by || '')}"><span class="bg-ic">${sicon(n.icon)}</span><b>${esc(n.name)}</b><span class="bg-chip">${esc(atTime(n.next))}</span><span class="bg-in">${esc(inTime(n.next))}</span>`
+      + '</a>'));
     for (const a of svcs) {
       const v = a.service, err = v.lastError && now() - v.lastError.ts < 3600e3;
       rows.push(`<a class="bg-row svc${a.status === 'working' ? ' busy' : ''}" href="${agentHref(a)}" data-pane="${esc(a.pane)}"><span class="bg-ic">${esc(v.icon || '●')}</span><b>${esc(v.name)}</b>`
@@ -1008,10 +1159,19 @@ function getAgentsView() {
         + `<span class="bg-st">${esc(v.status || '')}${err ? ` · <i class="bg-err">error <span data-since="${v.lastError.ts}" data-ago></span></i>` : ''}</span></a>`);
     }
     bgsEl.hidden = !rows.length;
-    if (patchHTML(bgsEl, rows.length ? `<span class="bg-lbl">${CLOCK}Scheduled</span>${rows.join('')}` : '')) tick(bgsEl);
+    // "+N more" sits in the box's top edge, opposite the label, so the rows keep their full width
+    const hidden = up.length - Math.max(0, NT - solo.length);
+    const more = hidden > 0 ? `<a class="bg-more bg-mtop" href="#/fleet/sched">+${hidden} more</a>` : '';
+    if (patchHTML(bgsEl, rows.length ? `<span class="bg-lbl">${CLOCK}Scheduled</span>${more}${rows.join('')}` : '')) tick(bgsEl);
   }
-  bgsEl.addEventListener('click', e => { const m = e.target.closest('[data-go]'); if (m) { e.preventDefault(); location.hash = m.dataset.go; } });
-  longPress(bgsEl, '.bg-row.svc', r => { const a = G.st?.agents.find(a => a.pane === r.dataset.pane); if (!a) return false; lazy('sheets').then(m => m.cardSheet(a)); });
+  bgsEl.addEventListener('click', e => {
+    const m = e.target.closest('[data-go]'); if (m) { e.preventDefault(); location.hash = m.dataset.go; return; }
+    const r = e.target.closest('.bg-row.solo:not([data-link])'); const v = r && soloOf(r); // no link: a detail sheet
+    if (v) { e.preventDefault(); soloSheet(v); }
+  });
+  longPress(bgsEl, '.bg-row.tmr', r => schedIconSheet(r.dataset.key, r.dataset.icon, r.dataset.by, () => loadSched(true)));
+  longPress(bgsEl, '.bg-row.solo', r => { const v = soloOf(r); if (!v) return false; soloSheet(v); });
+  longPress(bgsEl, '.bg-row.svc:not(.solo)', r => { const a = G.st?.agents.find(a => a.pane === r.dataset.pane); if (!a) return false; lazy('sheets').then(m => m.cardSheet(a)); });
 
   // background jobs (F11)
   const jobsEl = $('.jobs', el);
@@ -1109,16 +1269,18 @@ function getAgentsView() {
   };
 }
 
-// ---------- Tab bar: Agents · History · Automations · Machine (docs/simplify.md C6, C8, C9) ----------
+// ---------- Tab bar: Agents · History · Automations · Machine · Repos (docs/simplify.md C6, C8, C9) ----------
 // One bar, moved into whichever tab screen is showing. History = Sessions + Search; Automations = Schedules (with
 // system timers and all watches) + Cloud; Machine = Live, Disk, desktop Screen and Claude usage. Each tab reopens its
 // last screen; tapping the current tab goes to its first screen (Agents: scroll to top). res.js puts a dot on
 // Machine for warn/alert only (a busy GPU during training is normal).
 const TABS = [
   ['agents', 'Agents', '#/agents', k => k === 'agents', '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>'],
-  ['history', 'History', '#/fleet', k => k === 'fleet/' || k === 'search', '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4M12 8v4l3 2"/></svg>'],
+  ['history', 'History', '#/fleet', k => k === 'fleet/' || k === 'fleet/asks' || k === 'search', '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4M12 8v4l3 2"/></svg>'],
   ['auto', 'Automations', '#/fleet/sched', k => k === 'fleet/sched' || k === 'fleet/cloud', '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>'],
   ['machine', 'Machine', '#/r', k => k === 'r' || k.startsWith('r/disk') || k === 'fleet/desk', '<svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/></svg>'],
+  // Repos (repos.js): repos being worked on, GitHub / Vercel links, Deploy to Vercel
+  ['repos', 'Repos', '#/repos', k => k === 'repos', '<svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-11 7"/></svg>'],
 ];
 let tabEl = null;
 const tabLast = {};
@@ -1144,6 +1306,18 @@ function tabBar(key, v) {
 // ---------- Screen component ----------
 const KEYS = [['Esc', 'esc'], ['Tab', 'tab'], ['⇧Tab', 'shift+tab'], ['↑', 'up'], ['↓', 'down'], ['←', 'left'], ['→', 'right'],
 ['⏎', 'enter'], ['^C', 'ctrl+c'], ['1', '1'], ['2', '2'], ['3', '3'], ['y', 'y'], ['n', 'n']];
+// Esc on an open AskUserQuestion cancels it and every answer (2026-10-07: a keybar Esc rejected a 4-question ask):
+// the first tap only warns, a second one within 3 s sends it.
+let escArm = 0;
+function escGuard(pane, k) {
+  if (k !== 'esc') return true;
+  const a = G.st?.agents.find(a => a.pane === pane);
+  if (!a?.ask?.questions?.length || a.ask.phone) return true;
+  if (Date.now() - escArm < 3000) { escArm = 0; return true; }
+  escArm = Date.now();
+  toast('Esc cancels the open question and its answers. Tap Esc again to send it.', 'err', null, 3000);
+  return false;
+}
 const keyBtns = (list, cls = '') => list.map(([l, k]) => `<button class="key ${cls}" data-k="${k}">${l}</button>`).join('');
 
 class Screen {
@@ -1156,7 +1330,7 @@ class Screen {
       <form class="rawin"><input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" placeholder="Type, sends + Enter"><button class="key">Send</button></form>
     </div>`);
     this.pre = $('.term', this.el); this.wrap = $('.term-wrap', this.el);
-    $('.keybar', this.el).onclick = e => { const b = e.target.closest('[data-k]'); if (b) { sendKeys(pane, [b.dataset.k]).then(() => this.soon()); } };
+    $('.keybar', this.el).onclick = e => { const b = e.target.closest('[data-k]'); if (b && escGuard(pane, b.dataset.k)) { sendKeys(pane, [b.dataset.k]).then(() => this.soon()); } };
     $('.scr-tools', this.el).onclick = e => {
       const b = e.target.closest('[data-z]'); if (!b) return;
       const cur = this.fs || parseFloat(this.pre.style.fontSize) || 11;
@@ -1337,15 +1511,21 @@ class ChatView {
       if (!it) return false;
       lazy('sheets').then(x => x.msgSheet(this, it, m));
     });
+    // a menu tap: one /choose at a time; the buttons stay as drawn (busy) until it returns, then the next
+    // screen frame redraws them from the terminal, so a multiSelect tick never flickers or toggles twice
     q('.bl-opts').onclick = async e => {
-      const b = e.target.closest('[data-o]'); if (!b) return;
+      const b = e.target.closest('[data-o]'); if (!b || this.choosing) return;
+      const tick = b.classList.contains('ck');
+      this.choosing = true;
       const all = [...q('.bl-opts').querySelectorAll('.opt')]; all.forEach(x => x.disabled = true); b.classList.add('busy'); haptic();
-      try { await post(`a/${enc(this.pane)}/choose`, { index: +b.dataset.o }); }
+      try { await post(`a/${enc(this.pane)}/choose`, { index: +b.dataset.o }); if (!tick) setTimeout(() => this.acted(), 300); }
       catch (err) { toast('Failed: ' + esc(err.message), 'err'); }
-      all.forEach(x => x.disabled = false); b.classList.remove('busy'); this.blRev = null; this.pollBlocked(true);
+      this.choosing = false;
+      all.forEach(x => x.disabled = false); b.classList.remove('busy'); this.blRev = null; this.blOpts = null; this.pollBlocked(true);
     };
-    q('.blocked').addEventListener('click', e => { if (e.target.closest('.bl-opts button, .bl-opts [data-o]')) setTimeout(() => this.acted(), 300); });
-    q('.bl-keys').onclick = e => { const b = e.target.closest('[data-k]'); if (b) sendKeys(this.pane, [b.dataset.k]).then(() => this.pollBlocked(true)); };
+    // other cards in the panel (question card, permission, plan): "Next up" after an answer, not after a tick
+    q('.blocked').addEventListener('click', e => { if (e.target.closest('.bl-opts button') && !e.target.closest('[data-o], [data-ao]:not(.ak-1), .ak-st, .ak-back, .ak-next')) setTimeout(() => this.acted(), 300); });
+    q('.bl-keys').onclick = e => { const b = e.target.closest('[data-k]'); if (b && escGuard(this.pane, b.dataset.k)) sendKeys(this.pane, [b.dataset.k]).then(() => this.pollBlocked(true)); };
     // quick row (⚡ snippets + suggestion chips): hidden by default; it shows when the agent ended
     // on a direct question, or while the text field is focused and empty (tap into it to reveal)
     q('.qk').onclick = e => {
@@ -1361,7 +1541,9 @@ class ChatView {
     for (const a of ls.get('att.' + this.dkey, [])) this.addAtt({ ...a, st: 'ok', url: IMG_EXT.test(a.path) ? fileUrl(a.path) : null });
     for (const e of OB) if (e.dkey === this.dkey) this.trackSend(e);
     const saveDraft = debounce(() => ls.set('draft.' + this.dkey, ta.value || null), 300);
-    ta.oninput = () => { this.autosize(); saveDraft(); this.updQk(); };
+    ta.oninput = () => { this.autosize(); saveDraft(); this.updQk(); this.slashUpd(); };
+    ta.addEventListener('keydown', e => this.slashKey(e));
+    ta.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== ta) this.slashClose(); }, 250));
     ta.addEventListener('focus', () => { this.taFocus = true; this.updQk(); });
     ta.addEventListener('blur', () => setTimeout(() => {
       if (document.activeElement === ta || Date.now() - (this.qkHold || 0) < 600) return;
@@ -1388,11 +1570,11 @@ class ChatView {
     this.onState(G.st);
   }
   destroy() {
-    this.dead = true; this.closeStream(); this.saveCache();
+    this.dead = true; this.closeStream(); this.saveCache(); this.slashClose();
     this.screen?.stop(); clearTimeout(this.blT); clearTimeout(this.subT);
   }
   onVisible() { if (this.tid) { this.openStream(); this.refreshSubs(); } this.screen?.start(); this.pollBlocked(); }
-  suspend() { this.trackSeen(true); this.scTop = this.sc.scrollTop; this.onHidden(); clearTimeout(this.blT); clearTimeout(this.subT); }
+  suspend() { this.slashClose(); this.trackSeen(true); this.scTop = this.sc.scrollTop; this.onHidden(); clearTimeout(this.blT); clearTimeout(this.subT); }
   resume() {
     this.shownAt = Date.now();
     const seen = G.seenI[this.tid];
@@ -1518,6 +1700,38 @@ class ChatView {
       this.setVia(st);
       this.crumb();
     }
+    this.placeSurfs();
+  }
+  // Surfaces posted for this agent through POST /api/surface (no surface tool row of their own: curl, the mod's notes)
+  // are drawn inline after the item that was newest when they came (`i`; else by time), with the same card and
+  // reply buttons as a surface tool row. Sources: the transcript's `surfaces` (incl. dismissed: the chat keeps its
+  // history) and live state. A mod-tool surface is skipped: `row`, or the item at `i` is its row; `i` still null =
+  // its row may be on the way (≤ 8 s), so wait.
+  placeSurfs() {
+    if (!this.tid || this.tid.includes('~') || !this.loaded && !this.items.length) return;
+    const all = new Map(this.sfx || []);
+    for (const s of G.st?.surfaces || []) if (s.tid ? s.tid === this.tid : this.pane && s.pane === this.pane) all.set(String(s.id), s);
+    const now = Date.now();
+    for (const s of all.values()) {
+      if (s.review || s.row || !s.title) continue;
+      if (this.list.querySelector(`.surf.api[data-id="${CSS.escape(String(s.id))}"]`)) continue;
+      let at = s.i;
+      if (at == null) {
+        if (now - s.ts < 12e3) { clearTimeout(this.sfT); this.sfT = setTimeout(() => this.placeSurfs(), 3e3); continue; }
+        at = this.items.filter(x => x.ts && x.ts <= s.ts).at(-1)?.i;
+        if (at == null && (this.first > 0 || this.items[0]?.ts <= s.ts)) continue;
+        at ??= -1;
+      }
+      if (at >= this.next || (at < this.first - 1 && this.first > 0)) continue; // not loaded (older pages place it)
+      const it = this.items.find(x => x.i === at);
+      if (it?.k === 'tool' && it.name === 'mcp__sheprd__surface' && norm(it.input?.title) === norm(s.title)) continue;
+      const el = h(surfHTML(s, { inline: true, pane: this.target || s.pane }));
+      if (!hasContent(el)) continue;
+      el.classList.add('api'); el.dataset.i = at;
+      const after = [...this.list.children].find(c => c.classList.contains('pending') || +(c.dataset.i ?? c.querySelector('[data-i]')?.dataset.i ?? -1) > at);
+      this.list.insertBefore(el, after || null);
+      tick(el);
+    }
   }
   // subagent view: compose via the parent session's pane
   setVia(st) {
@@ -1603,7 +1817,7 @@ class ChatView {
   // ----- transcript loading -----
   async load(tid) {
     this.closeStream(); this.saveCache();
-    this.tid = tid; this.reset(); this.loaded = false;
+    this.tid = tid; this.reset(); this.loaded = false; this.sfx = new Map();
     const seen = G.seenI[tid];
     const c = G.tc.get(tid) || ls.get('t.' + tid, null);
     if (c?.items?.length) { this.meta(c); this.append(c.items, true); this.first = c.first; this.next = c.total; }
@@ -1630,6 +1844,7 @@ class ChatView {
     }
   }
   meta(r) {
+    if (r.surfaces) { this.sfx ||= new Map(); for (const s of r.surfaces) this.sfx.set(String(s.id), s); }
     if (r.subagents) { this.subs = r.subagents; this.subCount(this.subs.filter(s => s.running).length, this.subs.length); this.updateAgentRows(); }
     if (this.ro && 'tid' in r) {
       const t1 = $('.t1', this.el);
@@ -1763,6 +1978,7 @@ class ChatView {
       if (it.k === 'tool' && EDIT_TOOLS.has(it.name) && !initial) this.filesSoon ||= setTimeout(() => { this.filesSoon = 0; this.refreshFiles(); }, 2500);
       if (it.k === 'user') this.reconcile(it);
     }
+    this.placeSurfs();
     if (atB) requestAnimationFrame(() => this.toBottom()); else if (vis) this.newPill.hidden = false;
     $('.older', this.el).hidden = this.first <= 0;
     if (this.home) updPchips(this.list);
@@ -1775,6 +1991,7 @@ class ChatView {
     this.list.prepend(...tmp.childNodes);
     s.scrollTop = ot + (s.scrollHeight - oh);
     this.items.unshift(...items); this.first = items[0].i;
+    this.placeSurfs();
   }
   group(box) {
     let g = box.lastElementChild;
@@ -1843,13 +2060,15 @@ class ChatView {
       case 'tool': {
         if (it.name === 'mcp__sheprd__surface' && it.input?.title) {
           const x = it.input, el = h(surfHTML({ ...x, i: it.i, tid: this.tid, level: x.level }, { inline: true, pane: this.target }));
+          if (!hasContent(el)) break;
           el.dataset.id = it.id; el.item = it; this.rows.set(it.id, el); box.append(el);
           break;
         }
         if (it.name === 'Artifact' && !it.input?.asset && (!it.input?.action || it.input.action === 'publish')) { // rich card (art.js)
           const el = h(`<div class="artc" data-id="${esc(it.id)}" data-i="${it.i}"></div>`);
           el.item = it; this.rows.set(it.id, el); box.append(el);
-          el.res = this.results.get(it.id); lazy('art').then(m => m.card(el, this), () => { });
+          el.res = this.results.get(it.id);
+          lazy('art').then(m => m.card(el, this)).catch(() => artFallback(el)); // never leave the placeholder empty
           break;
         }
         const el = h(`<div class="row tool run" data-id="${esc(it.id)}" data-i="${it.i}"><div class="rh"><span class="chev"></span><b>${esc(it.name)}</b><span class="sum">${esc(it.summary || '')}</span><span class="st"></span></div></div>`);
@@ -2037,6 +2256,7 @@ class ChatView {
   }
   async send(text, mode) {
     let undo = null;
+    this.slashClose();
     if (!text) {
       undo = { typed: this.ta.value, atts: this.atts.filter(a => a.st === 'ok').map(({ name, path, url }) => ({ name, path, url })), mods: [...this.mods] };
       const lines = this.atts.filter(a => a.st === 'ok').map(a => `[attached: ${a.path}]`);
@@ -2044,6 +2264,12 @@ class ChatView {
       // typed shorthands ("//sub", "//Ro." …) join the tray's modifiers for this send
       let [t, typed] = takeMods(this.ta.value.trim());
       t = t.trim();
+      // a question card is up: the typed reply answers it (talk.js akType) instead of reaching the terminal behind it
+      const ak = $('.bl-opts', this.el)?.akType, a = this.agent;
+      if (ak && t && !lines.length && !mode && a?.status === 'blocked' && a.ask?.questions?.length && !a.plan && !a.talk?.perm && !a.ask.phone && ak(t)) {
+        this.ta.value = ''; ls.set('draft.' + this.dkey, null); this.autosize(); this.acted();
+        return;
+      }
       const keys = [...new Set([...this.mods, ...typed])];
       if (t) t += modSuffix(keys);
       text = [t, ...lines].filter(Boolean).join('\n');
@@ -2165,6 +2391,70 @@ class ChatView {
     document.body.append(ov);
     placeAbove(m, this.sendBtn);
   }
+  // ----- `/` menu: typing `/` at the start of the field lists skills and commands, filtered as you type; a tap
+  // inserts `/name `. Closes on space, Esc, a tap outside, or when the text no longer starts with `/`. -----
+  slashUpd() {
+    const v = this.ta.value, m = /^\/(\S*)$/.exec(v);
+    if (!v.startsWith('/')) this.slashOff = false; // Esc / tap-outside hold until the `/` is gone
+    if (!m || this.slashOff || !this.pane || this.ro) { this.slashClose(); return; }
+    // fetched once per chat (the list rarely changes); a failure retries on the next `/`
+    this.slashP ||= api(`a/${enc(this.pane)}/commands`).then(r => r.commands || []).catch(() => { this.slashP = null; return []; });
+    const q = m[1];
+    this.slashP.then(cmds => {
+      if (this.dead || this.ta.value !== v || this.slashOff) return;
+      this.slashList = slashMatch(cmds, q).slice(0, 60);
+      if (!this.slashList.length) { this.slashClose(); return; }
+      if (this.slashQ !== q) this.slashI = 0;
+      this.slashQ = q;
+      this.slashRender();
+    });
+  }
+  slashRender() {
+    let m = this.slashEl;
+    if (!m) {
+      m = this.slashEl = h('<div class="popm slash" role="listbox" aria-label="Commands"><div class="sl-list"></div></div>');
+      m.addEventListener('mousedown', e => e.preventDefault()); // keep the field focused (keyboard up)
+      m.onclick = e => { const b = e.target.closest('[data-n]'); if (b) this.slashPick(b.dataset.n); };
+      this.slashOut = e => { if (!m.contains(e.target) && e.target !== this.ta) { this.slashOff = true; this.slashClose(); } };
+      document.addEventListener('pointerdown', this.slashOut, true);
+      this.slashMove = () => this.slashPlace();
+      vv?.addEventListener('resize', this.slashMove); vv?.addEventListener('scroll', this.slashMove); addEventListener('resize', this.slashMove);
+      document.body.append(m);
+    }
+    $('.sl-list', m).innerHTML = this.slashList.map((c, k) => `<button class="sl-row${k === this.slashI ? ' on' : ''}" role="option" data-n="${esc(c.name)}"><b>/${esc(c.name)}</b>${c.desc ? `<small>${esc(c.desc)}</small>` : ''}</button>`).join('');
+    this.slashPlace(); requestAnimationFrame(() => this.slashPlace());
+  }
+  // Fixed (like #app), so it shares the composer rect's frame even when iOS scrolls the document under the keyboard
+  // (absolute put it scrollY too high). Bottom edge 8 px above the composer; a long list grows up to the visible top.
+  slashPlace() {
+    const m = this.slashEl; if (!m) return;
+    const r = $('.crow', this.el).getBoundingClientRect(), vTop = (vv?.offsetTop ?? 0) + 8;
+    m.style.left = Math.max(8, r.left) + 'px'; m.style.right = Math.max(8, innerWidth - r.right) + 'px';
+    m.style.maxHeight = Math.max(96, r.top - 8 - vTop) + 'px';
+    m.style.top = Math.max(vTop, r.top - 8 - m.offsetHeight) + 'px';
+  }
+  slashPick(name) {
+    haptic();
+    const ta = this.ta;
+    ta.value = '/' + name + ' ';
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta.dispatchEvent(new Event('input')); // autosize, draft, and closes the menu (the space)
+  }
+  slashKey(e) {
+    if (!this.slashEl) return;
+    const n = this.slashList.length;
+    if (e.key === 'Escape') { e.preventDefault(); this.slashOff = true; this.slashClose(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); this.slashI = (this.slashI + (e.key === 'ArrowDown' ? 1 : n - 1)) % n; this.slashRender();
+      $('.sl-row.on', this.slashEl)?.scrollIntoView({ block: 'nearest' });
+    } else if ((e.key === 'Tab' || (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.shiftKey)) && n) { e.preventDefault(); this.slashPick(this.slashList[this.slashI].name); }
+  }
+  slashClose() {
+    if (!this.slashEl) return;
+    document.removeEventListener('pointerdown', this.slashOut, true);
+    vv?.removeEventListener('resize', this.slashMove); vv?.removeEventListener('scroll', this.slashMove); removeEventListener('resize', this.slashMove);
+    this.slashEl.remove(); this.slashEl = null; this.slashQ = null;
+  }
   // pending bubble bound to an outbox entry; resolves on success / HTTP error / expiry
   trackSend(e) {
     const [html, imgs] = textx(e.raw);
@@ -2207,6 +2497,7 @@ class ChatView {
     if (b.hidden === !on) return;
     b.hidden = !on;
     this.el.classList.toggle('is-blocked', on);
+    if (!on) this.blOpts = null; // the same question asked again ("ask again") gets a fresh, tappable card
     if (on) this.pollBlocked(); else clearTimeout(this.blT);
     if (this.stick) requestAnimationFrame(() => this.toBottom());
   }
@@ -2214,9 +2505,11 @@ class ChatView {
     clearTimeout(this.blT);
     if (this.dead || $('.blocked', this.el).hidden || document.hidden || this.screen) return;
     if (soon) { this.blT = setTimeout(() => this.pollBlocked(), 150); return; }
+    const seq = this.blSeq = (this.blSeq || 0) + 1;
     try {
       const r = await api(`a/${enc(this.pane)}/screen?ansi=1`);
-      if (r.revision == null || r.revision !== this.blRev) {
+      if (seq !== this.blSeq) return; // a newer poll owns the panel: this frame is stale
+      if (!this.choosing && (r.revision == null || r.revision !== this.blRev)) {
         this.blRev = r.revision;
         const lines = String(r.text || '').replace(/\r\n?/g, '\n').split('\n');
         while (lines.length && !stripAnsi(lines.at(-1)).trim()) lines.pop();
@@ -2232,6 +2525,8 @@ class ChatView {
   // big option buttons; with an AskUserQuestion hint they become a question card (F3)
   renderOpts() {
     const opts = $('.bl-opts', this.el), q = this.agent?.ask?.questions?.[0];
+    // the question card (talk.js renderAsk) has its own Submit; the terminal keys under it only push it down
+    $('.blocked', this.el).classList.toggle('ask', !!(q && !this.agent?.plan && !this.agent?.talk?.perm && !this.agent?.ask?.phone));
     // ask_phone (modbridge): the agent waits on a question asked on the phone — options + free-text reply, no terminal
     // talk.js: a permission dialog the phone can answer (the terminal shows it too)
     const perm = this.agent?.talk?.perm;
@@ -2252,7 +2547,7 @@ class ChatView {
     // talk.js: an AskUserQuestion answered here in full (every question, multiSelect, free text)
     if (q && !this.agent?.plan) {
       if (!MODS.talk) { lazy('talk').then(() => { this.blOpts = null; this.renderOpts(); }); return; }
-      const asig = 'a' + JSON.stringify(this.agent.ask);
+      const asig = 'a' + JSON.stringify(this.agent.ask.questions); // not ts: the hint and the transcript agree on these
       if (asig !== this.blOpts) { this.blOpts = asig; MODS.talk.renderAsk(this, opts, this.agent.ask); }
       $('.bl-scr', this.el).hidden = true;
       return;
@@ -2271,7 +2566,7 @@ class ChatView {
     opts.innerHTML = (q ? `<div class="bl-q">${q.header ? `<div class="bl-qh">${esc(q.header)}</div>` : ''}<div class="bl-qt">${esc(q.question || '')}</div></div>` : '') +
       list.map((o, i) => {
         const d = q?.options?.[i]?.description;
-        return `<button class="opt${o.selected ? ' sel' : ''}" data-o="${i}">${o.n != null ? `<span class="on">${o.n}</span>` : ''}<span class="ol">${esc(o.label)}${d ? `<small>${esc(d)}</small>` : ''}</span></button>`;
+        return `<button class="opt${o.selected ? ' sel' : ''}${/^\[[ ✔✓xX]\]/.test(o.label) ? ' ck' : ''}" data-o="${i}">${o.n != null ? `<span class="on">${o.n}</span>` : ''}<span class="ol">${esc(o.label)}${d ? `<small>${esc(d)}</small>` : ''}</span></button>`;
       }).join('');
   }
   toggleScreen(force) {
@@ -2563,6 +2858,13 @@ class DocView {
       const ct = (r.headers.get('content-type') || '').toLowerCase();
       if (!r.ok) { let m = 'HTTP ' + r.status; try { m = (await r.json()).error || m; } catch { } throw new Error(m); }
       if (ct.startsWith('image/')) { body.innerHTML = `<div class="docimg"><img class="thumb" src="${esc(fileUrl(p))}" alt=""></div>`; return; }
+      if (ct.startsWith('video/') || ct.startsWith('audio/')) {
+        r.body?.cancel().catch(() => { }); // the player streams it with Range requests
+        const u = fileUrl(p);
+        body.innerHTML = `<div class="docvid">${ct.startsWith('audio/') ? `<audio controls preload="metadata" src="${esc(u)}"></audio>` : `<video controls playsinline preload="metadata" src="${esc(u)}#t=0.001"></video>`}<button class="btn mv-save">${I.share}Save</button></div>`;
+        const sb = $('.mv-save', body); sb.onclick = () => saveMedia(u, sb);
+        return;
+      }
       if (ct.includes('json') && !/\.jsonl?$/i.test(p)) {
         const j = await r.json();
         if (Array.isArray(j?.entries)) return this.dir_(body, j.entries);
@@ -2595,11 +2897,16 @@ class DocView {
 // ---------- router ----------
 const cache = new Map(); // warm chat views, LRU (max 4)
 // tab screens (Agents · History · Automations · Machine) are siblings: switching tabs doesn't slide
-const TAB_KEYS = k => k === 'agents' || k === 'search' || k === 'r' || k === 'r/disk' || k.startsWith('fleet/');
+const TAB_KEYS = k => k === 'agents' || k === 'search' || k === 'r' || k === 'r/disk' || k.startsWith('fleet/') || k === 'repos';
 const depth = k => k === '/' || k.startsWith('home') ? 0 : TAB_KEYS(k) ? 1 : k.startsWith('r/disk?') ? 3 : k[0] === 't' || k[0] === 'f' || k[0] === 'd' ? 3 : 2;
 // lazily loaded feature modules (search, files, sheets): import once, then re-route
 const MODS = {};
-const lazy = n => MODS[n] ? Promise.resolve(MODS[n]) : import(`./${n}.js`).then(m => (MODS[n] = m));
+// One import() per module, shared by every caller: WebKit resolves a second import() of a module that is still
+// in its top-level await (art.js, fleet.js… wait for their CSS) before it finishes, so its `const`s threw
+// "Cannot access … before initialization" (the empty Artifact card in the Master chat, 2026-10-06).
+const LAZY = {};
+const lazy = n => MODS[n] ? Promise.resolve(MODS[n])
+  : (LAZY[n] ??= import(`./${n}.js`).then(m => (MODS[n] = m), e => { delete LAZY[n]; throw e; }));
 function route() {
   const raw = location.hash.slice(1) || '/';
   // item routes: #/?i=N, #/a/<pane>?i=N, #/t/<tid>?i=N
@@ -2628,6 +2935,10 @@ function route() {
   else if (/^\/fleet(\/|$)/.test(hs)) { // fleet.js: sessions, schedules, cloud routines, screen
     if (!MODS.fleet) { lazy('fleet').then(() => { G.route = null; route(); }, e => toast('Load failed: ' + esc(e.message), 'err')); return; }
     ({ key, make } = MODS.fleet.route(hs));
+  }
+  else if (/^\/repos(\?|$)/.test(hs)) { // Repos tab (repos.js)
+    if (!MODS.repos) { lazy('repos').then(() => { G.route = null; route(); }, e => toast('Load failed: ' + esc(e.message), 'err')); return; }
+    ({ key, make, focus: rfocus } = MODS.repos.route(hs));
   }
   else if (hs.startsWith('/f?')) { const p = new URLSearchParams(hs.slice(3)).get('path') || '/'; key = 'f' + p; make = () => new DocView(p); }
   else if (/^\/gd?\//.test(hs)) { // branch vs main, git diffs (git.js)
@@ -2755,14 +3066,86 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('online', () => { connect(); obFlush(); });
 window.addEventListener('pageshow', e => { if (e.persisted) connect(); });
 
+// ---------- self-update ----------
+// iOS keeps the standalone app alive in the background for hours, so a deploy never reaches a page that is
+// never closed. The server names its web build (index.html <meta name="mm-build">, SSE `build`, /api/build);
+// when it differs from the build this page booted with, reload at a safe moment: at once while hidden or
+// right as the app comes back to the front, else once you are idle (not typing, no sheet or
+// question card open, nothing in the outbox or uploading). Drafts and finished attachments are
+// in localStorage; a field that is not (a reply box, a sheet form) holding text blocks the reload.
+// At most one auto-reload per build id (sessionStorage), then `app.updated {from,to}` + an "Updated" toast.
+const VALID_B = /^b[0-9a-f]{12}$/;
+let BOOT_BUILD = document.querySelector('meta[name=mm-build]')?.content || '';
+if (!VALID_B.test(BOOT_BUILD)) BOOT_BUILD = ''; // served without the placeholder filled: take the first build seen
+const ss = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { } },
+};
+const tel = (n, p) => { try { window.__mmTel?.ev(n, p); } catch { } };
+let srvBuild = '', updT = 0, lastAct = 0, visAt = 0, stuck = false;
+['input', 'keydown', 'pointerdown', 'touchstart'].forEach(t => addEventListener(t, () => { lastAct = Date.now(); }, { capture: true, passive: true }));
+const chatViews = () => [...new Set([G.view, ...cache.values()])].filter(v => v?.ta && v.dkey);
+function unsavedText() {
+  const mine = new Set(chatViews().map(v => v.ta));
+  return [...document.querySelectorAll('textarea, input:not([type]), input[type=text]')]
+    .some(el => !mine.has(el) && el.id !== 'kbproxy' && !el.readOnly && el.value.trim());
+}
+function updBlock(fg) { // → why the reload has to wait, or ''
+  if (chatViews().some(v => v.atts?.some(a => a.st === 'up'))) return 'upload';
+  if (unsavedText() || document.querySelector('.fb-ui')) return 'text';
+  if (obBusy) return 'sending';
+  if (!fg) return '';
+  const ae = document.activeElement;
+  if (ae && ae.matches?.('textarea, input, [contenteditable]') && ae.id !== 'kbproxy') return 'focus';
+  if (Date.now() - lastAct < 20000) return 'active';
+  if (document.querySelector('.sheet-ov, .lb')) return 'sheet';
+  if (G.view?.el?.querySelector('.blocked:not([hidden])')) return 'ask';
+  if (OB.length) return 'outbox';
+  return '';
+}
+function checkUpdate(why) {
+  clearTimeout(updT);
+  if (!srvBuild || !BOOT_BUILD || srvBuild === BOOT_BUILD) return;
+  if (ss.get('mm.ar.' + srvBuild)) { // already reloaded once for this build and still not on it: never loop
+    if (!stuck) { stuck = true; tel('app.updatestuck', { from: BOOT_BUILD, to: srvBuild }); }
+    return;
+  }
+  const front = !document.hidden && Date.now() - visAt > 4000; // just came back to the front counts as "visible"
+  why = document.hidden ? 'hidden' : front ? 'idle' : 'visible';
+  if (updBlock(front)) { updT = setTimeout(() => checkUpdate(), 5000); return; }
+  for (const v of chatViews()) { ls.set('draft.' + v.dkey, v.ta.value || null); v.saveAtts?.(); }
+  obSave();
+  ss.set('mm.ar.' + srvBuild, '1');
+  ss.set('mm.updated', JSON.stringify({ from: BOOT_BUILD, to: srvBuild, why, t: Date.now() }));
+  try { window.__mmTel?.flush?.(true); } catch { }
+  location.reload();
+}
+function gotBuild(b) {
+  if (!VALID_B.test(b || '')) return;
+  if (!BOOT_BUILD) BOOT_BUILD = b;
+  srvBuild = b; checkUpdate();
+}
+function fetchBuild() {
+  fetch('/api/build', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(d => d && gotBuild(d.build), () => { });
+}
+{ // the reload that just happened
+  let u = null; try { u = JSON.parse(ss.get('mm.updated') || 'null'); } catch { }
+  ss.set('mm.updated', null);
+  if (u) {
+    if (u.to === BOOT_BUILD) {
+      setTimeout(() => toast('Updated', 'ok', null, 1800), 400);
+      tel('app.updated', { from: u.from, to: u.to, why: u.why, ms: Date.now() - u.t });
+    } else tel('app.updatestale', { from: BOOT_BUILD || undefined, to: u.to });
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { visAt = Date.now(); fetchBuild(); } else checkUpdate(); });
+window.addEventListener('pageshow', e => { if (e.persisted) { visAt = Date.now(); fetchBuild(); } });
+
 // ---------- service worker ----------
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));
-  let had = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (had) toast('App updated — tap to reload', 'ok', () => location.reload(), 8000);
-    had = true;
-  });
+  // a new worker took over (skipWaiting + clients.claim): ask the server which build is current
+  navigator.serviceWorker.addEventListener('controllerchange', fetchBuild);
   navigator.serviceWorker.addEventListener('message', e => { if (e.data?.nav) nav(e.data.nav.replace(/^\/?#?/, '#')); });
 }
 
@@ -2779,6 +3162,7 @@ export { surfHTML, MODS, lazy, DONE_REP, repLabel }; // v3.js, queue.js
 export { dismissSurfs }; // queue.js
 export { takeMods, modSuffix, PMODS, asksYou }; // queue.js hero reply
 export { settingsSheet, openSearch }; // res.js (Machine gear), fleet.js (History)
-export { lightbox }; // fleet.js
-export { popMenu }; // art.js
+export { lightbox, mediaViewer }; // fleet.js, art.js
+export { SICON, sicon, schedIconSheet }; // fleet.js
+export { popMenu, dropEmpty, hasContent }; // art.js
 export { sortAgents }; // sheets.js

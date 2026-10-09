@@ -1,6 +1,6 @@
 /* git.js: branch view, git diff, CI card, usage rings */
 .gitv h3 { margin: 18px 2px 4px; font-size: 13px; font-weight: 600; color: var(--fg2); text-transform: none; }
-.g-card { background: var(--bg2); border: .5px solid var(--sep); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.g-card { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
 .g-card code, .g-vs code { font: 12px var(--mono); color: var(--fg); }
 .g-br { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .g-br svg { width: 16px; height: 16px; flex: none; }
@@ -15,7 +15,7 @@
 .g-bin { font: 11px var(--mono); color: var(--fg3); }
 .g-st { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font: 700 11px var(--mono); background: var(--bg3); color: var(--fg2); }
 .g-st-A, .g-st-U { color: var(--done); } .g-st-D { color: var(--red); } .g-st-M { color: var(--work); }
-.g-commits { background: var(--bg2); border: .5px solid var(--sep); border-radius: 12px; overflow: hidden; }
+.g-commits { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; overflow: hidden; }
 .g-cm { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font-size: 14px; }
 .g-cm + .g-cm { border-top: .5px solid var(--sep); }
 .g-cm code { font: 12px var(--mono); color: var(--fg2); flex: none; }
@@ -25,7 +25,6 @@
 .g-ci-h a svg { width: 13px; height: 13px; }
 .g-ci-h { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .g-ci-s { font-size: 13px; color: var(--fg2); margin-top: 3px; display: flex; gap: 6px; }
-.g-ci-fail { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
 .g-ci-fail .g-ci-s { color: var(--red); }
 .g-ci-pass .g-ci-s { color: var(--done); }
 .g-ci-pending .g-ci-s { color: var(--warn); }
@@ -49,7 +48,7 @@
 .seg.usage { gap: 4px; padding: 0 8px 0 5px; color: var(--fg2); }
 .seg.usage.mid { color: var(--warn); } .seg.usage.hi { color: var(--red); }
 .u-lims { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 4px; }
-.u-lim { display: flex; gap: 12px; align-items: center; background: var(--bg2); border: .5px solid var(--sep); border-radius: 12px; padding: 10px 12px; }
+.u-lim { display: flex; gap: 12px; align-items: center; background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 10px 12px; }
 .u-lim b { margin-right: 8px; }
 .u-pct { font-weight: 700; } .u-pct.mid { color: var(--warn); } .u-pct.hi { color: var(--red); }
 .u-days { display: flex; align-items: flex-end; gap: 4px; height: 90px; padding: 6px 2px 0; }
@@ -60,7 +59,7 @@
 .u-row b, .u-row small { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
 .u-row .fm { font-weight: 600; color: var(--fg); }
 /* overview sheet (overviewSheet): this chat, plan, today, agents' context */
-.ov-chat { background: var(--bg2); border: .5px solid var(--sep); border-radius: 12px; padding: 12px 12px 10px; margin: 6px 0 4px; }
+.ov-chat { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 12px 12px 10px; margin: 6px 0 4px; }
 .ov-chat .cxr { margin: 0; }
 .ov-hint { margin-top: 6px; font-size: 13px; color: var(--fg2); } .ov-hint.mid { color: var(--warn); } .ov-hint.hi { color: var(--red); }
 .ov-cx { margin-top: 10px; } .ov-cx summary { list-style: none; display: inline-flex; } .ov-cx summary::-webkit-details-marker { display: none; }

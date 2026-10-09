@@ -40,7 +40,7 @@ function itemsOf(st) {
     if (dispStatus(a) === 'done') out.push({ ...base, kind: 'done', key: `done:${a.pane}:${a.completionSeq}`, rank: 3 + (a.muted ? 1 : 0), ts: a.since });
   }
   for (const s of st?.surfaces || []) {
-    if (!s.replies?.length || replied[surfKey(s)] || G.dismissed?.has(String(s.id)) || t - s.ts > SURF_AGE) continue;
+    if (!s.replies?.length || replied[surfKey(s)] || replied['s:' + s.id] || G.dismissed?.has(String(s.id)) || t - s.ts > SURF_AGE) continue;
     const a = agents.find(x => x.pane === s.pane); if (!a) continue;
     out.push({ a, nm: a.home ? 'Master' : a.title || a.name || a.pane, pane: a.pane, kind: 'surf', key: 'surf:' + surfKey(s), rank: 2, ts: s.ts, s });
   }
@@ -113,7 +113,7 @@ function spec(it) {
       // a "done" reply confirms the user acted: never the primary (swipe-right) action — opening the chat is
       const todo = s.replies.some(r => DONE_REP.test(r.trim()));
       const reps = s.replies.slice(0, todo ? 2 : 3).map(r => ({ label: repLabel(r), reply: r }));
-      return { pill: todo ? 'Your turn' : 'Reply', ctx: `<b>${esc(s.title)}</b>`, md: s.body || '', code: s.command, surf: s,
+      return { pill: todo ? 'Your turn' : 'Reply', ctx: `<b>${esc(s.title)}</b>`, md: s.body || '', code: s.command, surf: s, imgs: s.images,
         acts: [...(todo ? [open('Open chat'), ...reps] : reps), { label: 'Dismiss', cls: 'neg', run: async () => dismissSurfs([s.id]) }] };
     }
     case 'done': {

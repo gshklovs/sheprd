@@ -5,8 +5,8 @@
 // fullscreen preview is for local outputs (and "Preview here" in the long-press menu). Previews are the local source in a sandboxed iframe
 // (sandbox="allow-scripts", no same-origin; the server adds a CSP that blocks every request back to it).
 // Only one live preview at a time, loaded when visible. API.md "Artifacts".
-import { G, I, $, h, esc, api, toast, haptic, copyText, itemHref, nav, popMenu } from './app.js';
-import { fileUrl, docUrl } from './md.js';
+import { G, I, $, h, esc, api, toast, haptic, copyText, itemHref, nav, popMenu, mediaViewer, dropEmpty } from './app.js';
+import { fileUrl, docUrl, mediaEl } from './md.js';
 
 await new Promise(r => {
   if (document.querySelector('link[data-art]')) return r();
@@ -19,15 +19,16 @@ const ICON = {
   chart: '📊', graph: '📈', dashboard: '📊', list: '📋', table: '▦', calendar: '📅', recipe: '🍳', code: '⌨️', map: '🗺️',
   doc: '📄', document: '📄', report: '📄', notes: '📝', slides: '🖼️', deck: '🖼️', game: '🎮', music: '🎵', money: '💵',
   cart: '🛒', shopping: '🛒', travel: '✈️', health: '🩺', book: '📖', idea: '💡', check: '✅', form: '🧾', timer: '⏱️',
+  printer: '🖨️', print: '🖨️', compare: '⚖️', video: '🎬', link: '🔗', docs: '📄', page: '📄',
   design: '🎨', palette: '🎨', photo: '🖼️', image: '🖼️', home: '🏠', star: '⭐', tool: '🛠️', settings: '⚙️', search: '🔎',
 };
 const EXT = /\.([a-z0-9]+)$/i;
 const extOf = p => (String(p || '').match(EXT)?.[1] || '').toLowerCase();
-const TYPE = { html: 'html', htm: 'html', md: 'md', markdown: 'md', pdf: 'pdf', svg: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', csv: 'csv' };
+const TYPE = { html: 'html', htm: 'html', md: 'md', markdown: 'md', pdf: 'pdf', svg: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', csv: 'csv', mp4: 'video', m4v: 'video', mov: 'video', webm: 'video' };
 export const typeOf = a => a.kind === 'artifact' && !a.path ? 'html' : TYPE[extOf(a.path)] || 'other';
 const icoOf = a => {
   if (a.icon) return ICON[String(a.icon).toLowerCase()] || '✦';
-  return { html: '🌐', md: '📄', pdf: '📕', img: '🖼️', csv: '▦' }[typeOf(a)] || '📄';
+  return { html: '🌐', md: '📄', pdf: '📕', img: '🖼️', csv: '▦', video: '🎬' }[typeOf(a)] || '📄';
 };
 const fname = p => String(p || '').split('/').pop();
 
@@ -40,6 +41,7 @@ export function open(a) {
 function openLocal(a) {
   const t = typeOf(a);
   if (t === 'img') { showImg(fileUrl(a.path)); return; }
+  if (t === 'video') { mediaViewer(fileUrl(a.path)); return; }
   if (t === 'md' || t === 'csv') { nav(docUrl(a.path)); return; }
   if (t === 'pdf') { window.open(fileUrl(a.path), '_blank', 'noopener'); return; }
   preview(a);
@@ -118,7 +120,7 @@ export function chip(a, mode) {
 export const mini = a => a.artifact ? `<span class="artmini" role="button" data-pane="${esc(a.pane)}" aria-label="${esc(a.artifact.title)}">${icoOf(a.artifact)}</span>` : '';
 
 let lpT = 0, lpDone = false;
-const CHIP = '.artchip, .artmini, .artc .ac-pv'; // agent-card chip, tray/switcher mini, chat-card thumbnail
+const CHIP = '.artchip, .artmini, .artc .ac-pv, .artc .ac-link'; // agent-card chip, tray/switcher mini, chat-card thumbnail / link card
 const artFor = c => c.dataset.pane ? artOf(c.dataset.pane) : c.closest('.artc')?.art;
 document.addEventListener('pointerdown', e => {
   const c = e.target.closest(CHIP); if (!c) return;
@@ -150,20 +152,45 @@ function list(tid, fresh) {
   return p;
 }
 const PUB = /^\s*Published (.+?) at (https:\/\/claude\.ai\/\S+?)[.,)]?(?:\s|$)/;
-function fromItem(it, r) {
-  const x = it.input || {}, m = r && !r.err ? String(r.text || '').match(PUB) : null;
-  const v = r?.text?.match(/\(Version (\d+)/);
+const ART_URL = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[\w-]+/;
+// What a successful publish result says: the "Published <path> at <url> (Version N…) Icon: "x"" line (claude.ai/artifact/<id>
+// or claude.ai/code/artifact/<uuid>), or a JSON result {url, file_path|path, version, icon}. Else null.
+export function parsePub(text) {
+  text = String(text || '');
+  const m = text.match(PUB);
+  if (m) return { url: m[2], path: m[1].startsWith('/') ? m[1] : null, version: +(text.match(/\(Version (\d+)/)?.[1]) || null, icon: text.match(/Icon: "([^"]+)"/)?.[1] || null };
+  try {
+    const j = JSON.parse(text);
+    if (j && typeof j.url === 'string' && ART_URL.test(j.url) && j.url.startsWith('https://claude.ai/'))
+      return { url: j.url, path: String(j.file_path || j.path || '').startsWith('/') ? j.file_path || j.path : null, version: +j.version || null, icon: j.icon || null };
+  } catch { }
+  return null;
+}
+// title: the tool input's title, else the source's <title> (server list, painted in after), else the file name
+export function fromItem(it, r) {
+  const x = it.input || {}, p = r && !r.err ? parsePub(r.text) : null;
   return {
-    kind: 'artifact', title: x.title || x.description || fname(x.file_path) || 'Artifact', description: x.description || '',
-    icon: x.icon || r?.text?.match(/Icon: "([^"]+)"/)?.[1] || null, path: x.file_path || (m && m[1].startsWith('/') ? m[1] : null),
-    url: m ? m[2] : x.url || null, version: v ? +v[1] : null, i: it.i, tid: null,
+    kind: 'artifact', title: x.title || fname(x.file_path || p?.path) || 'Artifact', description: x.description || '',
+    icon: x.icon || p?.icon || null, path: x.file_path || p?.path || null,
+    url: p?.url || x.url || null, version: p?.version || null, i: it.i, tid: null,
   };
 }
+const host = u => { try { return new URL(u).host; } catch { return 'claude.ai'; } };
+// A claude.ai publish: one compact link row (icon, title, host, Open). Tap / Open → claude.ai (the Claude app via
+// universal link on iOS); long-press → Open / Preview here / Copy link. claude.ai is never framed.
+export function linkHTML(a, st) {
+  const sub = st === 'run' ? '<span class="spin"></span> Publishing…' : st === 'err' ? '<span class="ac-err">Publish failed</span>'
+    : `${esc(host(a.url))}${a.version > 1 ? ' · v' + a.version : ''}`;
+  return `<div class="ac-link"${a.url ? ' role="button" aria-label="Open in Claude"' : ''}><span class="ac-ico">${icoOf(a)}</span><div class="ac-tx"><b>${esc(a.title)}</b><small>${sub}</small></div>${a.url ? `<a class="btn sm ac-open" href="${esc(a.url)}" target="_blank" rel="noopener">Open</a>` : ''}</div>`;
+}
 function cardHTML(a, st) {
+  if (a.kind === 'artifact' && (a.url || st !== 'ok')) return linkHTML(a, st);
+  if (!a.title && !a.path && !a.url) return '';
   const t = typeOf(a);
   const meta = `<div class="ac-meta"><span class="ac-ico">${icoOf(a)}</span><div class="ac-tx"><b>${esc(a.title)}</b>${a.description && a.description !== a.title ? `<small>${esc(a.description)}</small>` : ''}</div>${a.version ? `<span class="ac-v">v${a.version}</span>` : ''}</div>`;
   if (t === 'md' || t === 'csv') return `<a class="ac-doc" href="${esc(docUrl(a.path))}">${meta}<span class="ac-f">${esc(fname(a.path))}</span><span class="go">›</span></a>`;
   if (t === 'pdf') return `<a class="ac-doc" href="${esc(fileUrl(a.path))}" target="_blank" rel="noopener">${meta}<span class="ac-f">${esc(fname(a.path))}</span><span class="go">›</span></a>`;
+  if (t === 'video') return `${meta}<div class="thumbs">${mediaEl(fileUrl(a.path))}</div>`;
   if (t === 'img') return `${meta}<div class="thumbs"><img class="thumb" loading="lazy" src="${esc(fileUrl(a.path))}" alt=""></div>`;
   const pv = a.path ? `<div class="ac-pv" role="button" aria-label="${a.url ? 'Open in Claude' : 'Preview'}"><div class="ac-ph"><span>${icoOf(a)}</span><b>${esc(a.title)}</b><small>${a.url ? 'Tap to open in Claude' : 'Tap to preview'}</small></div></div>` : '';
   const acts = st === 'run' ? `<div class="ac-st"><span class="spin"></span> Publishing…</div>`
@@ -182,13 +209,13 @@ export function card(el, view) {
   const draw = () => {
     const r = el.res, a = fromItem(el.item, r);
     a.tid = view.tid;
-    const st = !r ? 'run' : r.err || !PUB.test(r.text || '') ? 'err' : 'ok';
-    const paint = b => { const html = cardHTML(b, st); if (html !== el._h) { el._h = html; PV.drop(el); el.innerHTML = html; bind(el, b); } };
+    const st = !r ? 'run' : r.err || !a.url ? 'err' : 'ok';
+    const paint = b => { const html = cardHTML(b, st); if (html !== el._h) { el._h = html; PV.drop(el); el.innerHTML = html; bind(el, b); dropEmpty(el); } };
     paint(a);
     if (st === 'ok' && view.tid) list(view.tid, !el._fresh).then(ls => {
       el._fresh = 1;
       const s = ls.find(x => x.url === a.url && x.tid === view.tid && x.i === a.i) || ls.find(x => (a.url && x.url === a.url) || (a.path && x.path === a.path));
-      if (s) paint({ ...a, title: s.title || a.title, icon: a.icon || s.icon, description: a.description || s.description || '' });
+      if (s) paint({ ...a, title: el.item.input?.title || s.title || a.title, icon: a.icon || s.icon, description: a.description || s.description || '' });
     });
   };
   el.classList.add('artc');
@@ -203,7 +230,7 @@ export function output(row, view) {
       const a = ls.find(x => x.kind === 'file' && x.tid === view.tid && x.i === row.item.i && x.path === p);
       if (!a || row._art || !row.isConnected) return;
       const el = h(`<div class="artc out" data-i="${row.item.i}"></div>`);
-      el.innerHTML = cardHTML(a, 'ok'); bind(el, a); row._art = el;
+      el.innerHTML = cardHTML(a, 'ok'); bind(el, a); if (!el.innerHTML.trim()) return; row._art = el;
       (row.closest('.grp') || row).after(el);
     });
   };

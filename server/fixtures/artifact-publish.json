@@ -1,0 +1,23 @@
+{
+ "note": "Synthetic Master transcript items in the shape /api/t returns for an Artifact publish and its result. {SRC} = the source file.",
+ "items": [
+  {
+   "i": 853,
+   "id": "toolu_01ExampleExampleExample01",
+   "input": { "description": "Side-by-side comparison page.", "file_path": "{SRC}", "icon": "chart" },
+   "k": "tool",
+   "name": "Artifact",
+   "summary": "Side-by-side comparison page.",
+   "ts": 1791329851461
+  },
+  {
+   "cut": false,
+   "err": false,
+   "i": 854,
+   "id": "toolu_01ExampleExampleExample01",
+   "k": "result",
+   "text": "Published {SRC} at https://claude.ai/artifact/AbCdEf0123456789xYz012 (Version 1, version id 1791329851-75f2) Icon: \"chart\".\n\nTo update: publish the same file path here (keeps this URL).",
+   "ts": 1791329852000
+  }
+ ]
+}

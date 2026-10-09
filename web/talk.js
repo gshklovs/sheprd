@@ -242,51 +242,200 @@ function upd() {
 // ---------- AskUserQuestion, answered here in full ----------
 // Every question with its options (one tap for a single single-select question), multiSelect ticks,
 // and a free-text answer per question (Claude's "Type something"). POST /api/a/:pane/askanswer drives the dialog.
+// Several questions go one at a time, like Claude's TUI: a step row (tap to jump, ✓ = answered), Back / Next,
+// and Submit pinned at the bottom of the panel (the panel scrolls; see .blocked in style.css). An option's
+// `preview` (ASCII mockup) stays folded behind a "Preview" chip; the picked option's preview opens, height-capped.
+// "2", "c", "C)", "Option C" or an option's exact label → that option's index; anything else → -1.
+// A letter goes to the option labelled with it ("C — rows in a box"), else to the n-th option when no label uses letters.
+export function pickOpt(q, text) {
+  const os = q?.options || [], t = String(text || '').trim().replace(/[.!)]+$/, '').replace(/^option\s+/i, '');
+  if (!os.length || !t) return -1;
+  if (/^\d{1,2}$/.test(t)) return +t >= 1 && +t <= os.length ? +t - 1 : -1;
+  const lead = o => o.label.match(/^(?:option\s+)?([A-Za-z])(?:[).:\s\u2014\u2013-]|$)/i)?.[1]?.toUpperCase();
+  if (/^[a-z]$/i.test(t)) {
+    const L = t.toUpperCase(), j = os.findIndex(o => lead(o) === L);
+    if (j >= 0) return j;
+    const n = L.charCodeAt(0) - 65;
+    return !os.some(lead) && n < os.length ? n : -1;
+  }
+  return os.findIndex(o => o.label.trim().toLowerCase() === t.toLowerCase());
+}
+// A draft of the answers per pane + question set (localStorage, 7 days): a failed Submit, a re-render or a reload
+// re-opens the card with every pick and typed answer, and the same questions asked again start from them.
+const DRAFT_MS = 7 * 864e5;
+function draftKey(pane, qs) {
+  const t = JSON.stringify([pane, qs.map(q => [q.question, (q.options || []).map(o => o.label), !!q.multiSelect])]);
+  let x = 5381; for (let i = 0; i < t.length; i++) x = (x * 33 + t.charCodeAt(i)) | 0;
+  return 'akd.' + (x >>> 0).toString(36);
+}
+function pruneDrafts() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith('mm.akd.') && !(Date.now() - (ls.get(k.slice(3))?.ts || 0) < DRAFT_MS)) localStorage.removeItem(k);
+    }
+  } catch { }
+}
+// The driver's 409 reasons (server/src/talk.rs answer_ask) in words for the card.
+export function askErr(e) {
+  const m = String(e?.message || '');
+  if (e?.status === 409 && /no_question|no longer open/.test(m)) return 'The question is no longer open in the terminal. Your answers are kept here.';
+  if (e?.status === 409) return `Not sent: ${m}. Your answers are kept: tap Submit again, or use the Terminal.`;
+  return `Not sent (${m || 'network error'}). Your answers are kept: tap Submit again.`;
+}
 export function renderAsk(view, box, ask) {
   const qs = ask.questions || [];
-  const st = qs.map(() => ({ labels: [], text: '' }));
+  const st = qs.map(() => ({ labels: [], text: '', pv: -1 }));
   const one = qs.length === 1 && !qs[0].multiSelect;
+  const many = qs.length > 1;
+  let cur = 0;
+  const dk = draftKey(view.pane, qs), draft = ls.get(dk);
+  let restored = false;
+  if (draft && Array.isArray(draft.st) && draft.st.length === qs.length && Date.now() - (draft.ts || 0) < DRAFT_MS) {
+    draft.st.forEach((d, k) => {
+      const ok = (qs[k].options || []).map(o => o.label);
+      st[k].labels = (d.labels || []).filter(l => ok.includes(l)).slice(0, qs[k].multiSelect ? 99 : 1);
+      st[k].text = String(d.text || '');
+      st[k].pv = Number.isInteger(d.pv) ? d.pv : -1;
+      if (st[k].labels.length || st[k].text.trim()) restored = true;
+    });
+    cur = Math.min(Math.max(0, draft.cur | 0), qs.length - 1);
+  }
+  const saveDraft = () => {
+    const any = st.some(x => x.labels.length || x.text.trim());
+    ls.set(dk, any ? { ts: Date.now(), cur, st } : null);
+  };
   box.hidden = false;
-  box.innerHTML = qs.map((q, k) => `<div class="ak-q" data-k="${k}">
-      <div class="bl-q">${q.header ? `<div class="bl-qh">${esc(q.header)}${qs.length > 1 ? ` · ${k + 1}/${qs.length}` : ''}${q.multiSelect ? ' · pick any' : ''}</div>` : ''}<div class="bl-qt">${esc(q.question || '')}</div></div>
-      ${(q.options || []).map((o, i) => `<button class="opt${q.multiSelect ? ' ak-m' : ''}" data-ao="${i}"><span class="on">${q.multiSelect ? '' : i + 1}</span><span class="ol">${esc(o.label)}${o.description ? `<small>${esc(o.description)}</small>` : ''}</span></button>`).join('')}
-      <textarea class="ak-t" rows="1" placeholder="${q.options?.length ? 'Or type an answer…' : 'Answer…'}" enterkeyhint="${one ? 'send' : 'done'}"></textarea>
-    </div>`).join('') + (one ? '' : '<button class="btn primary ak-go" disabled>Submit answers</button>');
-  const go = $('.ak-go', box);
-  const ready = () => st.every(x => x.labels.length || x.text.trim());
+  box.innerHTML = (many ? `<div class="ak-steps" role="tablist">${qs.map((q, k) => `<button class="ak-st" data-st="${k}" role="tab"><b>${k + 1}</b>${esc(q.header || 'Question')}</button>`).join('')}</div>` : '') +
+    qs.map((q, k) => `<div class="ak-q" data-k="${k}"${k !== cur ? ' hidden' : ''}>
+      <div class="bl-q">${q.header || many ? `<div class="bl-qh">${esc(q.header || 'Question')}${many ? ` · ${k + 1}/${qs.length}` : ''}${q.multiSelect ? ' · pick any' : ''}</div>` : ''}<div class="bl-qt">${esc(q.question || '')}</div></div>
+      ${(q.options || []).map((o, i) => `<button class="opt${q.multiSelect ? ' ak-m' : ''}${one ? ' ak-1' : ''}" data-ao="${i}"><span class="on">${q.multiSelect ? '' : i + 1}</span><span class="ol">${esc(o.label)}${o.description ? `<small>${esc(o.description)}</small>` : ''}</span>${o.preview ? '<span class="ak-pvb" aria-label="Show preview">Preview</span>' : ''}</button>${o.preview ? `<pre class="ak-pv" data-pv="${i}" hidden>${esc(o.preview)}</pre>` : ''}`).join('')}
+      <textarea class="ak-t" rows="1" data-k="${k}" placeholder="${q.options?.length ? 'Or type an answer…' : 'Answer…'}" enterkeyhint="${one ? 'send' : k < qs.length - 1 ? 'next' : 'done'}"></textarea>
+    </div>`).join('') +
+    `<div class="ak-err" role="alert" hidden></div>` +
+    (one ? '' : `<div class="ak-nav">${many ? '<button class="btn ak-back">Back</button><button class="btn ak-next">Next</button>' : ''}<button class="btn primary ak-go" disabled>Submit answers</button></div>`);
+  const go = $('.ak-go', box), back = $('.ak-back', box), next = $('.ak-next', box), err = $('.ak-err', box);
+  box.querySelectorAll('.ak-t').forEach(ta => { ta.value = st[+ta.dataset.k].text; });
+  const showErr = m => { err.textContent = m || ''; err.hidden = !m; };
+  const done = k => !!(st[k].labels.length || st[k].text.trim());
+  const ready = () => st.every((x, k) => done(k));
   const upd = () => {
-    box.querySelectorAll('.ak-q').forEach((el, k) => el.querySelectorAll('[data-ao]').forEach(b => b.classList.toggle('sel', st[k].labels.includes(qs[k].options[+b.dataset.ao].label))));
-    if (go) go.disabled = !ready();
+    box.querySelectorAll('.ak-q').forEach((el, k) => {
+      el.hidden = k !== cur;
+      el.querySelectorAll('[data-ao]').forEach(b => b.classList.toggle('sel', st[k].labels.includes(qs[k].options[+b.dataset.ao].label)));
+      el.querySelectorAll('.ak-pv').forEach(p => { p.hidden = +p.dataset.pv !== st[k].pv; p.previousElementSibling.classList.toggle('pvo', !p.hidden); });
+    });
+    box.querySelectorAll('.ak-st').forEach((b, k) => { b.classList.toggle('cur', k === cur); b.classList.toggle('done', done(k)); b.setAttribute('aria-selected', k === cur); });
+    if (go) {
+      go.disabled = !ready();
+      const last = cur === qs.length - 1;
+      go.hidden = many && !last && !ready(); // the last step, or everything answered (edit, then submit from anywhere)
+      if (back) back.hidden = cur === 0;
+      if (next) { next.hidden = last; next.classList.toggle('primary', go.hidden); }
+    }
+    saveDraft();
+  };
+  // the keyboard goes down when the card moves on: a focused textarea of a hidden step kept the panel's
+  // keyboard layout, and the next tap landed on the shifted layout instead of Next (2026-10-07)
+  const unfocus = () => { const a = document.activeElement; if (a && box.contains(a) && a.matches('textarea')) a.blur(); };
+  let autoT = 0;
+  const step = k => {
+    if (k < 0 || k >= qs.length || k === cur) return;
+    unfocus();
+    cur = k; upd();
+    const sc = box.closest('.blocked'); if (sc) sc.scrollTop = 0; // the step row and the new question's top
+    box.querySelector('.ak-st.cur')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
   const send = async btn => {
+    unfocus(); showErr('');
+    saveDraft();
     const all = [...box.querySelectorAll('button, textarea')]; all.forEach(x => x.disabled = true); btn?.classList.add('busy'); haptic();
     try {
       await post(`a/${enc(view.pane)}/askanswer`, { answers: st.map(x => ({ labels: x.labels, text: x.text.trim() || undefined })) });
+      ls.set(dk, null);
       toast('Answered', 'ok', null, 1400);
     } catch (e) {
+      // the card stays as it was (every pick and typed answer, the draft kept) with the reason in it
       all.forEach(x => x.disabled = false); btn?.classList.remove('busy'); upd();
-      toast(e.status === 409 ? 'Could not answer: ' + esc(e.message) + ' — try the Terminal' : 'Failed: ' + esc(e.message), 'err');
+      showErr(askErr(e));
+      err.scrollIntoView?.({ block: 'nearest' });
+      toast('Not sent: your answers are kept', 'err');
     }
   };
+  let adv = null;
   box.querySelectorAll('.ak-q').forEach((el, k) => {
     const q = qs[k], ta = $('.ak-t', el);
     el.querySelectorAll('[data-ao]').forEach(b => {
-      b.onclick = () => {
-        const l = q.options[+b.dataset.ao].label;
+      b.onclick = e => {
+        const i = +b.dataset.ao, l = q.options[i].label;
+        if (e.target.closest('.ak-pvb')) { st[k].pv = st[k].pv === i ? -1 : i; upd(); return; } // peek without choosing
+        autoT = 0;
+        if (!q.multiSelect) unfocus();
         if (q.multiSelect) st[k].labels = st[k].labels.includes(l) ? st[k].labels.filter(x => x !== l) : [...st[k].labels, l];
         else { st[k].labels = [l]; st[k].text = ''; ta.value = ''; }
+        if (q.options[i].preview && (!q.multiSelect || st[k].labels.includes(l))) st[k].pv = i;
+        else if (st[k].pv === i) st[k].pv = -1; // unticked: fold its preview again
         upd();
         if (one) send(b);
+        // single-select: on to the next unanswered question (like Enter in the TUI); stay when there are previews to compare
+        else if (many && !q.multiSelect && !q.options.some(o => o.preview)) {
+          clearTimeout(adv);
+          adv = setTimeout(() => { const n = st.findIndex((x, j) => j > k && !done(j)); if (cur === k && n > 0) { step(n); autoT = Date.now(); } }, 280);
+        }
       };
     });
     ta.oninput = () => {
       ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-      st[k].text = ta.value;
+      st[k].text = ta.value; autoT = 0;
       if (!q.multiSelect && ta.value.trim()) st[k].labels = [];
       upd();
     };
-    ta.onkeydown = e => { if (one && e.key === 'Enter' && !e.shiftKey && !e.isComposing && ta.value.trim()) { e.preventDefault(); send(); } };
+    // the keyboard is up: keep the field in view inside the (now shorter) panel
+    ta.onfocus = () => setTimeout(() => ($('.ak-nav', box) || ta).scrollIntoView({ block: 'nearest' }), 350);
+    ta.onkeydown = e => {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      if (one && ta.value.trim()) { e.preventDefault(); send(); }
+      else if (many && k < qs.length - 1) { e.preventDefault(); step(k + 1); }
+    };
   });
-  if (go) go.onclick = () => send(go);
+  // A reply typed in the chat's composer while this card is up answers the card instead of racing it (2026-10-06: a
+  // typed "C" reached the terminal, the card's tap then got a 409 and the agent had to ask again). An option by its
+  // number, letter or label is picked; any other text becomes the current question's typed answer. One plain
+  // question is sent at once; otherwise the card waits for Submit.
+  box.akType = text => {
+    const k = cur, q = qs[k], el = box.querySelector(`.ak-q[data-k="${k}"]`), i = pickOpt(q, text);
+    if (i >= 0) el.querySelector(`[data-ao="${i}"]`).click();
+    else { const ta = $('.ak-t', el); ta.value = text; ta.oninput(); if (one) send(); }
+    if (!one) toast(i >= 0 ? `Picked “${esc(q.options[i].label)}” — Submit when ready` : 'Added as your answer — Submit when ready', 'ok', null, 2200);
+    return true;
+  };
+  // Back / Next / Submit / the step row act on the tap itself: pointerdown keeps the focus (no keyboard-close
+  // reflow) and the lift fires the button even when the layout moved under the finger meanwhile (the keyboard,
+  // the field scrolling into view): a click needs press and release on the same spot of the page, and taps on
+  // Next while typing were lost that way (2026-10-07). A Next right after a pick moved on by itself is that same
+  // intent, not a skip.
+  const tapAct = (b, fn) => {
+    let fired = 0;
+    b.addEventListener('pointerdown', e => {
+      if (e.button) return;
+      e.preventDefault();
+      const x = e.clientX, y = e.clientY, t = Date.now(), id = e.pointerId;
+      const end = () => { document.removeEventListener('pointerup', up, true); document.removeEventListener('pointercancel', cancel, true); };
+      const cancel = c => { if (c.pointerId === id) end(); }; // a scroll that started on the button is no tap
+      const up = u => {
+        if (u.pointerId !== id) return;
+        end();
+        if (Math.hypot(u.clientX - x, u.clientY - y) < 14 && Date.now() - t < 900 && !b.disabled && !b.hidden) { fired = Date.now(); fn(); }
+      };
+      document.addEventListener('pointerup', up, true); document.addEventListener('pointercancel', cancel, true);
+    });
+    b.onclick = () => { if (Date.now() - fired > 900) fn(); }; // keyboard / assistive activation
+  };
+  box.querySelectorAll('.ak-st').forEach(b => tapAct(b, () => step(+b.dataset.st)));
+  if (back) tapAct(back, () => { clearTimeout(adv); step(cur - 1); });
+  if (next) tapAct(next, () => { const skip = Date.now() - autoT < 700; autoT = 0; if (skip) return; clearTimeout(adv); step(cur + 1); });
+  if (go) tapAct(go, () => send(go));
+  pruneDrafts();
   upd();
+  if (restored && many) toast('Restored your unsent answers', 'ok', null, 1800);
 }

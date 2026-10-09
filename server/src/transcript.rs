@@ -406,6 +406,33 @@ impl Transcript {
         self.open.last().is_some_and(|&ix| self.items[ix].name.as_deref() == Some(name))
     }
 
+    /// When the newest AskUserQuestion call got its answer (the result's timestamp; 0 if none or still open).
+    pub fn ask_answered(&self) -> i64 {
+        let mut results: HashMap<&str, i64> = HashMap::new();
+        for it in self.items.iter().rev().take(3000) {
+            match it.k {
+                "result" => {
+                    if let Some(id) = it.id.as_deref() {
+                        results.insert(id, it.ts);
+                    }
+                }
+                "tool" if it.name.as_deref() == Some("AskUserQuestion") => {
+                    return it.id.as_deref().and_then(|id| results.get(id).copied()).unwrap_or(0);
+                }
+                _ => {}
+            }
+        }
+        0
+    }
+
+    /// The unanswered AskUserQuestion call the agent waits on (the newest open tool): its timestamp and `questions` (the phone's question card).
+    pub fn pending_ask(&self) -> Option<(i64, Value)> {
+        let it = self.open.last().map(|&ix| &self.items[ix]).filter(|it| it.name.as_deref() == Some("AskUserQuestion"))?;
+        let qs = it.input.as_ref()?.get("questions")?;
+        qs.as_array().filter(|a| !a.is_empty())?;
+        Some((it.ts, qs.clone()))
+    }
+
     /// Text of the last visible item when it is an assistant answer (chips source).
     pub fn last_answer(&self) -> Option<&str> {
         let it = self.items.iter().rev().find(|it| it.k != "thinking" && it.k != "note")?;
@@ -703,7 +730,8 @@ impl Transcript {
                             id: Some(id.clone()),
                             summary: Some(tool_summary(&name, input)),
                             name: Some(name),
-                            input: Some(trim_value(input, 0)),
+                            // AskUserQuestion keeps its whole input: the phone's question card needs every option
+                            input: Some(if tname == "AskUserQuestion" { input.clone() } else { trim_value(input, 0) }),
                             off,
                             ..Default::default()
                         }
@@ -1351,6 +1379,20 @@ mod tests {
         let texts: Vec<_> = t.queued().iter().map(|v| v["text"].as_str().unwrap().to_string()).collect();
         assert_eq!(texts, ["b"]);
     }
+    #[test]
+    fn ask_pending_then_answered() {
+        let opts: Vec<_> = (0..4).map(|i| serde_json::json!({"label": format!("o{i}"), "description": "d".repeat(300)})).collect();
+        let qs = serde_json::json!({"questions": [{"question": "A?", "multiSelect": true, "options": opts}, {"question": "B?", "options": opts}]});
+        let t = fixture("ask1", &[user("go"), tool("a1", "AskUserQuestion", qs.clone())]);
+        let (_, got) = t.pending_ask().unwrap();
+        assert_eq!(got, qs["questions"]); // whole input: every option, untrimmed
+        assert_eq!(t.ask_answered(), 0);
+        let mut r = result("a1", "answered");
+        r["timestamp"] = "2026-10-06T08:36:41.403Z".into();
+        let t = fixture("ask2", &[user("go"), tool("a1", "AskUserQuestion", qs), r]);
+        assert!(t.pending_ask().is_none() && t.ask_answered() > 0);
+    }
+
     #[test]
     fn doing_and_answer() {
         let t = fixture("doing", &[

@@ -1,6 +1,6 @@
 /* art.js: artifact cards in chats, chips on agent cards / tray / switcher, fullscreen preview */
-.artc { margin: 8px 0; background: var(--bg2); border: .5px solid var(--sep); border-radius: 14px; overflow: hidden; }
-.artc:empty { min-height: 64px; }
+.artc { margin: 8px 0; background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; overflow: hidden; }
+.artc:empty, .surf:empty { display: none; } /* never an empty box (art.js not loaded yet / failed) */
 .ac-pv { position: relative; height: 210px; overflow: hidden; background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 16%, var(--bg3)), var(--bg3)); border-bottom: .5px solid var(--sep); cursor: pointer; }
 .ac-pv iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #fff; opacity: 0; transition: opacity .2s; }
 .ac-pv.live iframe { opacity: 1; }
@@ -52,3 +52,9 @@
 .af-body { flex: 1; position: relative; background: #fff; }
 .af-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .af-none { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--fg2); background: var(--bg); }
+/* published artifact: one compact link row (claude.ai is never framed) */
+.ac-link { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; min-width: 0; cursor: pointer; -webkit-touch-callout: none; user-select: none; }
+.ac-link .ac-tx small { display: flex; align-items: center; gap: 5px; -webkit-line-clamp: unset; }
+.ac-link .ac-open { flex: none; }
+.ac-link .ac-err { color: var(--red); }
+.ac-link:active { opacity: .7; }

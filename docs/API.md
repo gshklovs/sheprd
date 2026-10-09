@@ -17,6 +17,17 @@ embedded in the binary at build time; `SHEPRD_WEB_DIR=/path/to/web` serves from
 disk instead (dev, no rebuild needed). Hash-routing on the client (`#/a/<pane>`,
 `#/t/<tid>`), so the server never needs SPA fallback.
 
+**Self-update.** The web build id (`b` + 12 hex: a hash of the embedded `web/` computed by build.rs, of
+`SHEPRD_WEB_DIR` at startup, or `SHEPRD_BUILD_ID` in tests) is filled into index.html's
+`<meta name="mm-build">`, served at `GET /api/build` → `{"build"}` (no-store) and sent as the first SSE event.
+It only changes on restart. When it differs from the build the page booted with, web/app.js reloads: at once
+while hidden or as the app comes back to the front; in the front only when idle (nothing focused, no input for
+20 s, no sheet / ask card / `#/browser` / `#/buy`, empty outbox), never while an upload runs or an unpersisted
+field holds text. At most one auto-reload per build (sessionStorage `mm.ar.<build>`); then an "Updated" toast and
+telemetry `app.updated {from, to, why: hidden|visible|idle, ms}` (`app.updatestuck` when the guard stops a loop).
+sw.js is network-first for the shell (cache = offline fallback only), activates at once (skipWaiting +
+clients.claim) and the page calls `registration.update()` on every return to the front.
+
 ## Live state
 `GET /api/state` →
 ```jsonc
@@ -50,6 +61,7 @@ disk instead (dev, no rebuild needed). Hash-routing on the client (`#/a/<pane>`,
 Ordering of `agents`: herdr workspace/tab order. The client sorts for display.
 
 `GET /api/events` — Server-Sent Events.
+- `event: build` `data: {"build": "b…"}` — first, on connect (see Static → Self-update).
 - `event: state` `data: <same JSON as /api/state>` — sent immediately on connect and on every change (debounced ~80ms).
 - `event: surface` `data: <Surface>` — a new surfaced item (show an in-app toast).
 - comment keepalive `:` every 15s.
@@ -68,6 +80,9 @@ Ordering of `agents`: herdr workspace/tab order. The client sorts for display.
   "first": 512,                                       // index of first returned item
   "items": [ Item... ],
   "subagents": [ Subagent... ],                        // only for main sessions
+  "surfaces": [ Surface... ],                         // only for main sessions: surfaces posted for this agent
+                                                      // (incl. dismissed) that have no surface tool row of their own;
+                                                      // the chat draws them inline after item `i` (else by `ts`)
   "pane": "w6:p1"                                     // herdr pane currently hosting this session, or null
 }
 ```
@@ -137,6 +152,16 @@ immediately if there are already items >= N.
 - `POST /api/upload?name=photo.jpg` raw body → `{ path }` — saved under `~/.cache/sheprd/uploads/`.
   The client inserts the path into the prompt text (Claude reads image paths).
 - `GET /api/file?path=/abs/path` → file bytes with a guessed content type. Allowed roots: `$HOME`, `/tmp`.
+  Streamed from disk (server/src/ranged.rs): `Accept-Ranges: bytes` + weak `ETag` (size+mtime) on every answer;
+  `Range: bytes=a-b | a- | -n` (one range) → `206` with `Content-Range`; past the end → `416 bytes */<len>`; a
+  malformed or multi-range header → the whole file; `If-None-Match` → 304, a stale `If-Range` → 200. iOS needs the
+  206s to play `<video>`. `&download=1` adds `Content-Disposition: attachment`. video/*, audio/* and
+  octet-stream are never gzipped. The web plays .mp4/.m4v/.mov/.webm (and audio) inline (`md.js mediaEl`), path
+  links open the in-app player (`app.js mediaViewer`) whose Save shares the file (`navigator.share({files})`, iOS →
+  Save Video) or falls back to the download.
+  In the installed app, every other `target=_blank` link to `/api/file` (PDFs and other binaries, the image
+  lightbox's Open) goes to the same share sheet instead of a raw tab: a raw tab opens outside the PWA and coming
+  back cold-loads it. Links to other sites open as before.
   Directories → `{ entries: [...] }` JSON.
 
 ## Push (Web Push, needs HTTPS PWA install)
@@ -168,8 +193,11 @@ immediately if there are already items >= N.
 → `{ ok: true, id }`. Stored (last 200, persisted to `~/.local/state/sheprd/surfaces.json`), broadcast on SSE,
 pushed if level != info.
 
-`Surface` = `{ id, ts, pane, session, tid, agentTitle, title, body, level, images:[url], links:[{url,label}] }`
-where `images` are `/api/file?path=...` URLs.
+`Surface` = `{ id, ts, pane, session, tid, agentTitle, title, body, level, images:[url], links:[{url,label}], replies, command, i, row }`
+where `images` are `/api/file?path=...` URLs, `i` = the transcript item it belongs to (null for a few seconds) and
+`row: true` = `i` is its own `mcp__sheprd__surface` tool row. Every surface shows in its agent's chat: from the tool
+row, or (no row: curl, the mod's own notes) inline after item `i` with the same card and reply buttons. The images show
+as a sideways strip (tap = gallery) on Home cards, the hero and in chats; a toast shows a small preview.
 `POST /api/surface/:id/dismiss` → marks it dismissed (removed from `surfaces` in state) along with any identical copy;
 `{found}` false for an unknown id. `POST /api/surfaces/dismiss {ids?}` dismisses those ids (all when omitted) → `{n}`
 (the phone's Clear all). Dismissals stick: the content fingerprint (agent session/pane + title + body, whitespace-
@@ -186,9 +214,13 @@ never omit) so the client can rely on them.
 
 ### Already shipped, previously undocumented
 - `GET /api/a/:pane/screen` also returns `options: [{label, selected, n}]` — the menu Claude is showing
-  (`n` = its number or null). Empty when no menu.
+  (`n` = its number or null). Empty when no menu. A multiSelect AskUserQuestion lists its rows with their ticks
+  (`"[ ] red"`, `"[✔] red"`) plus its unnumbered `"Next"` (more questions follow) or `"Submit"` row.
 - `POST /api/a/:pane/choose` `{index}` → `{ok:true}` — moves the menu selection to option `index` (0-based,
-  order of `options`) and confirms. 409 `{error}` if the menu did not respond / no such option.
+  order of `options`) and confirms with one Enter (on a tick row that toggles the tick and the menu stays: the call
+  returns once the screen shows it; a plain row whose Enter was ignored gets one retry). One call per pane at a time.
+  409 `{error}` if the menu did not respond / no such option. The phone's menu buttons stay as drawn while a
+  `/choose` runs and redraw from the next screen frame after it (no optimistic state, no overlapping polls).
 - `GET /api/home` → `{pane, session}` (nulls when the master is not running).
 - `POST /api/home/ensure` → `{pane, revived}` — returns the live master pane or revives it (`claude --resume`).
 - `POST /api/home/new` `{cwd?}` → `{pane, previous}` — fresh master chat; the old one stays as a normal agent.
@@ -251,7 +283,10 @@ The client then streams with `after=<returned first+items.length>` as usual.
   `agent.prompt`s it. `status` = agent status after the wait. 409 `{error:"agent_blocked"}` if blocked (use `/choose`).
   `nonce` as for `/prompt`.
 - `POST /api/a/:pane/meta` `{pinned?, muted?, title?, color?}` → `{ok:true}` — **F9**. `pinned`/`muted` are stored in
-  prefs under the pane's session id (404 if the pane has no session). `title` (1–100 chars, whitespace collapsed)
+  prefs under the pane's session id (404 if the pane has no session) and follow the pane when it moves to a new
+  session (`/clear`, resume), unless the new session has flags of its own (prefs.rs `carry_flags`). On the Agents tab
+  pinned agents lead the Everyone list, right under Master, as rows whatever their status: never an In-flight tile,
+  never Ready, never Quiet. `title` (1–100 chars, whitespace collapsed)
   renames the herdr tab at once and is typed into the agent as `/rename <title>`; `color` (one of `red blue green
   yellow purple orange pink cyan default`, else 400) is typed as `/color <name>`. Both are typed only when the agent
   is `idle`/`done` (pending while it is busy). The phone offers only the 7 pastels (red is still accepted and shows as
@@ -276,9 +311,12 @@ transcripts, newest first. Excludes prompts > 500 chars and ones starting with `
   "kind": "ask", "questions": [ /* AskUserQuestion input.questions verbatim */ ] }
 { "session": "…", "pane": "w6:p3", "kind": "ask_clear" }
 ```
-→ `{ok:true}`. Sets/clears `agents[].ask`. The server also clears `ask` when the agent's status leaves `blocked`
-after having been blocked, or after 30 min. When `ask` is set, the blocked push body is `ask.questions[0].question`
-instead of the screen scrape.
+→ `{ok:true}`. Sets/clears `agents[].ask`. The server also clears it once the transcript has the call's answer
+(Claude Code writes the AskUserQuestion call to the transcript only when it is answered), or after 30 min — not on
+herdr's status, which flips between `blocked` and `idle` while the dialog is open. While `ask` is set the agent shows
+`status:"blocked"` even when herdr says idle/done/working. An open AskUserQuestion call in the transcript, when there
+is one, supersedes the hint. When `ask` is set, the blocked push body is `ask.questions[0].question` instead of the
+screen scrape.
 
 ### Surfaces (F1, F7)
 `POST /api/surface` accepts two more optional fields:
@@ -342,6 +380,20 @@ Running first, then by `ended` desc; finished jobs older than 24 h omitted. Sour
 `run_in_background:true` whose result says `running in background with ID: <id>. Output is being written to: <path>`,
 closed by a `<task-notification>` with that `<task-id>` (`<status>`), or a KillShell/TaskStop on it (`killed`). A job of a
 transcript untouched for > 2 h with no closure → `unknown`.
+**Running apps:** a running job whose command is a server (activity types `dev-server` / `serve-app` in
+server/data/activities.toml: `python -m http.server`, `npm run dev`, `vite`, `uvicorn`, `tailscale serve`, …) gains
+`"app": { "via": "tailnet" | "tailscale" | "local", "port": 4180 | null, "host": "100.64.0.5", "url": "http://100.64.0.5:4180" | null,
+"local": "http://127.0.0.1:4180", "alive": true }` (server/src/apps.rs): the port and bind from the command line, overridden by the
+process tree's LISTEN sockets (/proc); `url` = the tailnet address when bound to it or to every interface, the `tailscale serve`
+HTTPS name for a serve job, else null (localhost only). App jobs are not counted in the agent's `jobs.running` / `jobsRunning`;
+Home keeps them out of the In-flight tiles and the Briefing sentence and lists them in a "Running apps" box under
+Scheduled (web/home.js; one row per agent + port; Stop = a steer asking the owner agent, never a kill; no proxy for
+local-only apps: proxied JS would run on sheprd's origin).
+`POST /api/apps/about {id}` (a running app job id from the last `/api/jobs`) → `{about: "…" | null, pending}`: one or two
+plain sentences on what the app is, written once by Haiku (thinking off) from the job description + command, folder, port,
+the served page's `<title>` (one HTTP GET on 127.0.0.1 / its tailnet bind, 1.5 s) and the owning agent's title + activity;
+cached by session + port + command in `<state>/app-about.json`, ≤ 20 new a day (`SHEPRD_APP_HAIKU=0` turns it off); 404
+for anything else. Asked only when the phone opens an app's sheet; the sheet shows the job description until it lands.
 `GET /api/file?path=<out>&tail=6000` — **new `tail` param**: last N bytes (≤ 200000) as `text/plain; charset=utf-8`,
 cut at the first newline. Works for any allowed file.
 
@@ -575,6 +627,13 @@ plan and leaves the agent in plan mode; an optional note is then sent with `/pro
   and Hyprland (socket under `$XDG_RUNTIME_DIR/hypr/*/`) reports no session lock (`solitaryBlockedBy` ∌ `LOCK`),
   a monitor with DPMS on, and no screensaver window (Omarchy's idle screensaver ≈ idle). Only evaluated when a
   push is about to go out.
+- **Urgent vs routine** (`push.rs` `Gate`, since 2026-10-07): urgent pushes (`Urgency: high`) go out at once:
+  Needs you / Plan ready, phone asks (`ask_phone`), a blocked tool's "allow once?", failed turns, attention
+  surfaces, watches and re-pings. Everything else is routine (Done, info/done surfaces,
+  scheduled runs, CI red, service errors, machine alerts, rate limits): **none while the phone was visible in the last
+  2 min**, and **at most one per tag (agent) per 10 min**. The rest wait and go out as one digest at the end of
+  the window (newest push's link, title `… (+N more)`, the others' titles in the body), dropped if the phone was
+  opened after them. Telemetry: `push.sent {urgent}`, `push.quiet {why: visible|held}`.
 
 ### Acting on agents
 - `POST /api/a/:pane/focus` → `{ok}` — herdr `agent.focus` (falls back to `pane.focus`): shows it on the desk.
@@ -605,9 +664,9 @@ plan and leaves the agent in plan mode; an optional note is then sent with `/pro
   removed. A watch whose agent closed sends "Watch ended"; watches expire silently after 24 h.
 
 ### Settings — persisted in `v3.json`
-`GET /api/settings` → `{repingMin: 30}`; `POST /api/settings` `{repingMin: 0..1440}` (0 = off).
-**Re-ping:** an agent blocked for longer than `repingMin` gets one "Still waiting N min · <agent>" push per blocked
-episode (skipped at the desk).
+`GET /api/settings` → `{repingMin: 10}`; `POST /api/settings` `{repingMin: 0..1440}` (0 = off).
+**Re-ping:** an agent blocked for longer than `repingMin` gets one urgent "Still waiting N min · <agent>" push per
+blocked episode (skipped at the desk).
 
 ### Exact turn records (mod → server)
 `POST /api/mod/turn` `{session, pane, turnId, answer, durationMs, reason, error?, usage?}` → `{ok, answerI}`
@@ -838,8 +897,18 @@ from its mod after every run, at no model cost (no name guessing; a plain agent 
 - `POST /api/mod/service` `{pane /* $HERDR_PANE_ID */ | session, name, icon? /* 1 glyph */, verb? /* "polled" */,
   status /* one short line from the mod's own state, e.g. "0 escalated today · 2 forwarded · 14 new" */, lastRun? (ms),
   everyMs? /* report interval */, lastActive? (ms of the last real outcome), lastError?: {ts, msg},
-  error? /* set only while the service is failing (needs the user); null when healthy */}` → `{ok, pane}`.
-  Only these fields are kept (strings clipped); never put message content in them.
+  error? /* set only while the service is failing (needs the user); null when healthy */, nextRun? (ms of the next
+  expected report), link? /* same-origin "/#/…" path or https URL: where tapping a pane-less row goes */}`
+  → `{ok, pane, standalone}`. Only these fields are kept (strings clipped); never put message content in them.
+- **Pane-less services** (systemd timers, cron: the nightly backup posts pane `nightly-backup`): a report whose pane is not a
+  live agent pane when it arrives is `standalone`. `/api/state` lists it in top-level `services: [{id /* the pane key */,
+  name, icon, verb, status, lastRun, nextRun, everyMs, lastActive, lastError, error, link, ts, since, stale}]` (newest
+  first; empty while herdr is unreachable). `stale`: with `nextRun`, 1 h past it; else 3 × `everyMs` (≥ 10 min). It
+  expires `max(24 h, 3 × everyMs)` after the last report. An `error` push opens `link` (same-origin) else Home. A
+  pane-bound service whose pane dies is not listed (dropped after 24 h as before).
+  Phone: one row each at the top of Home's **Scheduled** box (they share its 3 rows with the wake-ups; "+N more" counts
+  the hidden wake-ups); `late · due <time>` when stale, the error in red while failing; tap = `link` (an app path stays
+  in the app), else a detail sheet (status, last/next run, last error); long-press = the detail sheet.
 - `/api/state`: the agent gains `service: {name, icon, verb, status, lastRun, lastActive, everyMs, lastError, error,
   ts /* last report */, since /* first report */, stale /* no report for 3 intervals (≥ 10 min) */}`, and its
   `since` (while not working/blocked) is pinned to `lastActive` (else the first report), so its polling never counts
@@ -853,7 +922,7 @@ from its mod after every run, at no model cost (no name guessing; a plain agent 
   with the error as its outcome line.
 - The **Scheduled** strip (below the agent groups, hidden when empty) also shows the soonest agent wake-up
   (`GET /api/sched`: `timers` with `agentPane`, plus unpaused schedules), polled every 60 s while Home is visible:
-  `⏱ Nightly report · Thu 10:42 PM · in 3d · +N more` (tap = the agent it prompts, else Schedules; +N more = Schedules).
+  `⏱ Nightly report · Thu 10:42 PM · in 3d · +N more` (each row its own icon, see Schedules → Icons) (tap = the agent it prompts, else Schedules; +N more = Schedules).
 
 ### Schedules (recurring agents) — `<state>/sched.json`
 - `POST /api/sched/parse` `{when}` → `{cron, desc, next:[ms ×3]}` | 400 `{error}`. Plain language → cron (local time):
@@ -868,6 +937,14 @@ from its mod after every run, at no model cost (no name guessing; a plain agent 
 - `POST /api/sched` `{cwd, prompt, when, label?, reuse? (default true), ws?, paused?}` → `{ok, schedule}` (`~` expands).
 - `POST /api/sched/:id` (any of the same fields) → `{ok, schedule}`; `DELETE /api/sched/:id` → `{ok}`.
 - `POST /api/sched/:id/run` → `{ok, pane}` — run now (does not move `next`).
+- **Icons** (server/src/schedicon.rs): every timer and schedule carries `icon` (a key of the built-in set, also in the
+  response's `icons`: plane checkin train car calendar mail chart disk deploy gpu cart bell health money monitor photo
+  clock) and `iconBy` (`manual | rule | agent | haiku | default`). Order: manual pick > keyword rules over the item's own
+  text (timer: name + agent prompt, or name + description + command; schedule: label + prompt; whole-word tokens, joined
+  pairs, flight numbers like BA117) > the same rules over the owning agent's title > a one-time Haiku pick cached per key
+  (no rule matched; ≤ 5 a day; `SHEPRD_SCHED_HAIKU=0` disables) > clock. `POST /api/sched/icon` `{key, icon|null}`
+  sets / clears a manual pick; key = `t:<timer name>` or `s:<schedule id>`. Store: `<state>/sched-icons.json`. The phone
+  draws each key as a line icon on Home's Scheduled rows and Automations → Schedules cards; long-press either → picker.
 
 `Sched` = `{id, label, cwd, prompt, when, cron, desc, paused, reuse, ws, created, next, lastRun, lastPane, lastStatus
 ("starting" | "sent" | "running" | "done" | "closed" | "skipped: previous run still working" | "failed: …"), runs,
@@ -1021,12 +1098,32 @@ Agents ask through Claude's own AskUserQuestion (the mod no longer offers `ask_p
 The mod's `ask` hint fills `agents[].ask.questions`; the phone shows every question with its options, multiSelect ticks
 and a free-text box per question, and sends
 `POST /api/a/:pane/askanswer {answers: [{labels: ["red", "blue"], text?: "teal"}, …]}` (one entry per question, in
-order) → `{ok}`. The server drives the dialog against the live screen like a person: arrows + Enter on the option;
-free text = arrows to the "Type something" row (an inline input once selected), the text (one line), Enter;
-multiSelect = Enter on each label to tick it, the typed text, then its "Submit" row; several questions end on
-"Review your answers" → "Submit answers". A single single-select question is answered by one tap.
-409 `{error}`: `no_question`, `question N is not on screen`, `option not found`, `the menu did not respond`.
+order) → `{ok}`. The server drives the dialog against the live screen like a person, re-reading it after every
+step (server/src/talk.rs `answer_ask`): it finds which question the dialog is on (the tab bar `← ☐ Input ☒ Panel … ✔
+Submit →` and the question text; the terminal may be left on any question or the review step) and reaches each
+question by its tab with ← / → (only from a plain option row: on the text row or "Next" the arrows do nothing);
+single-select = arrows + Enter on the option (rows are matched by position, checked against the label: a wrapped
+label matches by its first line); free text = the "Type something" row (an inline input once selected), ctrl+u, the
+text (one line), Enter; the **preview layout** (single-select with `preview`: options left, the preview box right, no
+"Type something" row) takes free text as notes: "n", the text, Enter → "(no option selected) notes: …";
+multiSelect = every option ticked or unticked to match (a retry starts from whatever is ticked), the text row filled
+or emptied, then its "Next" / "Submit" row. Each question must show ☒ in the tab bar afterwards (one retry); several
+questions end on the review step → "Submit answers". Never Esc, never "Chat about this" (both end the tool).
+409 `{error}`: `no_question`, `the question is no longer open in the terminal`, `could not reach question N in the
+terminal`, `the options on screen do not match the question …`, `could not tick “…”`, `question N did not take the
+answer`, `the terminal still lists unanswered questions (…)`, `the menu did not respond`.
+The card keeps a **draft** (localStorage `mm.akd.<hash of pane + questions>`, 7 days): every pick, typed answer, open
+preview and the current step survive a failed Submit (the reason shows in the card, Submit stays usable), a re-render
+and a reload; the same questions asked again start from it; a good Submit clears it. Back / Next / Submit fire on the
+tap itself (pointerdown keeps the keyboard up, the lift fires even when the layout moved meanwhile); a Next within
+0.7 s of a pick that already moved on is not a second step. Esc on the terminal keys while a question is open only
+warns; a second Esc within 3 s sends it.
 AskUserQuestion / ExitPlanMode / EnterPlanMode permission requests never become `perm` cards (their dialog is the answer).
+**Typed in the composer while the card is up** (web, `talk.js` `akType`/`pickOpt`): the reply answers the card and is
+never sent as a prompt. "2", "c", "C)", "Option C" or an option's exact label picks that option (a letter goes to the
+option labelled with it, else the n-th option when no label uses letters); any other text becomes the current
+question's typed answer. A single single-select question is sent at once; otherwise the card waits for Submit.
+The card is rebuilt whenever the agent leaves the blocked state, so the same question asked again is tappable.
 
 ### Web (`web/talk.js`, `talk.css`, lazy)
 × on queued pills (the text goes back into the composer) · TL;DR card pinned above its answer (kept per transcript item
@@ -1122,3 +1219,89 @@ Plain notes only (level info/done, no `replies`, no `command`, no `blocker`, no 
 agent for 4 s (not the Home/Master pane), cards it posted before then; (2) on any visible `/api/viewing`, such
 cards older than 24 h. Both go through the normal dismiss path, so `surfaces-dismissed.json` fingerprints apply.
 Attention cards, questions with reply chips are never auto-cleared.
+
+## My asks (`server/src/asks.rs`, `web/fleet.js` AsksView, History → Asks, `#/fleet/asks`)
+Every request you send an agent from the phone is tracked until you close it. Recorded on a successful
+`POST /api/a/:pane/prompt` or `/steer` from a browser (User-Agent Mozilla) without `from`, unless trivial (< 12 chars,
+only acknowledgement words like "yes please", or starting with `[` or `/`); an identical message to the same pane
+within 10 min (outbox retry) is not recorded twice. Status follows the agent (15 s watcher + on list): `sent` →
+`working` (its turn runs) → `replied` (a turn ended after the ask: `outcome` = the activity outcome of that turn, else
+the answer's first line; `answer_i` links the chat item) or `lost` (pane gone 2 min). You: `done` / `dropped`, or Nudge.
+- `GET /api/asks[?all=1]` → `{asks:[{id, ts, pane, agent, session, text, verb, status, status_ts, outcome, answer_i,
+  nudges}] (newest first; done/dropped older than 7 days only with all=1), open, check}`.
+- `POST /api/asks/:id {status: done|dropped|replied}`.
+- `POST /api/asks/:id/nudge` → steers the agent "Following up on what I asked … Where is this?" and resets to `sent`;
+  409 if the agent is closed. Persisted in `<state dir>/asks.json` (500 newest). Tests: asks unit tests.
+
+## Repos (`server/src/repos.rs`, `web/repos.js` + `repos.css`, the 5th tab `#/repos`)
+The repos being worked on now: every repo a live agent's cwd is in (worktrees grouped under their main repo by
+`git rev-parse --git-common-dir`) plus repos under `~/Work` (depth ≤ 2; `SHEPRD_REPOS_ROOT`) with a commit on any
+local branch, or an uncommitted file modified, in the last 14 days. Read-only: git.rs helpers (`--no-optional-locks`,
+4 s timeouts), never a fetch. Built only when the phone asks: list cache 20 s, ~/Work scan and cwd → repo 5 min.
+- `GET /api/repos[?refresh=1]` →
+```jsonc
+{ "repos": [{ "id": "/home/user/Work/x", "name": "x", "root": "/home/user/Work/x", "live": true, "ts": 1791…,
+    "branch": "main" | null, "detached": false, "head": "abc1234", "dirty": 3, "upstream": "origin/main" | null,
+    "ahead": 1, "behind": 0, "gone": false, "last": Commit | null, "commits": [{short, subject, author, ts}] /* 8 */,
+    "branches": [{name, current, ts, upstream, ahead, behind, gone, short, wt /* checked out at */, subject,
+                  url /* github tree */, pr?: {number, url, state, title, draft}}] /* newest first, 30 + checked out */,
+    "branchesMore": 0, "worktrees": [{path, head, branch, detached, dirty, agents: [pane], main, ts}],
+    "agents": [{pane, title, color, home, status, worktree}], "origin": "git@github.com:o/x.git" /* creds dropped */,
+    "github": {repo: "o/x", url, branchUrl, prs: [...]} | null,
+    "vercel": {linked, projectId, orgId, projectName, config /* vercel.json */, monorepo /* .vercel/repo.json */,
+               savedLink /* linked by an earlier deploy, kept in <state>/repos.json */, name?, dashboard, production?,
+               lastProduction?, previews: [{url, branch, ts}]},
+    "deploy": Deploy | null /* running */, "deploys": [Deploy] /* newest 5 */ }],
+  "root": "~/Work", "built": 1791…, "now": 1791…, "pending": false /* PRs still loading: ask again in a few s */,
+  "gh": "ok" | "no-auth" | "missing",
+  "vercel": {token: false, tokenError: null, tokenPath: "~/.config/sheprd/vercel-token", setup: "<one-liner>",
+             cli: "vercel" | "npx vercel@62" | null} }
+```
+  PRs: one `gh pr list --state all --limit 40` per GitHub repo, 5 min cache, in the background (only with `gh` logged
+  in). Vercel project name / dashboard (`https://vercel.com/<team>/<project>`) / production domain come from the
+  Vercel API (curl, token in a config on stdin) when a token exists, 30 min cache; otherwise the dashboard link is
+  `https://vercel.com/dashboard` and previews are the ones deployed from here.
+- `POST /api/repos/deploy {repo: root, branch?: local branch (default: checked out), target: "preview"|"production",
+  confirm?: "production"}` → `{ok, id, sha, dirty}`. Production without `confirm: "production"` → 400; no token → 412
+  `{error, setup}`; a deploy of that repo already running → 409 `{error, id}`; repo not in the list → 404.
+  The branch's **committed** tree is exported (`git archive | tar -x`) into `~/.cache/sheprd/deploy/<id>/<name>`
+  (uncommitted edits never ship; the log says how many were left out), `.vercel/project.json` / `repo.json` are copied
+  in (else the link an earlier deploy made is passed as `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID`; an unlinked repo makes
+  the CLI link or create project `<name>`), then `vercel deploy --yes [--prod]` runs there inside
+  `systemd-run --user --scope -p MemoryMax=2G` (outside the service's 200 MB cap), 15 min timeout; the temp dir is
+  removed after. CLI: `SHEPRD_VERCEL` (tests), else `vercel` on PATH, else `npx --yes vercel@62` (npm's cache,
+  nothing installed globally). Done → a surface "Deployed x@branch · preview" with "Open preview" (push → `#/repos?d=<id>`);
+  failure → an attention surface with the error and the log tail.
+- `GET /api/repos/deploy/{id}?after=N` → `Deploy` + `{lines: [...from N], from, next}` (the phone polls each second).
+  `Deploy = {id, repo, name, branch, sha, target, state: running|ok|failed, url, started, ended, error, dirty}`. The
+  last 12 jobs keep their log (1500 lines) in memory; older ones (and after a restart) come from `<state>/repos.json`
+  with `expired: true`.
+- **Token**: `~/.config/sheprd/vercel-token` (`SHEPRD_VERCEL_TOKEN_FILE`), mode 600 (a group/world-readable file is
+  refused), else `VERCEL_TOKEN` in the service environment (`systemctl --user edit sheprd` →
+  `Environment=VERCEL_TOKEN=…`). Create the file with (asks without echo, stays out of shell history):
+  `(umask 077; mkdir -p ~/.config/sheprd && read -rsp 'Vercel token: ' t && printf '%s\n' "$t" > ~/.config/sheprd/vercel-token)`.
+  The token reaches the CLI only as `VERCEL_TOKEN` in its environment: never argv, never logged or returned, and any
+  log line containing it is scrubbed to `***`.
+- Web: one card per repo (branch chips, "N changed" / ↑↓ badges, the agents' pastel discs, last commit, last deploy),
+  live repos first. Tap → sheet: GitHub · PR / branch · Vercel links (plain `target=_blank` links: github.com's
+  apple-app-site-association sends `/<o>/<r>` and `/<o>/<r>/pull/<n>` to the GitHub app, `/tree/<branch>` stays web),
+  Agents (→ chats), Deploy (branch picker, dirty warning, Deploy preview, Production… → "Deploy x@b to PRODUCTION?"),
+  the live log with Open / Copy link, Branches & worktrees, Last commits. No token: "Add Vercel token" + the one-liner.
+  Tests: repos unit tests (remote URLs, branch / worktree parsing, Vercel detection, deploy output).
+
+## Slash commands (`server/src/slash.rs`, `ChatView.slash*` in `web/app.js`)
+
+`GET /api/a/:pane/commands` → `{commands: [{name, desc, src}]}`: what that agent can run as `/name`, in menu order,
+deduplicated by name. `src`: `project` (`<cwd and its parents below $HOME>/.claude/{skills/*/SKILL.md,commands/**.md}`),
+`user` (`~/.claude/skills`, `~/.claude/commands`), `synced` (claude.ai skills in `~/.claude/skills/synced/<bucket>/`,
+named `anthropic-skills:x`), `plugin` (enabled plugins from `settings.json` `enabledPlugins` + `installed_plugins.json`
+install paths, `<plugin>:x`), `builtin` (a curated list of Claude Code commands and bundled skills that make sense from
+a phone). Only frontmatter `name` / `description` (commands: else the first body line) and `user-invocable: false`
+(hidden) are read, first 8 KB of each file; parsed files are cached by mtime. `desc` is one line, ≤ 160 chars. 404 for an
+unknown pane.
+
+Phone: `/` at the start of the composer opens the menu above it (name bold, one muted line, ~8 rows then scroll),
+fetched once per chat; ranked name prefix → prefix after `plugin:` → name substring → (3+ chars) description substring.
+Tap / Enter / Tab inserts `/name `; closes on space, Esc, a tap outside (both hold until the `/` is gone), or when the
+text no longer starts with `/`. Fixed-positioned (shares the composer rect frame when iOS scrolls the document under the keyboard), bottom 8 px above
+the composer.

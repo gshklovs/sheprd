@@ -715,7 +715,7 @@ async fn api_perm(State(app): State<Shared>, Json(b): Json<Value>) -> Response {
             let who = title_of(&app, &pane);
             let payload = json!({"title": format!("Blocked {tool} · {who}"), "body": format!("{} — allow once?", cut(&summary, 240).0),
                    "url": format!("/#/a/{pane}"), "tag": format!("deny-{pane}")});
-            send_push(&app, &payload, false).await;
+            send_push(&app, &payload, true).await;
         }
     }
     Json(json!({"ok": true, "id": id})).into_response()
@@ -807,31 +807,119 @@ struct AskAnswerBody {
     answers: Vec<AskAnswer>,
 }
 
-/// A menu row's label without its checkbox and trailing dot ("[✔] red" → "red", "Type something." → "Type something").
+/// A menu row's label without its checkbox, trailing dot and the preview box drawn to its right
+/// ("[✔] red" → "red", "Type something." → "Type something", "1. A      ┌──┐" → "A").
 fn opt_label(l: &str) -> String {
     let t = l.trim();
-    let t = t.strip_prefix("[ ]").or_else(|| t.strip_prefix("[✔]")).or_else(|| t.strip_prefix("[x]")).unwrap_or(t).trim();
+    let t = t.find(['│', '┌', '└', '┐', '┘']).map_or(t, |i| &t[..i]).trim();
+    let t = ["[ ]", "[✔]", "[✓]", "[x]", "[X]"].iter().find_map(|p| t.strip_prefix(p)).unwrap_or(t).trim();
     t.trim_end_matches('.').trim().to_string()
 }
 
 fn is_checked(l: &str) -> bool {
     let t = l.trim();
-    t.starts_with("[✔]") || t.starts_with("[x]")
+    ["[✔]", "[✓]", "[x]", "[X]"].iter().any(|p| t.starts_with(p))
 }
 
-/// Moves the selection to the first row `want` accepts (up/down against the live screen); returns its label.
-async fn move_to(pane: &str, want: &(dyn Fn(&str) -> bool + Sync)) -> Result<String, String> {
-    for _ in 0..20 {
+/// A screen row shows option `want`: the same text, or its first line when the label wraps (preview layout).
+fn label_is(screen: &str, want: &str) -> bool {
+    let (s, w) = (norm(screen).to_lowercase(), norm(want).to_lowercase());
+    !s.is_empty() && (s == w || (w.starts_with(&s) && s.chars().count() >= 3))
+}
+
+/// What Claude's AskUserQuestion dialog shows right now.
+#[derive(Debug, Default, PartialEq)]
+struct AskView {
+    /// `(header, answered)` per question tab ("☐ Input" / "☒ Input"), the closing "✔ Submit" tab left out;
+    /// empty for a single question (no tab bar)
+    tabs: Vec<(String, bool)>,
+    /// the "Review your answers" / "Submit answers" step of several questions
+    review: bool,
+    /// "⚠ You have not answered all questions" on the review step
+    incomplete: bool,
+    /// the question text above the menu, wrapped lines joined
+    question: String,
+    /// the side-by-side preview layout (single-select with `preview`): no "Type something" row, free text
+    /// goes in the option's notes ("n")
+    preview: bool,
+}
+
+fn parse_tabs(l: &str) -> Vec<(String, bool)> {
+    let mut out: Vec<(char, String)> = Vec::new();
+    for c in l.trim().trim_start_matches('←').trim_end_matches('→').chars() {
+        match c {
+            '☐' | '☒' | '✔' => out.push((c, String::new())),
+            _ => {
+                if let Some(x) = out.last_mut() {
+                    x.1.push(c)
+                }
+            }
+        }
+    }
+    out.into_iter().filter(|(m, h)| !(*m == '✔' && h.trim() == "Submit")).map(|(m, h)| (h.trim().to_string(), m != '☐')).collect()
+}
+
+fn ask_view(screen: &str) -> AskView {
+    let lines: Vec<&str> = screen.lines().collect();
+    let mut v = AskView::default();
+    let bar = lines.iter().rposition(|l| {
+        let t = l.trim();
+        t.starts_with('←') && t.ends_with('→') && (t.contains('☐') || t.contains('☒'))
+    });
+    let from = match bar {
+        Some(b) => {
+            v.tabs = parse_tabs(lines[b]);
+            b + 1
+        }
+        // one question: the dialog fits in the bottom of the screen
+        None => lines.len().saturating_sub(60),
+    };
+    let rest = &lines[from..];
+    v.review = bar.is_some() && rest.iter().take(4).any(|l| l.contains("Review your answers"));
+    v.incomplete = v.review && rest.iter().any(|l| l.contains("You have not answered all questions"));
+    v.preview = rest.iter().any(|l| l.contains("n to add notes") || l.contains("Notes: "));
+    let menu_row = |l: &str| {
+        let t = l.trim_start().trim_start_matches('❯').trim_start();
+        l.trim_start().starts_with('❯') || t.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    // several questions: the lines between the tab bar and the menu; one question: the bottom of the screen
+    let q: Vec<&str> = if bar.is_some() { rest.iter().take_while(|l| !menu_row(l)).copied().collect() } else { rest.to_vec() };
+    v.question = norm(&q.iter().map(|l| l.replace('│', " ")).collect::<Vec<_>>().join(" "));
+    v
+}
+
+/// Which question the dialog is on: `Some(n)` = the review step, `None` = no dialog of these questions.
+fn current_q(v: &AskView, questions: &[Value]) -> Option<usize> {
+    if v.review {
+        return Some(questions.len());
+    }
+    if v.question.is_empty() {
+        return None;
+    }
+    let on = v.question.to_lowercase();
+    questions.iter().position(|q| {
+        let want = norm(q["question"].as_str().unwrap_or("")).to_lowercase();
+        let head: String = want.chars().take(50).collect();
+        !head.is_empty() && (on.contains(&head) || (on.chars().count() >= 20 && want.starts_with(&on)))
+    })
+}
+
+const DIALOG_GONE: &str = "the question is no longer open in the terminal";
+
+/// Selects menu row `t` (up/down against the live screen) once `ok` accepts that row's label; returns the label.
+async fn select_row(pane: &str, t: usize, ok: &(dyn Fn(&str) -> bool + Sync)) -> Result<String, String> {
+    for _ in 0..24 {
         let menu = crate::parse_menu(&crate::read_screen(pane).await);
         if menu.len() < 2 {
-            return Err("the question is no longer on screen".into());
+            return Err(DIALOG_GONE.into());
+        }
+        let Some(row) = menu.get(t) else { return Err("the options on screen do not match the question".into()) };
+        if !ok(&opt_label(&row.label)) {
+            return Err(format!("the options on screen do not match the question (row {} is “{}”)", t + 1, opt_label(&row.label)));
         }
         let cur = menu.iter().position(|o| o.selected).unwrap_or(0);
-        let Some(t) = menu.iter().position(|o| want(&opt_label(&o.label))) else {
-            return Err("option not found".into());
-        };
-        if t == cur {
-            return Ok(menu[t].label.clone());
+        if cur == t {
+            return Ok(row.label.clone());
         }
         keys(pane, json!([if t > cur { "down" } else { "up" }])).await;
         tokio::time::sleep(Duration::from_millis(160)).await;
@@ -851,67 +939,158 @@ async fn screen_moves(pane: &str, prev: &str) -> String {
     crate::read_screen(pane).await
 }
 
-/// Answers the AskUserQuestion dialog on screen, one question after the other, the way a person
-/// would: arrows to an option and Enter; for a free-text answer the "Type something" row (an inline
-/// input once selected) gets the text, then Enter; multiSelect ticks each option with Enter and
-/// leaves through its "Submit" row; several questions end on "Review your answers" → "Submit answers".
-async fn answer_ask(pane: &str, questions: &[Value], answers: &[AskAnswer]) -> Result<(), String> {
-    for (k, (q, a)) in questions.iter().zip(answers).enumerate() {
-        let qtext = q["question"].as_str().unwrap_or("");
-        let head: String = qtext.chars().take(40).collect();
-        let screen = crate::read_screen(pane).await;
-        if !head.is_empty() && !screen.contains(head.trim()) {
-            return Err(format!("question {} is not on screen", k + 1));
+/// Brings the dialog to question `target` (`questions.len()` = the review step) with ← / →, wherever it is now:
+/// the terminal may have been left on any question (a half-done earlier attempt, a tap at the desk). The arrows
+/// switch tabs only from a plain option row (on the text row they move the cursor, on Next nothing happens), so
+/// the selection goes to the first row first.
+async fn goto_q(pane: &str, questions: &[Value], target: usize) -> Result<String, String> {
+    let n = questions.len();
+    for _ in 0..(3 * n + 8) {
+        let s = crate::read_screen(pane).await;
+        let v = ask_view(&s);
+        let Some(cur) = current_q(&v, questions) else { return Err(DIALOG_GONE.into()) };
+        if cur == target {
+            return Ok(s);
         }
-        // one line: a newline would submit the inline input early
-        let flat = a.text.as_deref().map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "));
-        let text = flat.as_deref().filter(|t| !t.is_empty());
-        let typed = |l: &str| l.eq_ignore_ascii_case("type something");
-        if q["multiSelect"].as_bool() == Some(true) {
-            for label in &a.labels {
-                let want = label.trim().to_string();
-                let row = move_to(pane, &|l: &str| l == want).await?;
-                if !is_checked(&row) {
-                    keys(pane, json!(["enter"])).await;
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+        if n == 1 || v.tabs.is_empty() {
+            return Err(DIALOG_GONE.into());
+        }
+        let menu = crate::parse_menu(&s);
+        if cur < n && menu.iter().position(|o| o.selected).unwrap_or(0) != 0 {
+            select_row(pane, 0, &|_| true).await?;
+            continue;
+        }
+        keys(pane, json!([if target > cur { "right" } else { "left" }])).await;
+        screen_moves(pane, &s).await;
+    }
+    Err(format!("could not reach question {} in the terminal", target + 1))
+}
+
+/// Types `t` into the free-text field that is open now (the "Type something" row or the notes), replacing any
+/// text an earlier attempt left there.
+async fn type_text(pane: &str, t: &str) {
+    keys(pane, json!(["ctrl+u"])).await;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let _ = herdr::quick("pane.send_text", json!({"pane_id": pane, "text": t})).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+}
+
+/// Answers question `k` (the dialog is on it). Single-select: the option (or "Type something" + text) and Enter;
+/// the preview layout has no text row, so text goes in the notes ("n", text, Enter: "(no option selected) notes: …").
+/// multiSelect: every option ticked or unticked to match (a retry starts from whatever is ticked), the text row
+/// filled or emptied, then its "Next" / "Submit" row. Enter goes only to rows checked against the question, never
+/// to "Chat about this".
+async fn answer_one(pane: &str, q: &Value, a: &AskAnswer, k: usize, preview: bool) -> Result<(), String> {
+    let opts: Vec<String> = q["options"].as_array().map(|o| o.iter().map(|o| o["label"].as_str().unwrap_or("").to_string()).collect()).unwrap_or_default();
+    let no = opts.len();
+    // one line: a newline would submit the inline input early
+    let flat = a.text.as_deref().map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "));
+    let text = flat.as_deref().filter(|t| !t.is_empty());
+    let idx = |l: &str| opts.iter().position(|o| norm(o).eq_ignore_ascii_case(&norm(l)));
+    if q["multiSelect"].as_bool() == Some(true) {
+        for (i, o) in opts.iter().enumerate() {
+            let want = a.labels.iter().any(|l| idx(l) == Some(i));
+            let mut done = false;
+            for _ in 0..3 {
+                let menu = crate::parse_menu(&crate::read_screen(pane).await);
+                let Some(row) = menu.get(i) else { return Err(DIALOG_GONE.into()) };
+                if is_checked(&row.label) == want {
+                    done = true;
+                    break;
+                }
+                select_row(pane, i, &|l| label_is(l, o)).await?;
+                let before = crate::read_screen(pane).await;
+                keys(pane, json!(["enter"])).await;
+                screen_moves(pane, &before).await;
+            }
+            if !done {
+                return Err(format!("could not {} “{o}”", if want { "tick" } else { "untick" }));
+            }
+        }
+        let menu = crate::parse_menu(&crate::read_screen(pane).await);
+        let row = menu.get(no).map(|r| r.label.clone()).unwrap_or_default();
+        let has = is_checked(&row).then(|| opt_label(&row));
+        if has.as_deref().map(norm) != text.map(norm) {
+            select_row(pane, no, &|_| true).await?;
+            match text {
+                Some(t) => type_text(pane, t).await,
+                None => {
+                    keys(pane, json!(["ctrl+u"])).await;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
                 }
             }
-            if let Some(t) = text {
-                move_to(pane, &typed).await?;
-                let _ = herdr::quick("pane.send_text", json!({"pane_id": pane, "text": t})).await;
-                tokio::time::sleep(Duration::from_millis(300)).await;
-                keys(pane, json!(["down"])).await; // the row is now the text: Submit is right below it
-            } else {
-                move_to(pane, &typed).await?;
-                keys(pane, json!(["down"])).await;
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            move_to(pane, &|l: &str| l == "Submit").await?;
+        }
+        // "Next" while more questions follow, "Submit" on the last one
+        select_row(pane, no + 1, &|l| l == "Next" || l == "Submit").await?;
+    } else if let Some(t) = text {
+        if preview {
+            select_row(pane, 0, &|l| label_is(l, &opts[0])).await?;
             let before = crate::read_screen(pane).await;
-            keys(pane, json!(["enter"])).await;
-            screen_moves(pane, &before).await;
-        } else {
-            let before;
-            if let Some(t) = text {
-                move_to(pane, &typed).await?;
-                let _ = herdr::quick("pane.send_text", json!({"pane_id": pane, "text": t})).await;
-                tokio::time::sleep(Duration::from_millis(300)).await;
-                before = crate::read_screen(pane).await;
-            } else {
-                let Some(label) = a.labels.first().map(|l| l.trim().to_string()) else {
-                    return Err(format!("no answer for question {}", k + 1));
-                };
-                move_to(pane, &|l: &str| l == label).await?;
-                before = crate::read_screen(pane).await;
+            keys(pane, json!(["n"])).await;
+            let s = screen_moves(pane, &before).await;
+            if s.contains("press n to add notes") {
+                return Err(format!("could not open the notes of question {}", k + 1));
             }
-            keys(pane, json!(["enter"])).await;
-            screen_moves(pane, &before).await;
+            type_text(pane, t).await;
+        } else {
+            select_row(pane, no, &|l| l.eq_ignore_ascii_case("type something") || norm(l) == norm(t) || !opts.iter().any(|o| label_is(l, o))).await?;
+            type_text(pane, t).await;
+        }
+    } else {
+        let Some(i) = a.labels.first().and_then(|l| idx(l)) else {
+            return Err(format!("no answer for question {}", k + 1));
+        };
+        select_row(pane, i, &|l| label_is(l, &opts[i])).await?;
+    }
+    let before = crate::read_screen(pane).await;
+    keys(pane, json!(["enter"])).await;
+    screen_moves(pane, &before).await;
+    Ok(())
+}
+
+/// Answers the AskUserQuestion dialog on screen the way a person would, checking the screen after every step:
+/// each question is reached by its tab (← / →) wherever the dialog was left, answered, and confirmed answered in
+/// the tab bar (☒), with one retry; several questions end on the review step → "Submit answers". On any mismatch
+/// it stops with a reason and leaves the dialog open: never Esc, never "Chat about this" (both end the tool).
+async fn answer_ask(pane: &str, questions: &[Value], answers: &[AskAnswer]) -> Result<(), String> {
+    let n = questions.len();
+    for (k, (q, a)) in questions.iter().zip(answers).enumerate() {
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let s = goto_q(pane, questions, k).await?;
+            answer_one(pane, q, a, k, ask_view(&s).preview).await?;
+            if n == 1 {
+                return Ok(());
+            }
+            let v = ask_view(&crate::read_screen(pane).await);
+            if v.tabs.get(k).is_some_and(|t| t.1) {
+                break;
+            }
+            if v.tabs.is_empty() && current_q(&v, questions).is_none() {
+                return Err(DIALOG_GONE.into());
+            }
+            if tries >= 2 {
+                return Err(format!("question {} did not take the answer", k + 1));
+            }
         }
     }
-    let screen = crate::read_screen(pane).await;
-    if screen.contains("Review your answers") || screen.contains("Submit answers") {
-        move_to(pane, &|l: &str| l == "Submit answers").await?;
-        keys(pane, json!(["enter"])).await;
+    let s = goto_q(pane, questions, n).await?;
+    let v = ask_view(&s);
+    if v.incomplete {
+        let left: Vec<String> = v.tabs.iter().filter(|t| !t.1).map(|t| t.0.clone()).collect();
+        return Err(format!("the terminal still lists unanswered questions ({})", left.join(", ")));
+    }
+    let menu = crate::parse_menu(&s);
+    let Some(i) = menu.iter().position(|o| opt_label(&o.label) == "Submit answers") else {
+        return Err("no “Submit answers” in the terminal".into());
+    };
+    select_row(pane, i, &|l| l == "Submit answers").await?;
+    let before = crate::read_screen(pane).await;
+    keys(pane, json!(["enter"])).await;
+    let after = screen_moves(pane, &before).await;
+    if ask_view(&after).review {
+        return Err("“Submit answers” did not go through".into());
     }
     Ok(())
 }
@@ -958,6 +1137,93 @@ mod tests {
         assert_eq!(opt_label("Type something."), "Type something");
         assert_eq!(opt_label("  Submit"), "Submit");
         assert!(is_checked("[✔] teal") && !is_checked("[ ] blue"));
+    }
+
+    const BAR: &str = "←  ☒ Input  ☒ Panel  ☐ Format  ☐ Delivery  ✔ Submit  →";
+
+    fn sample_qs() -> Vec<Value> {
+        let o = |l: &[&str]| l.iter().map(|l| json!({"label": l})).collect::<Vec<_>>();
+        vec![
+            json!({"header": "Input", "multiSelect": true, "question": "What should the review cover? The old script read your \"weekly report\" files, but the last one is from June.",
+                   "options": o(&["My last 7 days of commits", "Whatever I paste or point at", "Open issues / milestones", "Old reports"])}),
+            json!({"header": "Panel", "multiSelect": false, "question": "Which reviewers should weigh in?", "options": o(&["Keep the usual four", "Swap in specialists", "I'll name them"])}),
+            json!({"header": "Format", "multiSelect": false, "question": "What should the bullet output look like?", "options": o(&["3 bullets each + shared", "One flat list", "Bullets + a short monologue each"])}),
+            json!({"header": "Delivery", "multiSelect": true, "question": "Where does it run and get saved?", "options": o(&["Save to the repo", "Card on my phone", "Weekly automatic", "Install as a Claude skill here"])}),
+        ]
+    }
+
+    // screens captured from Claude Code 2.1.289 (herdr pane read), the 2026-10-07 4-question ask
+    fn q1_screen(width_wrap: bool) -> String {
+        let q = if width_wrap {
+            "│ What should the review cover? The old script read your \"weekly report\"\n│ files, but the last one is from June."
+        } else {
+            "│ What should the review cover? The old script read your \"weekly report\" files, but the last one is from June."
+        };
+        format!("❯ earlier prompt\n────\n←  ☐ Input  ☐ Panel  ☐ Format  ☐ Delivery  ✔ Submit  →\n\n{q}\n\n  1. [ ] My last 7 days of commits\n         Git commits, agent sessions.\n  2. [✔] Whatever I paste or point at\n         A plan, an idea.\n  3. [ ] Open issues / milestones\n         Judge against milestones.\n  4. [ ] Old reports\n         Keep reading old reports like before.\n❯ 5. [✔] my own idea\n     Next\n──────────────\n  6. Chat about this\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n")
+    }
+
+    fn q3_preview_screen() -> String {
+        format!("{BAR}\n\nWhat should the bullet output look like?\n\n❯ 1. 3 bullets each + shared      ┌────────────────┐\n  2. One flat list                │ Alice 2/5      │\n  3. Bullets + a short            │ - Shipped: x   │\n    monologue each                │                │\n                                  └────────────────┘\n\n                                  Notes: press n to add notes\n\n──────────────\n  Chat about this\n\nEnter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel\n")
+    }
+
+    #[test]
+    fn ask_tabs_and_preview_layout() {
+        let v = ask_view(&q3_preview_screen());
+        let tabs: Vec<(&str, bool)> = v.tabs.iter().map(|(h, a)| (h.as_str(), *a)).collect();
+        assert_eq!(tabs, [("Input", true), ("Panel", true), ("Format", false), ("Delivery", false)]);
+        assert!(v.preview && !v.review);
+        assert_eq!(v.question, "What should the bullet output look like?");
+        assert_eq!(current_q(&v, &sample_qs()), Some(2)); // the dialog was left on question 3: found, not "question 1 is not on screen"
+        // the preview box is not part of the labels; a wrapped label matches its option by its first line
+        let menu = crate::parse_menu(&q3_preview_screen());
+        let labels: Vec<String> = menu.iter().map(|o| opt_label(&o.label)).collect();
+        assert_eq!(labels, ["3 bullets each + shared", "One flat list", "Bullets + a short"]);
+        assert!(label_is(&labels[2], "Bullets + a short monologue each") && !label_is(&labels[1], "Bullets + a short monologue each"));
+        assert!(menu[0].selected);
+    }
+
+    #[test]
+    fn ask_multiselect_rows() {
+        let qs = sample_qs();
+        for wrap in [false, true] {
+            let s = q1_screen(wrap);
+            let v = ask_view(&s);
+            assert!(!v.preview && !v.review);
+            assert_eq!(current_q(&v, &qs), Some(0), "wrapped question: {wrap}");
+            let menu = crate::parse_menu(&s);
+            // options 0..4, the text row at 4 (ticked: it holds text), Next at 5, then "Chat about this" (never pressed)
+            assert_eq!(menu.len(), 7);
+            assert!(is_checked(&menu[1].label) && !is_checked(&menu[0].label));
+            assert_eq!(opt_label(&menu[4].label), "my own idea");
+            assert!(menu[4].selected && is_checked(&menu[4].label));
+            assert_eq!(opt_label(&menu[5].label), "Next");
+            assert_eq!(opt_label(&menu[6].label), "Chat about this");
+        }
+    }
+
+    #[test]
+    fn ask_single_select_and_review() {
+        let s = format!("{BAR}\n\nWhich reviewers should weigh in?\n\n❯ 1. Keep the usual four\n     Same four.\n  2. Swap in specialists\n     Mix in people.\n  3. I'll name them\n     Tell me who.\n  4. Type something.\n──────────────\n  5. Chat about this\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n");
+        let v = ask_view(&s);
+        assert_eq!(current_q(&v, &sample_qs()), Some(1));
+        let menu = crate::parse_menu(&s);
+        assert_eq!(opt_label(&menu[3].label), "Type something");
+        let r = format!("{BAR}\n\nReview your answers\n\n⚠ You have not answered all questions\n\n ● What should the review cover?\n   → My last 7 days of commits\n\nReady to submit your answers?\n\n❯ 1. Submit answers\n  2. Cancel\n");
+        let v = ask_view(&r);
+        assert!(v.review && v.incomplete);
+        assert_eq!(current_q(&v, &sample_qs()), Some(4));
+        assert_eq!(opt_label(&crate::parse_menu(&r)[0].label), "Submit answers");
+        // no dialog: nothing matches
+        assert_eq!(current_q(&ask_view("❯ hello\n  ⏸ manual mode on"), &sample_qs()), None);
+    }
+
+    #[test]
+    fn ask_single_question_has_no_tabs() {
+        let s = "❯ Test: call AskUserQuestion\n\n● Reading\n────\n Fruit\n\nPick fruits\n\n❯ 1. [ ] apple\n  2. [ ] banana\n  3. [ ] Type something\n     Submit\n────\n  4. Chat about this\n";
+        let qs = vec![json!({"question": "Pick fruits", "multiSelect": true, "options": [{"label": "apple"}, {"label": "banana"}]})];
+        let v = ask_view(s);
+        assert!(v.tabs.is_empty() && !v.review);
+        assert_eq!(current_q(&v, &qs), Some(0));
     }
 
     #[test]

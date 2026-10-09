@@ -259,6 +259,27 @@ pub struct Publish {
 /// Parses `Published <path> at https://claude.ai/artifact/<id> (Version N, version id …) Icon: "chart".`
 /// Anything else (errors, quickstart/list/read output, asset uploads) → None.
 pub fn parse_publish(text: &str) -> Option<Publish> {
+    parse_publish_line(text).or_else(|| parse_publish_json(text))
+}
+
+/// Is `u` a claude.ai artifact link (`/artifact/<id>` or `/code/artifact/<uuid>`)?
+pub fn is_artifact_url(u: &str) -> bool {
+    let Some(rest) = u.strip_prefix("https://claude.ai/") else { return false };
+    let id = rest.strip_prefix("code/").unwrap_or(rest).strip_prefix("artifact/").unwrap_or("");
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// A JSON publish result: `{"url": "https://claude.ai/artifact/<id>", "file_path"|"path": …, "version": N, "icon": …}`.
+fn parse_publish_json(text: &str) -> Option<Publish> {
+    let v: Value = serde_json::from_str(text.trim()).ok()?;
+    let g = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    let url = g("url").filter(|u| is_artifact_url(u))?;
+    let version = v.get("version").and_then(|x| x.as_u64().or_else(|| x.as_str()?.parse().ok())).map(|n| n as u32);
+    let path = g("file_path").or_else(|| g("path")).filter(|p| p.starts_with('/'));
+    Some(Publish { path, url, version, icon: g("icon").filter(|i| !i.is_empty()) })
+}
+
+fn parse_publish_line(text: &str) -> Option<Publish> {
     let line = text.trim_start().lines().next()?;
     let rest = line.strip_prefix("Published ")?;
     let at = rest.find(" at https://")?;
@@ -294,8 +315,8 @@ fn upsert_artifact(tr: &mut Track, input: &Value, p: Publish, ix: usize, ts: i64
         .and_then(|p| file_title(Path::new(p)))
         .or_else(|| s("title"))
         .or_else(|| prev.as_ref().filter(|a| a.kind == "artifact").map(|a| a.title.clone()))
-        .or_else(|| description.as_deref().map(|d| transcript::short(d, 80)))
         .or_else(|| path.as_deref().map(file_name))
+        .or_else(|| description.as_deref().map(|d| transcript::short(d, 80)))
         .unwrap_or_else(|| "Artifact".into());
     tr.arts.push(Art {
         kind: "artifact",
@@ -501,6 +522,14 @@ mod tests {
         assert!(parse_publish("Error: publish refused").is_none());
         assert!(parse_publish("Published /x at https://evil.example/artifact/1 (Version 1)").is_none());
         assert!(parse_publish("Uploaded /x.png to https://claude.ai/artifact/1").is_none());
+        // newer shapes: the /code/ path and a JSON result
+        let c = parse_publish("Published /t/doc.md at https://claude.ai/code/artifact/0a1b2c3d-4e5f-6a7b (Version 3, version id z)").unwrap();
+        assert_eq!((c.url.as_str(), c.path.as_deref(), c.version), ("https://claude.ai/code/artifact/0a1b2c3d-4e5f-6a7b", Some("/t/doc.md"), Some(3)));
+        let j = parse_publish(r#"{"url":"https://claude.ai/artifact/AbCdEf0123456789xYz012","file_path":"/t/p.html","version":1,"icon":"printer"}"#).unwrap();
+        assert_eq!((j.url.as_str(), j.path.as_deref(), j.version, j.icon.as_deref()), ("https://claude.ai/artifact/AbCdEf0123456789xYz012", Some("/t/p.html"), Some(1), Some("printer")));
+        assert!(parse_publish(r#"{"url":"https://evil.example/artifact/1"}"#).is_none());
+        assert!(parse_publish(r#"{"artifacts":[]}"#).is_none());
+        assert!(is_artifact_url("https://claude.ai/artifact/AbCd") && !is_artifact_url("https://claude.ai/artifact/") && !is_artifact_url("https://claude.ai/chat/x"));
     }
 
     #[test]
@@ -573,6 +602,36 @@ mod tests {
         let md = a.iter().find(|x| x.kind == "file").unwrap();
         assert_eq!(md.title, "Findings");
         assert!(!scan(&t), "nothing new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The item shapes of a Master publish (fixtures/artifact-publish.json): the
+    /// Artifact input has no title, so the title comes from the source's `<title>`, never the description.
+    #[test]
+    fn live_publish_fixture() {
+        let fx: Value = serde_json::from_str(include_str!("../fixtures/artifact-publish.json")).unwrap();
+        let dir = std::env::temp_dir().join(format!("mm-art-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("compare.html");
+        std::fs::write(&src, "<title>Plan A vs Plan B</title>\n<style></style>").unwrap();
+        let src_s = src.to_string_lossy().to_string();
+        let sub = |v: &Value| serde_json::from_str::<Value>(&v.to_string().replace("{SRC}", &src_s)).unwrap();
+        let (call, res) = (sub(&fx["items"][0]), sub(&fx["items"][1]));
+        let p = parse_publish(res["text"].as_str().unwrap()).unwrap();
+        assert_eq!(p.url, "https://claude.ai/artifact/AbCdEf0123456789xYz012");
+        assert_eq!((p.path.as_deref(), p.version, p.icon.as_deref()), (Some(src_s.as_str()), Some(1), Some("chart")));
+        let mut body = String::new();
+        body += &line(json!({"type":"assistant","timestamp":"2026-10-06T23:37:31Z","message":{"content":[{"type":"tool_use","id":call["id"],"name":"Artifact","input":call["input"]}]}}));
+        body += &line(json!({"type":"user","timestamp":"2026-10-06T23:37:32Z","message":{"content":[{"type":"tool_result","tool_use_id":res["id"],"content":res["text"]}]}}));
+        let path = dir.join("t.jsonl");
+        std::fs::write(&path, &body).unwrap();
+        let tid = format!("live-{}", std::process::id());
+        let mut t = Transcript::new(tid.clone(), path);
+        t.refresh();
+        assert!(scan(&t));
+        let a = latest_of(&tid);
+        assert_eq!(a.len(), 1);
+        assert_eq!((a[0].title.as_str(), a[0].url.as_deref(), a[0].icon.as_deref()), ("Plan A vs Plan B", Some("https://claude.ai/artifact/AbCdEf0123456789xYz012"), Some("chart")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

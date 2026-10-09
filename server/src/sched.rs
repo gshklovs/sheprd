@@ -26,6 +26,7 @@ pub fn routes() -> Router<Shared> {
     Router::new()
         .route("/api/sched", get(api_list).post(api_create))
         .route("/api/sched/parse", post(api_parse))
+        .route("/api/sched/icon", post(api_icon))
         .route("/api/sched/{id}", post(api_update).delete(api_delete))
         .route("/api/sched/{id}/run", post(api_run_now))
 }
@@ -423,10 +424,59 @@ fn with<R>(f: impl FnOnce(&mut Vec<Sched>) -> R) -> R {
     r
 }
 
-async fn api_list() -> Response {
-    let list: Vec<Value> = SCHEDS.lock().unwrap().iter().map(view).collect();
-    let timers = systemd_timers().await;
-    Json(json!({"schedules": list, "timers": timers, "now": now_ms()})).into_response()
+async fn api_list(State(app): State<Shared>) -> Response {
+    let mut list: Vec<Value> = SCHEDS.lock().unwrap().iter().map(view).collect();
+    let mut timers = systemd_timers().await;
+    // owning agents' titles, for the icon rules
+    let agents: Vec<Value> = serde_json::from_str::<Value>(&app.inner.lock().unwrap().state.clone())
+        .ok()
+        .and_then(|v| v["agents"].as_array().cloned())
+        .unwrap_or_default();
+    let title = |pane: Option<&str>| {
+        let Some(p) = pane else { return String::new() };
+        agents
+            .iter()
+            .find(|a| a["pane"] == p || a["name"] == p)
+            .map(|a| [&a["title"], &a["name"]].iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" "))
+            .unwrap_or_default()
+    };
+    for t in timers.iter_mut() {
+        let g = |k: &str| t[k].as_str().unwrap_or("").to_string();
+        let own = if t["agentPane"].is_null() {
+            format!("{} {} {}", g("name"), g("desc"), g("command"))
+        } else {
+            format!("{} {}", g("name"), g("agentPrompt")) // the desc / command are just `herdr agent prompt …`
+        };
+        let (icon, by) = crate::schedicon::pick(&format!("t:{}", g("name")), &own, &title(t["agentPane"].as_str()), true);
+        t["icon"] = json!(icon);
+        t["iconBy"] = json!(by);
+    }
+    for s in list.iter_mut() {
+        let g = |k: &str| s[k].as_str().unwrap_or("").to_string();
+        let own = format!("{} {}", g("label"), g("prompt"));
+        let (icon, by) = crate::schedicon::pick(&format!("s:{}", g("id")), &own, &title(s["lastPane"].as_str()), true);
+        s["icon"] = json!(icon);
+        s["iconBy"] = json!(by);
+    }
+    Json(json!({"schedules": list, "timers": timers, "icons": crate::schedicon::ICONS, "now": now_ms()})).into_response()
+}
+
+#[derive(Deserialize)]
+struct IconBody {
+    key: String,
+    /// one of the built-in set; null / "" = back to automatic
+    icon: Option<String>,
+}
+
+/// Manual icon pick for one row: key `t:<timer name>` or `s:<schedule id>`.
+async fn api_icon(Json(b): Json<IconBody>) -> Response {
+    if !(b.key.starts_with("t:") || b.key.starts_with("s:")) || b.key.len() > 200 {
+        return json_err(StatusCode::BAD_REQUEST, "key must be t:<timer> or s:<schedule id>");
+    }
+    match crate::schedicon::set_manual(&b.key, b.icon.as_deref().filter(|i| !i.is_empty())) {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(e) => json_err(StatusCode::BAD_REQUEST, e),
+    }
 }
 
 // ---------------------------------------------------------------------------

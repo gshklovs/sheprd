@@ -769,6 +769,17 @@ tool = ["Bash"]
 cmd = ['^(npm|pnpm|yarn|bun) (run )?(dev|start|serve|preview)\b', '^(vite|next dev|astro dev)\b', '^python3? -m http\.server\b', '^python3? \S*mock\w*\.py\b']
 conf = 0.8
 
+# A long-running process that serves an app or a port (with dev-server: activity::APP_ACTS). A background job of
+# either kind is a running app on Home, never In-flight work or a Briefing clause.
+[[act]]
+id = "serve-app"
+cat = "ops"
+icon = "▶"
+phrase = "serving an app"
+tool = ["Bash"]
+cmd = ['^tailscale (serve|funnel)\b', '^(uvicorn|gunicorn|hypercorn|daphne|waitress-serve|granian)\b', '^python3? -m (uvicorn|gunicorn|flask|gradio|streamlit|jupyter|mkdocs|http\.server)\b', '^(flask|fastapi) (run|dev)\b', '^streamlit run\b', '^jupyter (lab|notebook|server)\b', '^(npx |bunx |pnpm dlx )?(serve|http-server|live-server|vite preview|wrangler dev|vercel dev)\b', '^(rails|bin/rails) (s|server)\b', '^php -S\b', '^(hugo|mkdocs|jekyll|zola|mdbook) (serve|server)\b', '^caddy (run|file-server|reverse-proxy)\b', '^(cargo|trunk) (watch .*)?serve\b', '^ngrok http\b', '^cloudflared tunnel\b', '^socat .*LISTEN']
+conf = 0.8
+
 # ======================================================================================================
 # Browsing (agent-browser, Claude in Chrome, WebFetch)
 # ======================================================================================================

@@ -68,14 +68,14 @@ struct Ci {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum GhAuth {
+pub(crate) enum GhAuth {
     Ok,
     NoAuth,
     Missing,
 }
 
 impl GhAuth {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             GhAuth::Ok => "ok",
             GhAuth::NoAuth => "no-auth",
@@ -146,7 +146,7 @@ pub fn decorate(app: &App, agents: &mut [Value]) {
 // process helpers
 
 /// Runs a read-only git command in `cwd`: (exit ok, stdout). None on spawn failure / timeout.
-async fn git(cwd: &str, args: &[&str]) -> Option<(bool, String)> {
+pub(crate) async fn git(cwd: &str, args: &[&str]) -> Option<(bool, String)> {
     let mut c = tokio::process::Command::new("git");
     c.args(["--no-optional-locks", "-c", "core.quotepath=off", "-c", "color.ui=never", "-C", cwd])
         .args(args)
@@ -159,7 +159,7 @@ async fn git(cwd: &str, args: &[&str]) -> Option<(bool, String)> {
     Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned()))
 }
 
-async fn git_ok(cwd: &str, args: &[&str]) -> Option<String> {
+pub(crate) async fn git_ok(cwd: &str, args: &[&str]) -> Option<String> {
     git(cwd, args).await.filter(|(ok, _)| *ok).map(|(_, s)| s)
 }
 
@@ -168,7 +168,7 @@ fn gh_bin() -> String {
 }
 
 /// Runs `gh` (never interactive): Err(true) = not installed, Err(false) = timeout/spawn failure.
-async fn gh(cwd: &str, args: &[&str], ms: u64) -> Result<(i32, String, String), bool> {
+pub(crate) async fn gh(cwd: &str, args: &[&str], ms: u64) -> Result<(i32, String, String), bool> {
     let mut c = tokio::process::Command::new(gh_bin());
     c.args(args)
         .current_dir(cwd)
@@ -190,7 +190,7 @@ async fn gh(cwd: &str, args: &[&str], ms: u64) -> Result<(i32, String, String), 
 }
 
 /// `gh auth status`, cached 10 min (`force` re-checks).
-async fn gh_auth(force: bool) -> GhAuth {
+pub(crate) async fn gh_auth(force: bool) -> GhAuth {
     if !force {
         if let Some((a, t)) = st().lock().unwrap().auth {
             if now_ms() - t < AUTH_EVERY_MS {
