@@ -65,7 +65,7 @@ export async function resume(sid, btn) {
   haptic();
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
   try {
-    const r = await post(`sessions/${enc(sid)}/resume`);
+    const r = await post(`sessions/${enc(sid)}/resume`, { wake: true });
     if (!r.live) G.starting.set(r.pane, Date.now());
     toast(r.live ? 'Already running — opening it' : 'Resuming in a new tab', 'ok', null, 1600);
     location.hash = '#/a/' + enc(r.pane);

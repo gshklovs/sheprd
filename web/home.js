@@ -416,8 +416,10 @@ function drawApps(el, jobs, byPane) {
 let wired = null, lastJobs = [];
 export function draw(el, st, o) {
   lastJobs = o.jobs || [];
-  const brief = $('.brief', el), heroBox = $('.hero', el), tilesBox = $('.tiles', el), tilesSec = $('.tsec', el);
-  if (wired !== el) { wired = el; wireHero(heroBox); tilesBox.addEventListener('click', e => { const t = e.target.closest('.ftile.fjob:not([href])'); if (t) { e.preventDefault(); const j = lastJobs.find(x => x.id === t.dataset.job); if (j) lazy('sheets').then(m => m.jobSheet(j)); } }); longPress(tilesBox, '.ftile[data-pane]', t => { const a = G.st?.agents.find(x => x.pane === t.dataset.pane); if (!a) return false; lazy('sheets').then(m => m.cardSheet(a)); }); }
+  // No In-flight tiles on the Agents tab (dropped as unused): the tiles
+  // are still worked out for the briefing's "N working: …" clause, but not drawn; working agents are cards/Agents grid.
+  const brief = $('.brief', el), heroBox = $('.hero', el);
+  if (wired !== el) { wired = el; wireHero(heroBox); }
   const items = MODS.queue ? MODS.queue.items(st).filter(x => x.rank <= 2) : [];
   const byPane = new Map((st?.agents || []).map(a => [a.pane, a]));
   // tiles: running jobs (with their owner), then working agents without a running job. A server job (the server's
@@ -431,7 +433,6 @@ export function draw(el, st, o) {
   }
   // pinned agents stay rows in their own section at the top (app.js), not tiles
   for (const a of o.list) if (!a.home && !a.pinned && dispStatus(a) === 'working' && !tilePanes.has(a.pane)) { tiles.push({ key: 'a:' + a.pane, a, j: null, p: null, title: nm(a) }); tilePanes.add(a.pane); }
-  const workingPanes = new Set(o.list.filter(a => !a.home && !a.pinned && dispStatus(a) === 'working').map(a => a.pane));
   if (run.length) loadProg(run);
   const ready = o.list.filter(a => !a.home && dispStatus(a) === 'done');
   const kick = `<div class="kick">${esc(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${o.list.length} agent${o.list.length === 1 ? '' : 's'}${run.length ? ` · ${run.length} job${run.length > 1 ? 's' : ''}` : ''}</div>`;
@@ -440,9 +441,7 @@ export function draw(el, st, o) {
   if (st?.decisions?.open || $('.dwrap', el)) lazy('decide').then(m => m.homeCard(el, G.st), () => { }); // decide.js: "N to decide" under the briefing
   drawHero(heroBox, items, tiles.length);
   drawApps(el, o.jobs || [], byPane);
-  tilesSec.hidden = !tiles.length;
-  drawTiles(tilesBox, tiles);
-  return { hero: items[0]?.pane || null, tiles: workingPanes };
+  return { hero: items[0]?.pane || null, tiles: new Set() };
 }
 // re-render when the triage queue changes underneath us (held, snoozed, a menu loaded)
 lazy('queue').then(tr => tr.setHook(refresh));

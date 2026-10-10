@@ -161,3 +161,38 @@
 .fnote .fn-h { display: flex; align-items: center; gap: 5px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--fg2); font-weight: 600; margin-bottom: 4px; }
 .fnote .fn-h svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .fnote b { font-weight: 600; }
+
+/* what Sleep does: one line under the button, an expander (review sheet) */
+.ts-btns .tf-go { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 6px 14px; }
+.ts-btns .tf-go b { font-weight: 600; }
+.ts-btns .tf-go small { font-size: 13px; font-weight: 400; opacity: .88; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-btns .tf-go.arm { background: var(--red); }
+.ts-btns .tf-go.arm small { white-space: normal; text-align: center; line-height: 1.3; }
+.ts-btns .tf-go.arm .tf-tap { font-weight: 600; opacity: 1; margin-top: 2px; }
+.ts-what { font-size: 13px; color: var(--fg2); line-height: 1.35; margin: 0 2px; }
+.ts-what summary { list-style: none; cursor: pointer; text-align: center; }
+.ts-what summary::-webkit-details-marker { display: none; }
+.ts-what summary u { color: var(--accent); text-decoration: none; white-space: nowrap; }
+.ts-what[open] summary u { opacity: .6; }
+.ts-what ul { margin: 8px 0 2px; padding: 9px 12px 9px 26px; background: var(--bg2); border-radius: 12px; text-align: left; display: flex; flex-direction: column; gap: 5px; }
+.ts-what li b { color: var(--fg); font-weight: 600; }
+
+/* A4: Just put to sleep (under the Tidy card / Recent) */
+.tdy-just { background: var(--bg2); border-radius: 16px; box-shadow: var(--card-sh); padding: 12px 0 10px; margin: 12px 0 4px; transition: opacity .25s, transform .25s; }
+.tdy-just.out { opacity: 0; transform: scale(.97); }
+.tj-h { display: flex; gap: 12px; align-items: center; padding: 0 14px 6px; }
+.tj-ic { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.tj-ic svg { width: 19px; height: 19px; fill: currentColor; }
+.tj-tx { flex: 1; min-width: 0; }
+.tj-tx b { display: block; font-size: 17px; font-weight: 700; line-height: 1.25; }
+.tj-tx small { display: block; font-size: 13.5px; color: var(--fg2); margin-top: 1px; }
+.tj-hide { flex: none; color: var(--accent); font-size: 15px; padding: 6px 2px 6px 8px; }
+.tj-row { display: flex; align-items: center; gap: 11px; padding: 8px 14px; position: relative; }
+.tj-row + .tj-row::before { content: ""; position: absolute; left: 59px; right: 0; top: 0; height: .5px; background: var(--sep); }
+.tj-b { flex: 1; min-width: 0; color: inherit; text-decoration: none; display: flex; flex-direction: column; }
+.tj-b .nm { font-size: 16px; font-weight: 600; color: var(--pt, var(--fg)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tj-b small { font-size: 13.5px; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tj-wake { display: inline-flex; align-items: center; gap: 6px; }
+.tj-wake .spin { width: 13px; height: 13px; }
+.tj-all { display: block; width: calc(100% - 28px); margin: 8px 14px 0; min-height: 42px; font-size: 16px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.tj-why { font-size: 12.5px; color: var(--fg3); margin: 8px 14px 0; line-height: 1.35; }

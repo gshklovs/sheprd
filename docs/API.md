@@ -897,6 +897,12 @@ new tab running `claude --resume <sid> --permission-mode auto` (trust prompt aut
 where it lived** (find.rs remembers each session's workspace and tab name, as `home.json` does for the home agent): its old workspace
 if it still exists, else the one matching its cwd; its old tab name, else `re-<title>`. `text` (Continue sends "continue")
 is typed in once the agent is up; a rename made while it slept follows as `/rename`.
+**Never two Claudes on one session** (2026-10-10): resumes of one sid run one at a time (a per-sid lock held through
+the launch), and each first looks for a pane running that session (by session id, whatever pane: also one resumed by
+hand or by another agent) or a resume already started; then it returns that pane with `already: true` and launches
+nothing (two concurrent requests → one tab). `wake: true` (the phone's Wake, Continue, History's Resume): when it is
+already running, `text` is not sent either; the phone just opens its chat ("already awake"). `GET /api/tidy` /
+`/api/tidy/pending` leave sessions that are live again out of `slept`, so "Just put to sleep" drops them.
 404 unknown session, 409 when its folder is gone. The web shows Resume on Sessions rows, search result groups and the
 bar under read-only (old) chats ("Open live chat" when it is live).
 
@@ -1500,6 +1506,27 @@ Builds on Find and continue:
   Tests: `SHEPRD_FAKE_TIDY=1`, `SHEPRD_TIDY_IDLE_MS`.
 - Phone: Home card under Recent with ≥ 3 safe agents; review sheet; catch-up flow (full screen, swipe left = sleep,
   right = keep); undo toast; just-slept agents first in Asleep. Tests: `cargo test tidy::`.
+- **What Sleep does, said where you pick it**:
+  the button names the agents ("Put 6 to sleep" / "Nightly Report, Docs Site +4 more"), one line under it ("Closes
+  their tabs. Chats are kept; wake any time from Asleep.") and a "What does sleep do?" expander (closes its tab, what
+  stops with it, nothing deleted, how to wake). More than one: the first tap turns the button into **"Close these N
+  tabs?"** naming every one, the second (within 6 s) sleeps them. Catch-up says the same in a line.
+- **Just put to sleep** (A4): `GET /api/tidy` and `/api/tidy/pending` carry `justHidden` (ms) and `justMs` (6 h). For
+  `justMs` after a sleep (sleeps after the last hide), a card under the Tidy card / Recent lists the still-asleep agents
+  from `slept` with one-tap **Wake** and **Wake all N** (`POST /api/sessions/{sid}/resume {}`, one after another, no
+  message: it comes back idle in its old workspace and tab, the row says Waking until its pane reports the session);
+  they are left out of Asleep meanwhile. **Hide** → `POST /api/tidy/just/hide` → `{ok, justHidden}`.
+- **Wake limits**: the conversation, folder,
+  workspace and tab name come back (`claude --resume <sid> --permission-mode auto`). Not restored: anything that ran
+  in the pane (dev servers, background shells, subagents, a draft in its box), split panes and the tab's position (the
+  tab is added at the end; if another pane kept the old tab open, a second tab of the same name appears), the model
+  (no `--model`: Claude's default), and a workspace that closed with its last tab (the agent opens in the workspace
+  matching its folder, else the first one). Wake does not send "continue" (Continue in Asleep still does).
+- **Never closes more than one agent without naming them** (audit 2026-10-10): the only herdr-destructive call is
+  `pane.close` (`POST /api/a/{pane}/close`, one pane, confirm sheet naming it; **403** for the home agent's tab: home or herdr
+  name / tab label `master*`) and Tidy's deferred close (above). Quiet's "Close tests" now opens one sheet naming every
+  test agent. Nothing in the server or web stops herdr, closes a workspace or kills a process (Running apps Stop and
+  Tidy's Stop :port ask the owning agent; the Machine tab is read-only).
 
 ## Branch from here (`server/src/branch.rs`, `web/sheets.js` branchSheet)
 

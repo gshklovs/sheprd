@@ -56,10 +56,11 @@ export async function continueAgent(sid, { text = 'continue', btn, name } = {}) 
   const label = btn?.innerHTML;
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
   try {
-    const r = await post(`sessions/${enc(sid)}/resume`, text ? { text } : {});
+    // wake: a session already running in some pane is only opened (server-side: never a second Claude, nothing sent)
+    const r = await post(`sessions/${enc(sid)}/resume`, text ? { text, wake: true } : { wake: true });
     if (!r.live) G.starting.set(r.pane, Date.now());
     forget();
-    toast(r.live ? `${esc(name || 'It')} is awake` : `Waking ${esc(name || 'the agent')}…`, 'ok', null, 1600);
+    toast(r.live ? `${esc(name || 'It')} is already awake` : `Waking ${esc(name || 'the agent')}…`, 'ok', null, 1600);
     const to = '#/a/' + enc(r.pane);
     // in place: the asleep chat is replaced by the live one (Back goes where it went before)
     if (G.view?.fixedTid === sid) location.replace(to); else location.hash = to;
@@ -154,8 +155,8 @@ function draw(view) {
 
 // ---------- 1a: Awake / Asleep on the Agents tab ----------
 // Clean up agents (cleanup.js): the tidy card, the order of just-slept agents, the note in an asleep chat
-let TIDY = null, SLEPT = null;
-const tidy = () => TIDY ??= import('./cleanup.js').then(m => { SLEPT = m.SLEPT; return m; });
+let TIDY = null, SLEPT = null, TM = null;
+const tidy = () => TIDY ??= import('./cleanup.js').then(m => { SLEPT = m.SLEPT; TM = m; return m; });
 const ASLEEP_N = 5;
 const lastLine = a => String(a.last?.text || '').replace(/\*\*|__|`+|^#+\s*/gm, '').replace(/\s+/g, ' ').trim();
 /** One asleep agent row: disc with a moon, name + age, job line, last line, Continue. */
@@ -172,7 +173,7 @@ let drawT = 0;
 export function drawAgents(el, st, skip = recentSids(st)) {
   const cbox = $('.cbox', el); if (!cbox) return;
   drawRecent(el, st);
-  tidy().then(m => m.drawCard(el, G.st), () => { }); // cleanup.js: the "N agents are idle" card under Recent
+  tidy().then(m => { m.drawCard(el, G.st); m.drawJust(el, G.st); }, () => { }); // cleanup.js: the "N agents are idle" card under Recent, then "Just put to sleep"
   let ff = $('.ffind', cbox);
   if (!ff) {
     ff = h(`<button class="ffind">${I.search}<span>Find an agent: name, job, folder, chat</span></button>`);
@@ -187,7 +188,8 @@ export function drawAgents(el, st, skip = recentSids(st)) {
   if (!L) return;
   const live = new Set((st?.agents || []).map(a => a.session).filter(Boolean));
   // just put to sleep (cleanup.js) first, as of then
-  const zz = L.agents.filter(a => a.asleep && !live.has(a.sid) && !skip.has(a.sid)).map(a => SLEPT?.get(a.sid) > a.ts ? { ...a, ts: SLEPT.get(a.sid) } : a).sort((a, b) => b.ts - a.ts);
+  const just = TM?.justSids(st) || new Set(); // listed with one-tap Wake under "Just put to sleep"
+  const zz = L.agents.filter(a => a.asleep && !live.has(a.sid) && !skip.has(a.sid) && !just.has(a.sid)).map(a => SLEPT?.get(a.sid) > a.ts ? { ...a, ts: SLEPT.get(a.sid) } : a).sort((a, b) => b.ts - a.ts);
   let sec = $('.g-zz', cbox);
   if (!zz.length) { sec?.remove(); return; }
   if (!sec) { sec = h('<section class="agrp g-zz"><div class="gh"><span class="gt">Asleep</span><span class="gn"></span></div><div class="gb"><div class="gl fzl"></div><div class="fhint"></div></div></section>'); foldable(sec, 'zz'); } // folds from its header (app.js); search is its own view
@@ -271,7 +273,7 @@ export function drawRecent(el, st) {
   const rows = recentList(st);
   if (!rows.length) { box?.remove(); return; }
   if (!box) {
-    box = h('<section class="frec"><div class="gh"><span class="gt">Recent</span><span class="sp"></span><button class="fedit">Edit</button></div><div class="fgrid"></div></section>');
+    box = h('<section class="frec"><div class="gh"><span class="gt">Agents</span><span class="sp"></span><button class="fedit">Edit</button></div><div class="fgrid"></div></section>');
     $('.fedit', box).onclick = () => editSheet();
     longPress(box, '.fgc', c => { const r = recentList(G.st).find(x => x.sid === c.dataset.sid); if (!r) return false; pinSheet(r, c); });
   }

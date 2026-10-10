@@ -60,6 +60,7 @@ pub fn routes() -> Router<Shared> {
         .route("/api/tidy/prefs", post(api_prefs))
         .route("/api/tidy/pending", get(api_pending))
         .route("/api/tidy/note/{sid}", get(api_note))
+        .route("/api/tidy/just/hide", post(api_just_hide))
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,8 @@ pub struct Store {
     pub hidden_until: i64,
     /// sid → put to sleep at (ms)
     pub slept: HashMap<String, i64>,
+    /// the user hid the "Just put to sleep" group at (ms): sleeps before it are no longer listed there
+    pub just_hidden: i64,
     /// sessions seen in a never-sleep pane
     pub never: Vec<String>,
     pub idle_min: u32,
@@ -932,12 +935,22 @@ async fn build(app: &Shared) -> Value {
 async fn api_tidy(State(app): State<Shared>) -> Response {
     if let Some((at, v)) = rt(|r| r.cache.clone()) {
         if now_ms() - at < 8_000 {
-            return Json(with_pending(v)).into_response();
+            return Json(awake_again(&app, with_pending(v))).into_response();
         }
     }
     let v = build(&app).await;
     rt(|r| r.cache = Some((now_ms(), v.clone())));
-    Json(with_pending(v)).into_response()
+    Json(awake_again(&app, with_pending(v))).into_response()
+}
+
+/// `slept` without sessions that are live again in any pane (woken here, or resumed by hand / by another agent):
+/// matched by session id, so "Just put to sleep" never offers Wake for an agent that is already up.
+fn awake_again(app: &App, mut v: Value) -> Value {
+    let live: HashSet<String> = live(app).iter().filter_map(|a| a["session"].as_str().map(str::to_string)).collect();
+    if let Some(m) = v["slept"].as_object_mut() {
+        m.retain(|sid, _| !live.contains(sid));
+    }
+    v
 }
 
 fn with_pending(mut v: Value) -> Value {
@@ -945,6 +958,8 @@ fn with_pending(mut v: Value) -> Value {
     v["pending"] = p["pending"].clone();
     v["commits"] = p["commits"].clone();
     v["slept"] = p["slept"].clone();
+    v["justHidden"] = p["justHidden"].clone();
+    v["justMs"] = p["justMs"].clone();
     v
 }
 
@@ -1323,13 +1338,25 @@ fn pending_json() -> Value {
             .map(|p| json!({"id": p.id, "n": p.items.len(), "names": p.items.iter().map(|i| i.2.clone()).collect::<Vec<_>>(), "panes": p.items.iter().map(|i| i.0.clone()).collect::<Vec<_>>(), "sids": p.items.iter().map(|i| i.1.clone()).collect::<Vec<_>>(), "at": p.at, "due": p.due, "by": p.by, "note": p.note, "done": p.done}))
             .collect();
         let c: Vec<Value> = r.commits.iter().map(|(pane, c)| json!({"pane": pane, "sid": c.sid, "name": c.name, "at": c.at})).collect();
-        let slept = with(|s| json!(s.slept));
-        json!({"pending": p, "commits": c, "slept": slept, "now": now})
+        let (slept, just_hidden) = with(|s| (json!(s.slept), s.just_hidden));
+        json!({"pending": p, "commits": c, "slept": slept, "justHidden": just_hidden, "justMs": JUST_MS, "now": now})
     })
 }
 
-async fn api_pending() -> Response {
-    Json(pending_json()).into_response()
+/// How long the phone lists agents under "Just put to sleep" (one-tap Wake), unless the user hides the group.
+const JUST_MS: i64 = 6 * 3_600_000;
+
+/// Hide the "Just put to sleep" group (the agents stay in Asleep).
+async fn api_just_hide() -> Response {
+    let at = now_ms();
+    with(|s| s.just_hidden = at);
+    save();
+    invalidate();
+    Json(json!({"ok": true, "justHidden": at})).into_response()
+}
+
+async fn api_pending(State(app): State<Shared>) -> Response {
+    Json(awake_again(&app, pending_json())).into_response()
 }
 
 // ---------------------------------------------------------------------------

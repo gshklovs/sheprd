@@ -287,7 +287,7 @@ function rings(f, s, size = 26) {
   const arc = (r, c, p, cls) => `<circle class="ur-bg" r="${r}" cx="14" cy="14"/>` + (p == null ? '' : `<circle class="ur-fg${cls}" r="${r}" cx="14" cy="14" stroke-dasharray="${(Math.min(100, p) / 100 * c).toFixed(1)} ${c.toFixed(1)}"/>`);
   return `<svg class="urings" viewBox="0 0 28 28" width="${size}" height="${size}">${arc(r1, c1, f, lvl(f))}${arc(r2, c2, s, lvl(s))}</svg>`;
 }
-// ---- Master header icon (feedback f1a126f673e1): ONE 32px "tank" for this chat's context + both plan windows ----
+// ---- Master header icon: ONE 32px "tank" for this chat's context + both plan windows ----
 // centre: a disc that fills from the bottom with context, its % on top (a spinner while compacting);
 // thick SOLID inner ring = 5-hour; thin outer ring cut into 7 day-segments = weekly. Each part takes its own level
 // colour (amber from 70 %, red from 85 %), so the one near its limit is the one that changes colour. Cached usage,

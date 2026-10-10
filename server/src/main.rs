@@ -1755,7 +1755,20 @@ async fn api_meta(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json(
     Json(json!({"ok": true})).into_response()
 }
 
+/// Why `POST /api/a/{pane}/close` refuses this pane: the home agent's (home / `master*`) tab.
+fn close_guard(app: &App, pane: &str) -> Option<&'static str> {
+    let st = app.inner.lock().unwrap().state.clone();
+    let v: Value = serde_json::from_str(&st).unwrap_or(Value::Null);
+    let a = v["agents"].as_array()?.iter().find(|a| a["pane"].as_str() == Some(pane))?;
+    let master = |k: &str| a[k].as_str().unwrap_or("").to_lowercase().starts_with("master");
+    (a["home"] == true || master("name") || master("tabLabel")).then_some("The home agent's tab is never closed from the phone")
+}
+
 async fn api_close(State(app): State<Shared>, AxPath(pane): AxPath<String>) -> Response {
+    // the home agent's tab (home, or a herdr name / tab label `master*`) is never closed from the phone
+    if let Some(why) = close_guard(&app, &pane) {
+        return json_err(StatusCode::FORBIDDEN, why);
+    }
     match herdr::quick("pane.close", json!({"pane_id": pane})).await {
         Ok(_) => {
             app.refresh.notify_one();

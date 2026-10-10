@@ -8,9 +8,12 @@
 //     (Answer / Push / Stop :port / Send draft) sent with a commitment to sleep, then Sleep · Note + sleep · Keep
 //     (swipe left = sleep, right = keep).
 // A3  Undo toast with an 8 s ring; the agents go to the top of Asleep.
+// A4  "Just put to sleep": for 6 h after a sleep,
+//     a card under Recent lists them with one-tap Wake (resume in its old workspace and tab, no message sent) and
+//     Wake all, until Hide. The sheet says what Sleep does under the button, with a "What does sleep do?" expander.
 import { G, $, h, esc, api, post, toast, haptic, tick, sheet, shortPath, ls, HOME_NAME } from './app.js';
 import { md } from './md.js';
-import { favHTML, colCls, forget, agents, MOON } from './find.js';
+import { favHTML, colCls, forget, agents, cached, nameOf, MOON } from './find.js';
 
 (() => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'cleanup.css'; document.head.append(l); })();
 
@@ -94,7 +97,7 @@ function undoToast(p) {
   const n = p.n || p.names?.length || 1;
   const left = () => Math.max(0, Math.ceil((p.due - Date.now()) / 1000));
   const head = n === 1 ? `${esc(p.names?.[0] || 'It')} is asleep` : `${n} agents asleep`;
-  const sub = `${p.note ? 'Notes saved · ' : ''}${n === 1 ? 'it’s' : 'they’re'} in Asleep`;
+  const sub = `${p.note ? 'Notes saved · ' : ''}Chat${n === 1 ? '' : 's'} kept · wake ${n === 1 ? 'it' : 'them'} any time`;
   const t = TOAST = h(`<div class="tdy-toast" role="status"><span class="mn">${MOON}</span><div class="tx"><b>${head}</b><small>${sub}</small></div>`
     + `<button class="tt-undo">Undo<span class="ring" style="--f:1"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg><em>${left()}</em></span></button></div>`);
   document.body.append(t);
@@ -118,7 +121,7 @@ function undoToast(p) {
 let HIDE = 0;
 /** Called from find.js drawAgents (Agents view render): the card right under Recent. */
 export function drawCard(el, st) {
-  if (!T || Date.now() - TAT > 30e3) load().then(() => { if (G.view?.el === el) drawCard(el, G.st); }, () => { });
+  if (!T || Date.now() - TAT > 30e3) load().then(() => { if (G.view?.el === el) { drawCard(el, G.st); drawJust(el, G.st); } }, () => { });
   let box = $('.tdy-card', el);
   const safe = T?.safe || [], check = T?.check || [];
   const show = T && safe.length >= 3 && !(T.hiddenUntil > Date.now()) && HIDE < Date.now();
@@ -135,12 +138,26 @@ export function drawCard(el, st) {
   }
   const after = $('.frec', el) || $('.brief', el);
   if (after && box.previousElementSibling !== after) after.after(box);
+  const j = $('.tdy-just', el); if (j && j.previousElementSibling !== box) box.after(j);
   const n = safe.length + check.length, faces = safe.slice(0, 6), more = n - faces.length;
   const sub = check.length ? `${safe.length} ${safe.length === 1 ? 'is' : 'are'} done with nothing left · ${check.length} need${check.length === 1 ? 's' : ''} a look first` : `${safe.length === 1 ? 'It is' : 'All are'} done with nothing left`;
   const html = `<div class="tc-top"><span class="tc-ic">${IC.broom}</span><div class="tc-tx"><b>${plural(n, 'agent')} ${n === 1 ? 'is' : 'are'} idle</b><small>${sub}</small></div></div>`
     + `<div class="tc-faces">${faces.map(r => `<span class="tcf${colCls(r.color)}">${face(r, 30)}</span>`).join('')}${more > 0 ? `<span class="tc-more">+${more}</span>` : ''}</div>`
     + '<div class="tc-btns"><button class="btn primary tc-go">Tidy up</button><button class="btn tc-no">Not now</button></div>';
   if (box._h !== html) { box._h = html; box.innerHTML = html; }
+}
+
+// ---------- what Sleep does: one line under the button + an expander ----------
+const WHAT = `<details class="ts-what"><summary><span>Closes their tabs. Chats are kept; wake any time from Asleep.</span> <u>What does sleep do?</u></summary>`
+  + '<ul><li><b>Closes its tab</b> in herdr. Anything running only in that tab stops (a dev server, a background shell).</li>'
+  + '<li><b>Keeps the whole conversation</b> and the 5-line note if it’s on. Nothing is deleted.</li>'
+  + '<li><b>Wake it any time</b> from Agents › Asleep or search: it reopens in its old workspace and tab and picks up where it left off.</li>'
+  + '<li>Changed your mind? Undo for 8 s, then Wake from “Just put to sleep” at the top of Agents.</li></ul></details>';
+/** "Docs Site, Sheprd Setup and Nightly Report" / "Docs Site, Sheprd Setup +4 more" */
+export function namesLine(names) {
+  if (names.length <= 1) return names[0] || '';
+  if (names.length <= 3) return names.slice(0, -1).join(', ') + ' and ' + names.at(-1);
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
 }
 
 // ---------- A2: the review sheet ----------
@@ -171,12 +188,12 @@ export async function review() {
   if (!t) return;
   const on = new Set(t.safe.map(r => r.pane));
   const sh = sheet(`<div class="ts-h"><h2>Tidy up</h2><button class="ts-x">Cancel</button></div>
-    <p class="ts-sub">Sleeping closes the pane. The chat stays, and Continue wakes it in place.</p>
     <div class="ts-body"></div>`, 'tall tdy-sheet');
   const body = $('.ts-body', sh), shEl = $('.sheet', sh);
   const foot = h(`<div class="ts-foot"><label class="tsw"><input type="checkbox"${noteOn() ? ' checked' : ''}><i></i><span>Save a 5-line note for each first</span></label>
-    <div class="ts-btns"><button class="btn primary tf-go"></button><button class="btn tf-next" hidden></button></div></div>`);
+    <div class="ts-btns"><button class="btn primary tf-go"></button>${WHAT}<button class="btn tf-next" hidden></button></div></div>`);
   shEl.append(foot);
+  let ARM = 0, ARMT = 0;
   const draw = () => {
     const tt = T || t;
     const html = (tt.safe.length ? `<div class="ts-gh"><span>Done, nothing left <em>${tt.safe.length}</em></span><button class="ts-all">${tt.safe.every(r => on.has(r.pane)) ? 'Uncheck all' : 'Check all'}</button></div>`
@@ -187,14 +204,18 @@ export async function review() {
     if (body._h !== html) { body._h = html; body.innerHTML = html; tick(body); }
     const n = [...on].filter(p => tt.safe.some(r => r.pane === p) || tt.check.some(r => r.pane === p)).length;
     const go = $('.tf-go', foot), nx = $('.tf-next', foot), left = tt.check.filter(r => !on.has(r.pane));
-    go.textContent = n ? `Put ${n} to sleep` : 'Nothing selected'; go.disabled = !n;
+    const picked = [...tt.safe, ...tt.check].filter(r => on.has(r.pane));
+    const gh = n ? `<b>Put ${n} to sleep</b><small>${esc(namesLine(picked.map(r => r.name)))}</small>` : '<b>Nothing selected</b>';
+    if (go._h !== gh) { go._h = gh; go.innerHTML = gh; }
+    go.disabled = !n;
     nx.hidden = !left.length; nx.textContent = n ? `Then catch up on ${left.length} ›` : `Catch up on ${left.length} ›`;
   };
+  const disarm = () => { if (!ARM) return; ARM = 0; clearTimeout(ARMT); $('.tf-go', foot).classList.remove('arm'); $('.tf-go', foot)._h = null; };
   draw();
   sh.addEventListener('click', async e => {
     if (e.target.closest('.ts-x')) { sh.close(); return; }
     const tt = T || t;
-    if (e.target.closest('.ts-all')) { haptic(); const all = tt.safe.every(r => on.has(r.pane)); tt.safe.forEach(r => all ? on.delete(r.pane) : on.add(r.pane)); draw(); return; }
+    if (e.target.closest('.ts-all')) { haptic(); const all = tt.safe.every(r => on.has(r.pane)); tt.safe.forEach(r => all ? on.delete(r.pane) : on.add(r.pane)); disarm(); draw(); return; }
     const row = e.target.closest('.tr');
     if (row) {
       const p = row.dataset.pane;
@@ -202,11 +223,19 @@ export async function review() {
         const me = tt.check.find(r => r.pane === p), list = [me, ...tt.check.filter(r => r !== me && !on.has(r.pane))];
         sh.close(); setTimeout(() => catchUp(list, 0), 220); return;
       }
-      haptic(); on.has(p) ? on.delete(p) : on.add(p); draw(); return;
+      haptic(); on.has(p) ? on.delete(p) : on.add(p); disarm(); draw(); return;
     }
     const note = $('.tsw input', foot).checked;
     if (e.target.closest('.tf-go') || e.target.closest('.tf-next')) {
       const next = !!e.target.closest('.tf-next'), rows = [...tt.safe, ...tt.check].filter(r => on.has(r.pane)), left = tt.check.filter(r => !on.has(r.pane));
+      // more than one tab closes: the first tap names every one of them, the second (within 6 s) puts them to sleep
+      if (rows.length > 1 && !(ARM > Date.now())) {
+        haptic(); ARM = Date.now() + 6000;
+        const go = $('.tf-go', foot); go.classList.add('arm'); go._h = `<b>Close these ${rows.length} tabs?</b><small>${esc(rows.map(r => r.name).join(', '))}</small><small class="tf-tap">Tap again to put them to sleep</small>`; go.innerHTML = go._h;
+        clearTimeout(ARMT); ARMT = setTimeout(() => { ARM = 0; go.classList.remove('arm'); go._h = null; draw(); }, 6000);
+        return;
+      }
+      ARM = 0; clearTimeout(ARMT);
       haptic(); sh.close();
       if (rows.length) await sleepNow(rows, note);
       if (next && left.length) setTimeout(() => catchUp(left, 0), 240);
@@ -260,9 +289,9 @@ export function catchUp(list, start = 0) {
     if (old && dir) { old.classList.add('go-' + dir); setTimeout(() => old.remove(), 300); n.classList.add('enter'); slot.append(n); requestAnimationFrame(() => requestAnimationFrame(() => n.classList.remove('enter'))); }
     else { slot.innerHTML = ''; slot.append(n); }
     tick(n);
-    $('[data-t="sleep"] small', f).textContent = r.reasons.some(x => x.kind === 'q') ? 'drop the question' : 'close the pane';
+    $('[data-t="sleep"] small', f).textContent = r.reasons.some(x => x.kind === 'q') ? 'drop the question' : 'close its tab';
     const rest = list.slice(k + 1).map(x => x.name);
-    $('.cu-foot', f).innerHTML = `Swipe the card: ← sleep · → keep${rest.length ? `<br>Next: ${rest.map(esc).join(' · ')}` : '<br>Last one'}`;
+    $('.cu-foot', f).innerHTML = `Sleep closes its tab; the chat is kept and wakes from Asleep any time.<br>Swipe the card: ← sleep · → keep${rest.length ? `<br>Next: ${rest.map(esc).join(' · ')}` : '<br>Last one'}`;
     $('.cu-sc', f).scrollTop = 0;
   };
   const next = dir => { done.add(list[k].pane); busy = false; if (k + 1 >= list.length) { close(); toast('All caught up', 'ok', null, 1400); return; } k++; show(dir); };
@@ -311,6 +340,73 @@ export function catchUp(list, start = 0) {
   show();
 }
 
+// ---------- A4: Just put to sleep: one-tap Wake for 6 h (or until Hide) ----------
+const WAKING = new Map(); // sid → when Wake was tapped (the row says Waking… until its pane reports the session)
+const clock = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+/** Agents Tidy put to sleep in the last `justMs` (after the last Hide) that are still asleep, newest first. */
+function justList(st) {
+  const L = cached();
+  if (!T || !L) return [];
+  const since = Math.max(Date.now() - (T.justMs || 6 * 3600e3), T.justHidden || 0);
+  const live = new Set((st?.agents || []).map(a => a.session).filter(Boolean));
+  const at = new Map();
+  for (const [sid, t] of SLEPT) if (t > since) at.set(sid, t);
+  for (const [sid, t] of Object.entries(T.slept || {})) if (t > since) at.set(sid, Math.max(t, at.get(sid) || 0));
+  for (const [sid, t] of WAKING) if (Date.now() - t > 90e3) WAKING.delete(sid);
+  const seen = new Set();
+  return L.agents.filter(a => a.asleep && at.has(a.sid) && !live.has(a.sid) && !seen.has(a.sid) && seen.add(a.sid)).map(a => ({ ...a, sleptAt: at.get(a.sid) })).sort((a, b) => b.sleptAt - a.sleptAt);
+}
+/** Session ids shown under "Just put to sleep" (find.js leaves them out of Asleep). */
+export const justSids = st => new Set(justList(st).map(a => a.sid));
+/** Called from find.js drawAgents: the card under the Tidy card (else under Recent). */
+export function drawJust(el, st) {
+  let box = $('.tdy-just', el);
+  const list = justList(st);
+  if (!list.length) { box?.remove(); return; }
+  if (!box) { box = h('<section class="tdy-just"></section>'); box.addEventListener('click', onJust); }
+  const after = $('.tdy-card', el) || $('.frec', el) || $('.brief', el);
+  if (after && box.previousElementSibling !== after) after.after(box);
+  const n = list.length, waking = list.filter(a => WAKING.has(a.sid)).length;
+  const html = `<div class="tj-h"><span class="tj-ic">${MOON}</span><div class="tj-tx"><b>Just put to sleep</b><small>${plural(n, 'agent')} · ${esc(clock(Math.min(...list.map(a => a.sleptAt))))} · chats kept</small></div><button class="tj-hide">Hide</button></div>`
+    + `<div class="tj-list">${list.map(a => `<div class="tj-row${colCls(a.color)}" data-sid="${esc(a.sid)}">${favHTML(a, { sz: 34 })}`
+      + `<a class="tj-b" href="#/t/${enc(a.sid)}"><b class="nm">${esc(nameOf(a))}</b><small>${esc(a.job || shortPath(a.cwd || ''))}</small></a>`
+      + (WAKING.has(a.sid) ? '<button class="btn cont tj-wake" disabled><span class="spin"></span>Waking</button>' : `<button class="btn cont tj-wake" data-sid="${esc(a.sid)}">Wake</button>`) + '</div>').join('')}</div>`
+    + (n - waking > 1 ? `<button class="btn tj-all">Wake all ${n - waking}</button>` : '')
+    + '<p class="tj-why">Wake reopens it in its old workspace and tab, right where it left off. Nothing is sent to it.</p>';
+  if (box._h !== html) { box._h = html; box.innerHTML = html; }
+}
+/** Resume each (POST /api/sessions/<sid>/resume, no message: it comes back idle), one after another. */
+async function wake(list) {
+  haptic();
+  list.forEach(a => WAKING.set(a.sid, Date.now()));
+  redraw();
+  const bad = [], up = [];
+  for (const a of list) {
+    try { // the server never starts a second Claude: a session already running somewhere comes back `already`
+      const r = await post(`sessions/${enc(a.sid)}/resume`, { wake: true });
+      if (r.already) up.push({ a, pane: r.pane }); else if (!r.live) G.starting.set(r.pane, Date.now());
+    } catch (e) { WAKING.delete(a.sid); bad.push(`${nameOf(a)}: ${e.message}`); }
+  }
+  const ok = list.length - bad.length - up.length;
+  if (list.length === 1 && up.length) { toast(`${esc(nameOf(list[0]))} is already awake`, 'ok', null, 1600); location.hash = '#/a/' + enc(up[0].pane); }
+  else if (up.length) toast(`${esc(up.map(x => nameOf(x.a)).join(', '))} ${up.length === 1 ? 'is' : 'are'} already awake`, 'ok', null, 2200);
+  if (ok) toast(ok === 1 && list.length === 1 ? `Waking ${esc(nameOf(list[0]))} in its old tab…` : `Waking ${ok} in their old tabs…`, 'ok', null, 1800);
+  if (bad.length) toast('Couldn’t wake ' + esc(bad.join(' · ')), 'err');
+  forget(); agents(true).then(redraw, () => { });
+}
+function onJust(e) {
+  const box = e.currentTarget;
+  const list = justList(G.st).filter(a => !WAKING.has(a.sid));
+  const w = e.target.closest('.tj-wake[data-sid]');
+  if (w) { e.preventDefault(); const a = list.find(x => x.sid === w.dataset.sid); if (a) wake([a]); return; }
+  if (e.target.closest('.tj-all')) { if (list.length) wake(list); return; }
+  if (e.target.closest('.tj-hide')) {
+    haptic(); box.classList.add('out'); setTimeout(() => box.remove(), 260);
+    if (T) T.justHidden = Date.now();
+    post('tidy/just/hide', {}).then(r => { if (T) T.justHidden = r.justHidden; toast('Hidden · they’re still in Asleep', 'ok', null, 1400); }, () => { });
+  }
+}
+
 // ---------- the asleep chat: the handoff note above Continue (find.js) ----------
 export async function noteInto(w, sid) {
   if (!w || $('.fnote', w)) return;
@@ -322,4 +418,4 @@ export async function noteInto(w, sid) {
     const at = $('.wb', w); at ? at.before(n) : w.append(n);
   } catch { }
 }
-export const _test = { keepWhy, cardHTML, rowHTML };
+export const _test = { keepWhy, cardHTML, rowHTML, namesLine, justList };

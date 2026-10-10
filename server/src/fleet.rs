@@ -446,17 +446,23 @@ pub fn tab_label(prefix: &str, title: &str) -> String {
 /// sid → (pane, when): resumes started recently, so a double tap does not
 /// open two tabs before the first one reports its session.
 static RESUMING: LazyLock<Mutex<HashMap<String, (String, i64)>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// sid → its in-flight lock: one resume of a session at a time, so two taps (or Wake all racing a Continue) wait
+/// for the first and then find its pane instead of launching a second Claude.
+static RESUME_LOCKS: LazyLock<Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Deserialize, Default)]
 struct ResumeBody {
     ws: Option<String>,
     /// sent once the agent is up (Continue sends "continue"); to the live pane at once when it is already running
     text: Option<String>,
+    /// Wake / Continue from the phone: when the session already runs in a pane, only say so (`already`), send nothing
+    #[serde(default)]
+    wake: bool,
 }
 
 /// Resume an asleep session with `text` as its first message (decide.rs: the user's pick wakes the agent that asked).
 pub async fn resume_with(app: Shared, sid: String, text: String) -> Response {
-    api_resume(State(app), AxPath(sid), Some(Json(ResumeBody { ws: None, text: Some(text) }))).await
+    api_resume(State(app), AxPath(sid), Some(Json(ResumeBody { ws: None, text: Some(text), wake: false }))).await
 }
 
 async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body: Option<Json<ResumeBody>>) -> Response {
@@ -465,19 +471,23 @@ async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body
     }
     let body = body.map(|Json(b)| b).unwrap_or_default();
     let text = body.text.as_deref().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 20_000).map(str::to_string);
+    // never two Claudes on one session: resumes of a sid run one at a time, and each first looks for a live pane
+    // (matched by session id, whatever pane it is in) or a resume that already started
+    let lock = RESUME_LOCKS.lock().unwrap().entry(sid.clone()).or_default().clone();
+    let _held = lock.lock().await;
     if let Some(pane) = crate::pane_for_session(&app, &sid) {
-        if let Some(t) = &text {
+        if let Some(t) = text.as_ref().filter(|_| !body.wake) {
             if let Err(e) = herdr::quick("agent.prompt", json!({"target": pane, "text": t})).await {
                 return herdr_err(e);
             }
         }
-        return Json(json!({"pane": pane, "live": true})).into_response();
+        return Json(json!({"pane": pane, "live": true, "already": true})).into_response();
     }
     {
         let mut r = RESUMING.lock().unwrap();
         r.retain(|_, (_, t)| now_ms() - *t < 90_000);
         if let Some((pane, _)) = r.get(&sid) {
-            return Json(json!({"pane": pane, "live": true, "starting": true})).into_response();
+            return Json(json!({"pane": pane, "live": true, "starting": true, "already": true})).into_response();
         }
     }
     let Some(path) = crate::find_session(&app, &sid) else { return json_err(StatusCode::NOT_FOUND, "no such session") };

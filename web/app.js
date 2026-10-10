@@ -36,7 +36,7 @@ const ls = {
   get(k, d) { try { const v = localStorage.getItem('mm.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { v == null ? localStorage.removeItem('mm.' + k) : localStorage.setItem('mm.' + k, JSON.stringify(v)); } catch { } },
 };
-// Row groups on the Agents tab (Ready, Awake, find.js's Asleep) fold from their header (feedback f1a1271e4356): the
+// Row groups on the Agents tab (Ready, Awake, find.js's Asleep) fold from their header: the
 // caret turns, the body (.gb) slides shut, the count stays in the header; remembered per group on this phone.
 const FOLD_IC = '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
 function setFold(sec, shut, anim) {
@@ -318,6 +318,19 @@ function confirmClose(a) {
   $('.go', sh).onclick = async () => {
     sh.close(); haptic();
     try { await post(`a/${enc(a.pane)}/close`); toast('Closed'); } catch (e) { toast('Close failed: ' + esc(e.message), 'err'); }
+  };
+}
+
+/** More than one tab: one sheet that names every agent that will close (the tidy audit, 2026-10-10). */
+function confirmCloseMany(list) {
+  if (list.length === 1) return confirmClose(list[0]);
+  const sh = sheet(`<h2>Close these ${list.length} tabs?</h2><p class="dim">${list.map(a => esc(whoName(a.title || a.pane, a.pane))).join(' · ')}</p><p class="dim">Their sessions can be resumed.</p><div class="btns col"><button class="btn danger go">Close ${list.length} tabs</button><button class="btn no">Cancel</button></div>`, 'compact');
+  $('.no', sh).onclick = () => sh.close();
+  $('.go', sh).onclick = async () => {
+    sh.close(); haptic();
+    const bad = [];
+    for (const a of list) { try { await post(`a/${enc(a.pane)}/close`); } catch (e) { bad.push(whoName(a.title || a.pane, a.pane)); } }
+    bad.length ? toast('Couldn’t close ' + esc(bad.join(', ')), 'err') : toast(`Closed ${list.length}`);
   };
 }
 
@@ -997,7 +1010,6 @@ function getAgentsView() {
       <div class="warn" hidden></div>
       <div class="brief"></div>
       <div class="hero"></div>
-      <section class="tsec" hidden><div class="gh"><span class="gt">In flight</span></div><div class="tiles"></div></section>
       <div class="surfs"></div>
       <div class="cbox">
         <div class="cards"></div>
@@ -1027,7 +1039,7 @@ function getAgentsView() {
     if (!tests.length) return;
     if (!b.classList.contains('arm')) { b.classList.add('arm'); b.textContent = `Close ${tests.length}?`; setTimeout(() => { b.classList.remove('arm'); b.textContent = 'Close tests'; }, 3000); return; }
     b.classList.remove('arm'); b.textContent = 'Close tests'; haptic();
-    for (const a of tests) cardAct(a, 'close');
+    confirmCloseMany(tests);
   };
   lazy('fleet').then(() => render(G.st), () => { }); // fleet: agent order
   Promise.all([lazy('queue'), lazy('home')]).then(() => render(G.st), () => { }); // the briefing (home.js) and its queue
@@ -1142,7 +1154,7 @@ function getAgentsView() {
     for (const a of MODS.fleet ? MODS.fleet.order(list) : list) {
       if (a.service && !svcNeeds(a)) continue; // in the Scheduled strip
       const pin = a.pinned && !a.home;
-      if (!pin && hb && (hb.tiles.has(a.pane) || a.pane === hb.hero)) continue; // a tile / the hero
+      if (!pin && hb && a.pane === hb.hero) continue; // the hero (there are no In-flight tiles)
       if (inRecent?.has(a.session) && groupOf(a, dispStatus(a)) !== 'ready') continue; // find.js: on the Recent grid already
       live.add(a.pane);
       const html = cardHTML(a); let c = cards.get(a.pane);
@@ -1263,7 +1275,7 @@ function getAgentsView() {
   longPress(bgsEl, '.bg-row.svc:not(.solo)', r => { const a = G.st?.agents.find(a => a.pane === r.dataset.pane); if (!a) return false; lazy('sheets').then(m => m.cardSheet(a)); });
 
   // background jobs (F11): /api/jobs feeds home.js (In-flight tiles, Running apps) and the cards' "job failed" tag.
-  // The Jobs list under the rows is gone (feedback f1a1271e8862): a job's log is one tap from its tile, app sheet or tag.
+  // The Jobs list under the rows is gone: a job's log is one tap from its tile, app sheet or tag.
   let jobs = [], jobsSig = null, jobsT = 0;
   const loadJobs = async () => {
     if (G.noJobs) return;
