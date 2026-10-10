@@ -1,11 +1,11 @@
 /* Repos tab (repos.js): one grouped card per repo, the repo sheet, deploy log. Plain iOS, one blue accent. */
 .reposv .rpsc { padding: 6px calc(16px + var(--sar)) 16px calc(16px + var(--sal)); }
 .reposv .rf.busy svg { animation: spin .8s linear infinite; }
-.rp-sec { font-size: 13px; text-transform: uppercase; color: var(--fg2); font-weight: 500; margin: 14px 0 6px 4px; letter-spacing: .4px; }
-.rp-card { display: block; width: 100%; text-align: left; background: var(--bg2); border-radius: 14px; padding: 11px 14px 10px; margin: 0 0 10px; color: var(--fg); font: inherit; min-height: 44px; box-shadow: var(--card-sh); }
+.rp-sec { margin: 14px 0 6px 4px; }
+.rp-card { display: block; width: 100%; text-align: left; background: var(--bg2); border-radius: var(--r-card); padding: 11px 14px 10px; margin: 0 0 10px; color: var(--fg); font: inherit; min-height: 44px; box-shadow: var(--card-sh); }
 .rp-card:active { background: var(--bg3); }
 .rp-h { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.rp-n { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rp-n { font: 600 19px/1.2 var(--f-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rp-gh svg, .rp-vc svg { width: 14px; height: 14px; fill: var(--fg3); stroke: none; display: block; }
 .rp-ags { margin-left: auto; display: flex; flex: none; padding-left: 6px; }
 .rp-av { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font: 600 11px/1 -apple-system, system-ui, sans-serif; font-style: normal;
@@ -14,25 +14,24 @@
 .rp-av.home { background: var(--bg3); color: var(--fg); }
 .rp-av.more { background: var(--bg3); color: var(--fg2); font-size: 10px; }
 .rp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; min-width: 0; }
-.rp-br, .rp-b { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12.5px; font-weight: 500; max-width: 100%; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--bg3); color: var(--fg2); }
+.rp-br, .rp-b { font: 600 14px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 11px; max-width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--bg3); color: var(--fg2); }
 .rp-br { font-family: var(--mono); font-size: 12px; }
 .rp-br svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
 .rp-br.cur { background: var(--awash); color: var(--acct); }
 .rp-b.dirty { color: var(--fg); }
-.rp-last { display: flex; gap: 8px; margin-top: 7px; font-size: 13.5px; color: var(--fg2); min-width: 0; }
+.rp-last { font: 500 14.5px/1.25 var(--f-mid); display: flex; gap: 8px; margin-top: 7px; color: var(--fg2); min-width: 0; }
 .rp-sub { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-age { flex: none; font-variant-numeric: tabular-nums; }
-.rp-dep { margin-top: 6px; font-size: 13px; color: var(--acct); display: flex; align-items: center; gap: 6px; }
+.rp-dep { font: 500 14.5px/1.25 var(--f-mid); margin-top: 6px; color: var(--acct); display: flex; align-items: center; gap: 6px; }
 .rp-dep.ok { color: var(--done); } .rp-dep.failed { color: var(--red); }
-.rp-empty { text-align: center; color: var(--fg2); padding: 40px 20px; font-size: 15px; }
-.rp-foot { color: var(--fg2); font-size: 13px; text-align: center; margin: 12px 0; }
+.rp-empty { font: 500 16px/1.25 var(--f-mid); text-align: center; color: var(--fg2); padding: 40px 20px; }
+.rp-foot { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); text-align: center; margin: 12px 0; }
 
 /* sheet */
 .reposh .rp-t { margin-bottom: 2px; padding-right: 40px; overflow-wrap: anywhere; }
 .rp-path { overflow-wrap: anywhere; margin: 0 0 10px; }
 .rp-links { display: flex; flex-wrap: wrap; gap: 8px; }
-.rp-links .btn { min-height: 44px; font-size: 14px; border-radius: 12px; flex: 1 1 auto; min-width: 0; }
+.rp-links .btn { font: 600 15.5px/1 var(--f-mid); min-height: 44px; border-radius: 12px; flex: 1 1 auto; min-width: 0; }
 .rp-links svg { width: 17px; height: 17px; flex: none; }
 .rp-links svg.ghi, .rp-links svg.vc { fill: currentColor; stroke: none; }
 .rp-links svg:not(.ghi):not(.vc) { fill: none; stroke: currentColor; stroke-width: 2; }
@@ -40,9 +39,9 @@
 .rp-row:first-child { border-top: 0; }
 .rp-row.cur .rp-rl > b { color: var(--acct); }
 .rp-rl { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
-.rp-rl > b { font-weight: 600; font-size: 15px; min-width: 0; overflow-wrap: anywhere; }
-.rp-rl > b.rp-cs { font-weight: 500; font-size: 14.5px; flex-basis: 100%; }
-.rp-rl small { flex-basis: 100%; color: var(--fg2); font-size: 12.5px; overflow-wrap: anywhere; }
+.rp-rl > b { font: 600 16.5px/1.2 var(--f-mid); min-width: 0; overflow-wrap: anywhere; }
+.rp-rl > b.rp-cs { font: 500 15.5px/1.25 var(--f-mid); flex-basis: 100%; }
+.rp-rl small { font: 500 14px/1.25 var(--f-mid); flex-basis: 100%; color: var(--fg2); overflow-wrap: anywhere; }
 .rp-rl .rp-av { margin-left: 0; width: 20px; height: 20px; font-size: 10px; border: 0; }
 .rp-rr { display: flex; align-items: center; gap: 2px; flex: none; }
 .rp-pr { display: inline-flex; align-items: center; min-height: 32px; padding: 0 9px; border-radius: 9px; background: var(--bg3); color: var(--fg2); font-size: 13px; font-weight: 600; }
@@ -54,9 +53,9 @@
 .rp-dbox { padding: 10px 12px; }
 .rp-dbox .btns { margin: 10px 0 2px; }
 .rp-url { display: flex; flex-direction: column; margin-top: 8px; font-size: 13.5px; color: var(--accent); overflow-wrap: anywhere; min-height: 32px; }
-.rp-url span { color: var(--fg2); font-size: 12px; }
+.rp-url span { font: 500 13.5px/1.25 var(--f-mid); color: var(--fg2); }
 .rp-sel { display: flex; align-items: center; gap: 10px; margin-top: 10px; min-height: 44px; }
-.rp-sel span { color: var(--fg2); font-size: 14px; }
+.rp-sel span { font: 500 15px/1.25 var(--f-mid); color: var(--fg2); }
 .rp-sel select { flex: 1; min-width: 0; min-height: 40px; border-radius: 10px; border: .5px solid var(--sep); background: var(--bg1); color: var(--fg); font: 15px var(--mono); padding: 0 10px; }
 .rp-warn { color: var(--fg); background: var(--bg3); border-radius: 8px; padding: 7px 10px; margin: 8px 0 0; }
 .btn.dprod, .btn.rp-danger { color: var(--red); }
@@ -65,7 +64,7 @@
 .rp-tok p { margin: 4px 0 8px; }
 .rp-cmd { font: 12px/1.4 var(--mono); background: var(--code, var(--bg3)); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; user-select: all; -webkit-user-select: all; }
 .rp-logw { margin-top: 10px; }
-.rp-lh { font-size: 13px; color: var(--fg2); display: flex; align-items: center; gap: 6px; margin: 0 0 6px 4px; }
+.rp-lh { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); display: flex; align-items: center; gap: 6px; margin: 0 0 6px 4px; }
 .rp-lh .spin { margin-right: 4px; }
 .rp-logw.ok .rp-lh { color: var(--done); } .rp-logw.failed .rp-lh { color: var(--red); }
 .rp-log { font: 11.5px/1.4 var(--mono); background: #0d0d0f; color: #e5e5ea; border-radius: 10px; padding: 8px 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }

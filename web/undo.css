@@ -2,16 +2,16 @@
 .udsheet .ud-h { display: flex; align-items: center; gap: 8px; }
 .udsheet .ud-h svg { width: 20px; height: 20px; fill: none; stroke: var(--accent); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .ud-q { margin-bottom: 6px; }
-.ud-also { margin: 0 0 10px; color: var(--fg2); font-size: 13px; }
-.ud-t { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: .02em; }
+.ud-also { font: 500 14px/1.25 var(--f-mid); margin: 0 0 10px; color: var(--fg2); }
+.ud-t { margin: 14px 0 6px; }
 .ud-fl { border-radius: 10px; background: var(--bg3); }
 .ud-f { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 12px; font-size: 14px; }
 .ud-f + .ud-f { border-top: 1px solid var(--sep); }
 .ud-f code { font-size: 13px; overflow-wrap: anywhere; min-width: 0; }
-.ud-f span { color: var(--fg2); font-size: 13px; white-space: nowrap; flex: none; }
+.ud-f span { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); white-space: nowrap; flex: none; }
 .ud-f.bad span { color: var(--red); }
 .ud-none { margin: 0; color: var(--fg2); font-size: 14px; }
-.ud-tog { display: flex; align-items: center; gap: 10px; margin: 10px 2px 0; font-size: 15px; min-height: 36px; }
+.ud-tog { font: 500 16px/1.25 var(--f-mid); display: flex; align-items: center; gap: 10px; margin: 10px 2px 0; min-height: 36px; }
 .ud-tog input { width: 20px; height: 20px; accent-color: var(--accent); }
 .ud-w { margin: 12px 0 0; padding: 0 0 0 18px; color: var(--fg2); font-size: 13.5px; line-height: 1.4; }
 .ud-w li { margin: 0 0 6px; }

@@ -1,6 +1,6 @@
 /* talk.js: TL;DR cards, catch-up / auto-mode denial cards, read-aloud player, take-back × on queued pills */
-.tldr { margin: 10px 0 4px; padding: 9px 12px 10px; border-radius: 14px; background: var(--bg2); box-shadow: var(--card-sh); }
-.tldr .tl-h { display: flex; align-items: center; gap: 4px; font-size: 12px; letter-spacing: .04em; color: var(--accent); }
+.tldr { margin: 10px 0 4px; padding: 9px 12px 10px; border-radius: var(--r-card); background: var(--bg2); box-shadow: var(--card-sh); }
+.tldr .tl-h { font: 600 13.5px/1.2 var(--f-mid); display: flex; align-items: center; gap: 4px; color: var(--accent); }
 .tldr .tl-t { font-size: 15px; line-height: 1.4; margin-top: 2px; }
 .tldr button, .tk-card .tk-say { color: var(--accent); display: inline-flex; align-items: center; gap: 3px; min-height: 32px; min-width: 32px; justify-content: center; font-size: 12px; border-radius: 8px; }
 .tldr button svg, .tk-say svg { width: 18px; height: 18px; }
@@ -8,8 +8,8 @@
 
 .tkcards:empty { display: none; }
 .tkcards { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
-.tk-card { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; padding: 9px 12px 11px; }
-.tk-h { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+.tk-card { background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); padding: 9px 12px 11px; }
+.tk-h { font: 600 15.5px/1.2 var(--f-mid); display: flex; align-items: center; gap: 4px; }
 .tk-x { width: 32px; height: 32px; font-size: 20px; line-height: 1; color: var(--fg2); border-radius: 8px; }
 .tk-b { margin-top: 4px; font-size: 15px; line-height: 1.4; }
 .tk-cmd { margin: 6px 0 2px; padding: 7px 9px; background: var(--code); border-radius: 8px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
@@ -27,7 +27,7 @@
 .sayer button { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); }
 .sayer .sy-pp { background: var(--accent-fill); color: #fff; }
 .sayer svg { width: 18px; height: 18px; }
-.sayer .sy-l { font-weight: 600; white-space: nowrap; }
+.sayer .sy-l { font-weight: 600; font-family: var(--f-mid); white-space: nowrap; }
 .sayer .sy-x { font-size: 20px; color: var(--fg2); }
 .tk-b > :first-child { margin-top: 0; }
 .tk-b > :last-child { margin-bottom: 0; }
@@ -47,7 +47,7 @@
 .ak-st.done b::before { content: '✓'; font-size: 13px; }
 .ak-st.cur { background: color-mix(in srgb, var(--accent) 18%, var(--bg2)); color: var(--fg); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .ak-steps ~ .ak-q { margin-top: 0; padding-top: 0; border-top: 0; }
-.ak-pvb { flex: none; align-self: center; font-size: 12px; font-weight: 600; color: var(--acct, var(--accent)); padding: 4px 9px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ak-pvb { font: 600 13.5px/1.2 var(--f-mid); flex: none; align-self: center; color: var(--acct, var(--accent)); padding: 4px 9px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .opt.pvo .ak-pvb { background: var(--accent-fill); color: #fff; }
 .ak-pv { margin: 4px 0 0; padding: 8px 10px; max-height: min(180px, 30vh); overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: var(--code, var(--bg2)); border: .5px solid var(--sep); border-radius: 10px; font: 11px/1.3 var(--mono); white-space: pre; color: var(--fg); }
 body.kb .ak-pv { max-height: 110px; }

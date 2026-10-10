@@ -1,16 +1,16 @@
 /* Home "Briefing" (home.js): sentence · hero · In-flight tiles; rows below come from style.css */
 .agents .brand { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; display: flex; align-items: center; gap: 7px; text-align: left; }
 .brief { padding: 2px 4px 0; }
-.brief .kick { font-size: 13px; color: var(--fg2); font-weight: 500; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
-.brief .bl { font-size: 22px; line-height: 1.25; font-weight: 700; letter-spacing: -.5px; margin: 0 0 14px; color: var(--fg); overflow-wrap: anywhere; }
+.brief .kick { font: var(--t-sub); color: var(--fg2); font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+.brief .bl { font: var(--t-display); letter-spacing: .005em; margin: 0 0 14px; color: var(--fg); overflow-wrap: anywhere; }
 .brief .bn { color: var(--act, var(--accent)); }
 .brief .bcalm { color: var(--done); }
-.brief .bmore { display: inline-block; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--fg2); background: var(--bg3); padding: 2px 9px; border-radius: 11px; vertical-align: 3px; }
-@media (max-width: 380px) { .brief .bl { font-size: 20px; } }
+.brief .bmore { display: inline-block; font: 600 14px/1.3 var(--f-mid); letter-spacing: 0; color: var(--fg2); background: var(--bg3); padding: 2px 9px; border-radius: 11px; vertical-align: 3px; }
+@media (max-width: 380px) { .brief .bl { font-size: 24px; } }
 
 /* hero: the queue's top item */
 .hero { position: relative; margin-bottom: 4px; }
-.hcard { --wash: var(--bg2); background: var(--wash); border-radius: 16px; padding: 13px 14px 12px;
+.hcard { --wash: var(--bg2); background: var(--wash); border-radius: var(--r-card); padding: 13px 14px 12px;
   box-shadow: var(--card-sh); transition: transform .32s cubic-bezier(.2, .8, .2, 1), opacity .32s; touch-action: pan-y; cursor: pointer; }
 .hcard.in { transform: translateX(45%); opacity: 0; }
 .hcard.out { position: absolute; left: 0; right: 0; top: 0; pointer-events: none; opacity: 0; }
@@ -19,15 +19,15 @@
 .hcard .h-top { display: flex; align-items: center; gap: 10px; }
 .hcard .cring { --rb: var(--wash); }
 .h-tt { flex: 1; min-width: 0; display: flex; flex-direction: column; color: inherit; }
-.h-tt .tt { font-size: 16px; font-weight: 600; color: var(--act, var(--fg)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.h-tt small { font-size: 12.5px; color: var(--acct); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .h-tt small b { font-weight: 600; }
-.hpg { display: flex; align-items: center; gap: 4px; flex: none; font-size: 12px; color: var(--fg2); font-variant-numeric: tabular-nums; }
+.h-tt .tt { font: var(--t-name); color: var(--act, var(--fg)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-tt small { font: var(--t-sub); font-size: 14px; color: var(--acct); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .h-tt small b { font-weight: 600; }
+.hpg { display: flex; align-items: center; gap: 4px; flex: none; font: 500 13.5px var(--f-mid); color: var(--fg2); font-variant-numeric: tabular-nums; }
 .hpg i { width: 6px; height: 6px; border-radius: 3px; background: var(--fg3); } .hpg i.on { width: 16px; background: var(--accent); }
 .h-q { font-size: 17px; line-height: 1.32; font-weight: 500; margin: 10px 0 0; overflow-wrap: anywhere; } .h-q b { font-weight: 600; }
 .h-md { font-size: 14.5px; line-height: 1.35; color: var(--fg2); margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .h-code { font: 12.5px/1.35 var(--mono); background: var(--code); border-radius: 8px; padding: 7px 10px; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 5.6em; overflow: hidden; }
 .h-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.h-acts .hb { flex: 1 1 0; min-width: 0; min-height: 44px; border-radius: 12px; font-size: 15px; font-weight: 600; background: var(--bg3); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-acts .hb { flex: 1 1 0; min-width: 0; min-height: 44px; border-radius: var(--r-btn); font: 600 16.5px/1 var(--f-mid); letter-spacing: .02em; background: var(--bg3); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .h-acts.n3 .hb { flex-basis: calc(50% - 4px); } .h-acts.n3 .hb.pri { flex-basis: 100%; }
 .h-acts .hb.pri { background: var(--accent-fill); color: #fff; } .h-acts .hb.neg { color: var(--red); }
 .h-acts .hb:active { filter: brightness(.92); } .h-acts .hb .spin { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
@@ -41,14 +41,14 @@
 .hcalmw.gone { grid-template-rows: 0fr; opacity: 0; margin-bottom: -4px; pointer-events: none; } /* -4px: the .hero's own margin */
 .hcalmw.gone .hcalmi { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .hcalmw { transition: opacity .3s ease, grid-template-rows 0s .3s, margin 0s .3s; } }
-.hcalm { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: var(--bg2); box-shadow: var(--card-sh); font-size: 15px; color: var(--fg2); }
+.hcalm { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: var(--r-card); background: var(--bg2); box-shadow: var(--card-sh); font: 500 16px var(--f-mid); color: var(--fg2); }
 .hcalm .ok { display: inline-grid; } .hcalm .ok svg { width: 19px; height: 19px; fill: none; stroke: var(--done); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .hcalm b { color: var(--fg); font-weight: 600; } .hcalm .hsn { color: var(--accent); font-size: 13.5px; padding: 8px 0 8px 8px; }
 
 /* In flight */
 .tsec { margin-top: 6px; }
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.ftile { background: var(--bg2); border-radius: 16px; padding: 11px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; color: var(--fg); box-shadow: var(--card-sh); }
+.ftile { background: var(--bg2); border-radius: var(--r-card); padding: 11px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; color: var(--fg); box-shadow: var(--card-sh); }
 .ftile:active { background: var(--bg3); }
 .ftile .tt { font-size: 14px; font-weight: 600; color: var(--act, var(--fg)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ftile .fbig { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.08; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; overflow: hidden; }
@@ -68,16 +68,11 @@
 @keyframes pbcur { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .pbar i, .pbar i::after { animation: none !important; } .hcard { transition: none; } }
 
-/* Scheduled: timers + services grouped in a small blue-tinted dashed box, "Scheduled" label notched into its top edge
-   (base look in style.css .bgs); rows keep 44pt tap targets */
-.agents .bgs { margin: 18px 0 6px; padding: 6px 12px 2px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
-.agents .bgs .bg-lbl { top: -8px; left: 10px; padding: 0 5px; background: var(--bg); color: var(--accent); }
-.agents .bgs .bg-row { min-height: 44px; padding: 0 2px; gap: 8px; }
-.agents .bgs .bg-row + .bg-row { border-top-color: color-mix(in srgb, var(--accent) 18%, var(--sep)); }
+/* Scheduled: a section (header + hairline rows, docs/DESIGN.md; base look in style.css .bgs); rows keep 44pt tap targets */
+.agents .bgs { margin: 18px 0 6px; }
+.agents .bgs .bg-row { min-height: 44px; padding: 0 4px; gap: 8px; }
 .agents .bgs .bg-ic { width: 20px; color: var(--accent); } .agents .bgs .bg-ic svg { width: 16px; height: 16px; }
-.agents .bgs .bg-chip { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.agents .bgs .bg-mtop { position: absolute; top: -10px; right: 10px; padding: 0 5px; background: var(--bg); font-size: 12px; font-weight: 600; line-height: 20px; text-decoration: none; }
+.agents .bgs .bg-mtop { position: absolute; top: -2px; right: 2px; padding: 0 0 0 8px; background: var(--bg); font: 600 15px/20px var(--f-mid); text-decoration: none; }
 .agents .bgs .bg-mtop::after { content: ""; position: absolute; inset: -12px -8px; } /* 44pt tap target */
 .agents .tsec + .surfs:not(:empty) { margin-top: 12px; }
 
@@ -90,39 +85,39 @@
 
 /* Running apps: a Scheduled-style box (dashed, blue-tinted, notched label) right under Scheduled; one 44pt row per
    app (server jobs, /api/jobs `app`), C mini-list layout: owner-pastel initial · name :port / reach · owner · age · Open */
-.rapps { position: relative; margin: 18px 0 6px; padding: 6px 12px 2px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
-  background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
+.rapps { position: relative; margin: 18px 0 6px; padding: 0; } /* a section: header + hairline rows (docs/DESIGN.md), not a dashed box */
 .agents .bgs:not([hidden]) + .rapps { margin-top: 20px; }
-.rapps .bg-lbl { position: absolute; top: -8px; left: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 0 5px; background: var(--bg);
-  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); line-height: 16px; }
+.rapps .bg-lbl { padding: 0 0 6px 4px; }
+.rapps .bg-lbl svg { display: none; }
 .rapps svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .ra-it { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 2px; cursor: pointer; -webkit-touch-callout: none; user-select: none; }
-.ra-it + .ra-it { border-top: .5px solid color-mix(in srgb, var(--accent) 18%, var(--sep)); }
+.ra-it + .ra-it { border-top: .5px solid var(--sep); }
 .ra-fav { position: relative; flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-size: 13.5px;
   background: color-mix(in srgb, var(--ac, var(--accent)) 30%, var(--bg)); color: var(--act, var(--accent)); }
+.ra-it:not(.loc) .ra-live { display: none; } /* no green dot when it is up */
 .ra-live { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--done); box-shadow: 0 0 0 2px var(--bg); }
 .ra-it.loc .ra-live { background: var(--fg3); }
 .ra-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
-.ra-l1 { display: flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 14px; white-space: nowrap; }
+.ra-l1 { display: flex; align-items: baseline; gap: 5px; min-width: 0; font: 600 16.5px/1.2 var(--f-mid); white-space: nowrap; }
 .ra-l1 b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; color: var(--fg); }
-.ra-port { flex: none; font: 12px var(--mono); color: var(--fg2); }
-.ra-tx small { display: flex; align-items: center; gap: 3px; font-size: 12px; color: var(--fg2); white-space: nowrap; overflow: hidden; min-width: 0; }
+.ra-port { flex: none; font: 600 14px var(--f-mid); color: var(--fg2); }
+.ra-tx small { display: flex; align-items: center; gap: 3px; font: 500 14px/1.2 var(--f-mid); color: var(--fg2); white-space: nowrap; overflow: hidden; min-width: 0; }
 .ra-tx small svg { width: 11px; height: 11px; }
 .ra-own { color: var(--act, var(--fg2)); text-decoration: none; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 4px 0; margin: -4px 0; }
 .ra-open { flex: none; display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 15px; background: color-mix(in srgb, var(--accent) 13%, transparent);
-  color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: none; position: relative; }
+  color: var(--accent); font: 600 15.5px var(--f-mid); text-decoration: none; position: relative; }
 .ra-open::after { content: ""; position: absolute; inset: -7px -4px; } /* 44pt tap target */
 .ra-chev { flex: none; color: var(--fg3); display: inline-flex; padding-right: 2px; } .ra-chev svg { width: 15px; height: 15px; stroke-width: 2.2; }
 /* the app sheet: title, a sentence or two, one big Open (or why not), a quiet meta line and a small action row */
-.ras h2 { margin: 2px 40px 6px 0; font-size: 22px; }
+.ras h2 { margin: 2px 40px 6px 0; }
 .ras-about { margin: 0 0 14px; font-size: 16.5px; line-height: 1.4; color: var(--fg); transition: color .3s; }
 .ras-about.wait { color: var(--fg2); }
 .ras-open { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 54px; border-radius: 14px; background: var(--accent-fill);
-  color: #fff; font-size: 17px; font-weight: 600; text-decoration: none; }
+  color: #fff; font: 600 18px var(--f-mid); text-decoration: none; }
 .ras-open small { font: 12px var(--mono); opacity: .85; font-weight: 400; margin-top: 1px; }
 .ras-why { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 11px 12px; border-radius: 12px; background: var(--bg3); font-size: 14.5px; line-height: 1.35; color: var(--fg2); }
 .ras-why svg { width: 18px; height: 18px; flex: none; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.ras-meta { margin: 12px 0 6px; font-size: 13px; color: var(--fg2); }
+.ras-meta { margin: 12px 0 6px; font: 500 14px var(--f-mid); color: var(--fg2); }
 .ras-row { display: flex; align-items: center; gap: 6px; border-top: .5px solid var(--sep); padding-top: 6px; }
 .ras-row .sp { flex: 1; }
 .ras-row button, .ras-own { min-height: 44px; padding: 0 10px; font-size: 15px; color: var(--accent); background: none; border-radius: 10px; white-space: nowrap; }

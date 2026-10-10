@@ -74,6 +74,8 @@ pub struct QInfo {
     pub asks: bool,
     pub chip: Option<String>,
     pub reply: Option<String>,
+    /// what it waits on the user for, one line ("your pick between the two layouts"; catch-up's "Waiting on you for")
+    pub wait: Option<String>,
     /// "haiku" | "guess"
     pub by: String,
 }
@@ -91,6 +93,8 @@ pub struct Store {
     pub just_hidden: i64,
     /// sessions seen in a never-sleep pane
     pub never: Vec<String>,
+    /// catch-up's Keep: sid → the question key it was kept at (it comes back when the agent asks something new)
+    pub ckeep: HashMap<String, String>,
     pub idle_min: u32,
     pub day: i64,
     pub calls: u32,
@@ -102,13 +106,13 @@ fn store_path() -> PathBuf {
     crate::state_dir().join("tidy.json")
 }
 
-fn with<R>(f: impl FnOnce(&mut Store) -> R) -> R {
+pub(crate) fn with<R>(f: impl FnOnce(&mut Store) -> R) -> R {
     let mut g = STORE.lock().unwrap();
     let s = g.get_or_insert_with(|| std::fs::read(store_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default());
     f(s)
 }
 
-fn save() {
+pub(crate) fn save() {
     let b = with(|s| {
         let now = now_ms();
         s.snooze.retain(|_, t| *t > now);
@@ -126,7 +130,7 @@ fn save() {
     }
 }
 
-fn idle_ms() -> i64 {
+pub(crate) fn idle_ms() -> i64 {
     if let Some(ms) = std::env::var("SHEPRD_TIDY_IDLE_MS").ok().and_then(|v| v.parse().ok()) {
         return ms; // tests
     }
@@ -194,8 +198,13 @@ fn rt<R>(f: impl FnOnce(&mut Rt) -> R) -> R {
     f(g.get_or_insert_with(Rt::default))
 }
 
-fn invalidate() {
+pub(crate) fn invalidate() {
     rt(|r| r.cache = None);
+}
+
+/// Panes going to sleep right now (inside an undo window) or committed to sleep after a fix.
+pub(crate) fn busy_panes() -> HashSet<String> {
+    rt(|r| r.pending.iter().filter(|p| !p.cancelled && !p.done).flat_map(|p| p.items.iter().map(|i| i.0.clone())).chain(r.commits.keys().cloned()).collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +240,7 @@ pub fn never_why(a: &Value, never: &[String], never_sids: &[String]) -> Option<&
 }
 
 /// Live agents from the state, never-sleep sessions remembered.
-fn live(app: &App) -> Vec<Value> {
+pub(crate) fn live(app: &App) -> Vec<Value> {
     let st = app.inner.lock().unwrap().state.clone();
     let v: Value = serde_json::from_str(&st).unwrap_or(Value::Null);
     let agents = v["agents"].as_array().cloned().unwrap_or_default();
@@ -260,12 +269,12 @@ fn live(app: &App) -> Vec<Value> {
     agents
 }
 
-fn guard(a: &Value) -> Option<&'static str> {
+pub(crate) fn guard(a: &Value) -> Option<&'static str> {
     let ns = with(|s| s.never.clone());
     never_why(a, &never_panes(), &ns)
 }
 
-fn name_of(a: &Value) -> String {
+pub(crate) fn name_of(a: &Value) -> String {
     if a["home"] == true {
         return crate::home_name();
     }
@@ -289,6 +298,31 @@ pub struct Scan {
     /// recent conversation for the note: (role, text ≤ 600)
     pub convo: Vec<(String, String)>,
     pub first: String,
+    /// the user's last real prompt (not an agent's steer, not a server note, not "continue"): (text ≤ 2000, ts)
+    pub said: Option<(String, i64)>,
+    /// the last message another agent sent after it: (sender, text ≤ 300, ts)
+    pub then: Option<(String, String, i64)>,
+    /// when its last text was written (ms)
+    pub asst_ts: i64,
+}
+
+/// A server / mod note typed in as a user message ("[Decision: …] The user picked …", "[Message from agent …]", "[Send to
+/// Master …]"), or a word the phone sends for them ("continue"): not something the user said.
+pub fn system_note(t: &str) -> bool {
+    let t = t.trim();
+    let first = t.lines().next().unwrap_or("");
+    let bracket = first.starts_with('[') && first.find(']').is_some_and(|e| e < 100 && !first[1..e].starts_with("Image") && !first[1..e].starts_with("Pasted"));
+    bracket || t.starts_with('/') || t.starts_with('!') || t.trim_end_matches(['.', '!']).eq_ignore_ascii_case("continue")
+}
+
+/// `{text, ts, then: {from, text, ts} | null}` for the catch-up cards and the asleep wake card, or null.
+pub fn said_json(sc: &Scan) -> Value {
+    let then = sc.then.as_ref().map(|(f, t, ts)| json!({"from": f, "text": t, "ts": ts}));
+    match &sc.said {
+        Some((t, ts)) => json!({"text": t, "ts": ts, "then": then}),
+        None if then.is_some() => json!({"text": null, "ts": null, "then": then}),
+        None => Value::Null,
+    }
 }
 
 fn repo_of_cmd(cmd: &str, cwd: &str) -> String {
@@ -352,6 +386,7 @@ pub fn scan_more(sc: &mut Scan, path: &Path, cwd: &str) {
                             }
                         }
                         sc.last_id = id.clone();
+                        sc.asst_ts = crate::transcript::parse_ts(d["timestamp"].as_str().unwrap_or(""));
                         sc.convo.push(("assistant".into(), tx.chars().take(600).collect()));
                     }
                     Some("tool_use") => {
@@ -395,8 +430,20 @@ pub fn scan_more(sc: &mut Scan, path: &Path, cwd: &str) {
                 }
             }
             let tx = text_of(c);
+            let tool = c.as_array().is_some_and(|a| a.iter().any(|b| b["type"] == "tool_result"));
+            if !tool {
+                let ts = crate::transcript::parse_ts(d["timestamp"].as_str().unwrap_or(""));
+                match crate::transcript::user_msg(&tx) {
+                    Some((None, t)) if !system_note(&t) => {
+                        sc.said = Some((t.trim().chars().take(2000).collect(), ts));
+                        sc.then = None;
+                    }
+                    Some((Some(from), t)) => sc.then = Some((from, t.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(300).collect(), ts)),
+                    _ => {}
+                }
+            }
             let tx = tx.trim();
-            if tx.is_empty() || tx.starts_with('<') || c.as_array().is_some_and(|a| a.iter().any(|b| b["type"] == "tool_result")) {
+            if tx.is_empty() || tx.starts_with('<') || tool {
                 continue;
             }
             if sc.first.is_empty() {
@@ -415,7 +462,7 @@ pub fn scan_more(sc: &mut Scan, path: &Path, cwd: &str) {
     }
 }
 
-fn scan_for(app: &App, sid: &str, cwd: &str) -> Scan {
+pub(crate) fn scan_for(app: &App, sid: &str, cwd: &str) -> Scan {
     let Some(path) = crate::find_session(app, sid) else { return Scan::default() };
     let mut sc = rt(|r| r.scans.get(sid).cloned()).unwrap_or_default();
     scan_more(&mut sc, &path, cwd);
@@ -642,24 +689,28 @@ fn q_prompt(text: &str) -> String {
          Does it ask the user something or wait on their input, decision or action (a question, a choice, \"tell me when…\", \"send me…\", \
          \"should I…\")? A plain report, or \"done\" with an optional offer like \"let me know if you want more\", is NOT waiting.\n\
          Reply with JSON only: {{\"asks\": true|false, \"chip\": \"<if asks: 2-5 words saying what it waits on, e.g. Asks you a question, \
-         Waiting on your measurements, Wants your pick>\", \"reply\": \"<if asks: a likely short reply the user could send, under 12 words, \
+         Waiting on your measurements, Wants your pick>\", \"for\": \"<if asks: what exactly it waits on the user for, one line under 70 \
+         characters, a lowercase noun phrase that completes 'Waiting on you for: ', e.g. your pick between the two layouts, the screen \
+         sizes to test, a go-ahead to push; else empty>\", \"reply\": \"<if asks: a likely short reply the user could send, under 12 words, \
          first person; else empty>\"}}\n\nMessage:\n<<<\n{cut}\n>>>"
     )
 }
 
-pub fn parse_q(s: &str) -> Option<(bool, Option<String>, Option<String>)> {
+/// (asks, chip, reply, wait)
+pub fn parse_q(s: &str) -> Option<(bool, Option<String>, Option<String>, Option<String>)> {
     let a = s.find('{')?;
     let b = s.rfind('}')?;
     let v: Value = serde_json::from_str(s.get(a..=b)?).ok()?;
     let clean = |k: &str, max: usize| v[k].as_str().map(|x| x.split_whitespace().collect::<Vec<_>>().join(" ")).map(|x| x.trim_matches('"').trim_end_matches('.').to_string()).filter(|x| !x.is_empty() && x.chars().count() <= max);
-    Some((v["asks"].as_bool()?, clean("chip", 40), clean("reply", 120)))
+    let wait = clean("for", 90).map(|w| w.trim_start_matches("Waiting on you for:").trim().to_string()).filter(|w| !w.is_empty());
+    Some((v["asks"].as_bool()?, clean("chip", 40), clean("reply", 120), wait))
 }
 
 /// Haiku's verdict on `text` (fake in tests: `SHEPRD_FAKE_TIDY=asks` / `no`).
-async fn ask_haiku(text: &str) -> Option<(bool, Option<String>, Option<String>)> {
+async fn ask_haiku(text: &str) -> Option<(bool, Option<String>, Option<String>, Option<String>)> {
     if let Ok(f) = std::env::var("SHEPRD_FAKE_TIDY") {
         let asks = text.contains('?') || f == "asks";
-        return Some((asks, asks.then(|| "Asks you a question".into()), asks.then(|| "Yes, go ahead".into())));
+        return Some((asks, asks.then(|| "Asks you a question".into()), asks.then(|| "Yes, go ahead".into()), asks.then(|| "a yes or no on going ahead".into())));
     }
     if !take_call() {
         return None;
@@ -668,20 +719,20 @@ async fn ask_haiku(text: &str) -> Option<(bool, Option<String>, Option<String>)>
     parse_q(v["result"].as_str().unwrap_or(""))
 }
 
-fn q_key(a: &Value) -> String {
+pub(crate) fn q_key(a: &Value) -> String {
     format!("{}:{}", a["completionSeq"].as_u64().unwrap_or(0), a["last"]["ts"].as_i64().unwrap_or(0))
 }
 
 /// Classifies `sid`'s last message in the background (once per key).
-fn q_later(app: &Shared, sid: String, key: String, text: String) {
+pub(crate) fn q_later(app: &Shared, sid: String, key: String, text: String) {
     if !rt(|r| r.asking.insert(sid.clone())) {
         return;
     }
     let app = app.clone();
     tokio::spawn(async move {
         let r = ask_haiku(&text).await;
-        if let Some((asks, chip, reply)) = r {
-            with(|s| s.q.insert(sid.clone(), QInfo { key, asks, chip, reply, by: "haiku".into() }));
+        if let Some((asks, chip, reply, wait)) = r {
+            with(|s| s.q.insert(sid.clone(), QInfo { key, asks, chip, reply, wait, by: "haiku".into() }));
             save();
             invalidate();
             app.refresh.notify_one();
@@ -709,6 +760,10 @@ pub struct Facts {
     pub shells: u64,
     pub subs: u64,
     pub ok: Vec<String>,
+    /// Haiku's "Waiting on you for" line, with `q`
+    pub wait: Option<String>,
+    /// `said_json` of its scan (the user's last prompt), for the catch-up card
+    pub said: Value,
 }
 
 fn reason(kind: &str, text: impl Into<String>) -> Value {
@@ -791,7 +846,7 @@ pub fn classify(a: &Value, f: &Facts, threshold: i64) -> (&'static str, Vec<Valu
 // ---------------------------------------------------------------------------
 // GET /api/tidy
 
-fn row(a: &Value, idle: i64, reasons: Vec<Value>, full: Option<&str>) -> Value {
+pub(crate) fn row(a: &Value, idle: i64, reasons: Vec<Value>, full: Option<&str>) -> Value {
     let one = |t: &str| t.replace("**", "").split_whitespace().collect::<Vec<_>>().join(" ");
     let last = a["last"]["text"].as_str().map(one).unwrap_or_default();
     json!({
@@ -819,6 +874,7 @@ async fn facts_for(app: &Shared, a: &Value, f: &mut Facts, pr: &Procs, listen: &
     .await
     .ok();
     let (sc, (dirty, unpushed, _)) = sc.unwrap_or_default();
+    f.said = said_json(&sc);
     f.dirty = dirty;
     f.unpushed = unpushed;
     let full = sc.asst.last().cloned().or_else(|| a["last"]["text"].as_str().filter(|_| a["last"]["role"] == "assistant").map(str::to_string));
@@ -826,7 +882,10 @@ async fn facts_for(app: &Shared, a: &Value, f: &mut Facts, pr: &Procs, listen: &
     let key = q_key(a);
     let cached = with(|s| s.q.get(&sid).filter(|q| q.key == key).cloned());
     match cached {
-        Some(q) if q.asks => f.q = Some((q.chip, q.reply)),
+        Some(q) if q.asks => {
+            f.wait = q.wait.clone();
+            f.q = Some((q.chip, q.reply));
+        }
         Some(_) => {}
         None => {
             if let Some(t) = &full {
@@ -921,7 +980,11 @@ async fn build(app: &Shared) -> Value {
             full = facts_for(app, a, &mut f, &pr, &listen, &desc, &timers).await;
         }
         let (b, reasons) = classify(a, &f, threshold);
-        let r = row(a, idle, reasons, full.as_deref().filter(|_| b == "check"));
+        let mut r = row(a, idle, reasons, full.as_deref().filter(|_| b == "check"));
+        if b == "check" {
+            r["said"] = std::mem::take(&mut f.said);
+            r["wait"] = json!(f.wait);
+        }
         match b {
             "keep" => keep.push(r),
             "check" => check.push(r),
@@ -1325,11 +1388,11 @@ async fn watch_commits(app: &Shared) {
             let (app2, sid2) = (app.clone(), sid.clone());
             let sc = tokio::task::spawn_blocking(move || scan_for(&app2, &sid2, &cwd)).await.unwrap_or_default();
             let text = sc.asst.last().cloned().or_else(|| a["last"]["text"].as_str().map(str::to_string)).unwrap_or_default();
-            let (asks, chip, reply, by) = match ask_haiku(&text).await {
-                Some((x, c, r)) => (x, c, r, "haiku"),
-                None => (asks_guess(&text), None, None, "guess"),
+            let (asks, chip, reply, wait, by) = match ask_haiku(&text).await {
+                Some((x, c, r, w)) => (x, c, r, w, "haiku"),
+                None => (asks_guess(&text), None, None, None, "guess"),
             };
-            with(|s| s.q.insert(sid.clone(), QInfo { key: q_key(&a), asks, chip, reply, by: by.into() }));
+            with(|s| s.q.insert(sid.clone(), QInfo { key: q_key(&a), asks, chip, reply, wait, by: by.into() }));
             save();
             if asks {
                 eprintln!("tidy: {pane} asked again: stays awake");
@@ -1410,21 +1473,23 @@ pub async fn run(app: Shared) {
         if rt(|r| !r.commits.is_empty()) {
             watch_commits(&app).await;
         }
-        if tick % 30 != 0 {
+        if tick % 10 != 0 {
             continue;
         }
         let viewed = now_ms() - app.inner.lock().unwrap().last_visible < 15 * 60_000;
         if !viewed {
             continue;
         }
-        // warm the question cache: idle agents whose last message has no verdict yet, 2 at a time
+        // warm the question cache: idle agents whose last message has no verdict yet, 2 at a time (every 20 s). Under
+        // the idle threshold (catch-up's "N waiting on you" on Home) only once the turn settled (1 min) and only when the
+        // heuristic sees a question, so the daily cap goes to messages that may wait on the user.
         let threshold = idle_ms();
         let now = now_ms();
         let agents = live(&app);
         let mut n = 0;
         for a in agents.iter().filter(|a| a["kind"] == "claude" && a["last"]["role"] == "assistant" && guard(a).is_none()) {
             let idle = now - a["last"]["ts"].as_i64().unwrap_or(now);
-            if idle < threshold || !matches!(a["status"].as_str(), Some("idle") | Some("done")) {
+            if idle < 60_000 || !matches!(a["status"].as_str(), Some("idle") | Some("done")) {
                 continue;
             }
             let sid = s(a, "session");
@@ -1434,7 +1499,7 @@ pub async fn run(app: Shared) {
             }
             let (app2, sid2, cwd) = (app.clone(), sid.clone(), s(a, "cwd"));
             let sc = tokio::task::spawn_blocking(move || scan_for(&app2, &sid2, &cwd)).await.unwrap_or_default();
-            if let Some(t) = sc.asst.last() {
+            if let Some(t) = sc.asst.last().filter(|t| idle >= threshold || asks_guess(t)) {
                 q_later(&app, sid, key, t.clone());
                 n += 1;
             }
@@ -1503,13 +1568,54 @@ mod tests {
     #[test]
     fn questions_and_ports() {
         assert!(asks_guess("Is \"got nothing from him\" about earlier messages, or this one?"));
-        assert!(asks_guess("Send me the Vader torso numbers and I'll rerun it."));
+        assert!(asks_guess("Send me the benchmark numbers and I'll rerun it."));
         assert!(asks_guess("Tell me when you've watched the video and I'll trim it."));
         assert!(!asks_guess("The dashboard is finished and nothing is left to do. Let me know if you want more."));
         assert!(!asks_guess("Deployed: see https://x.dev/?q=1 for the page."));
-        assert_eq!(parse_q("{\"asks\": true, \"chip\": \"Waiting on your measurements.\", \"reply\": \"\"}"), Some((true, Some("Waiting on your measurements".into()), None)));
+        assert_eq!(parse_q("{\"asks\": true, \"chip\": \"Waiting on your measurements.\", \"reply\": \"\"}"), Some((true, Some("Waiting on your measurements".into()), None, None)));
+        assert_eq!(
+            parse_q("{\"asks\": true, \"chip\": \"Wants your pick\", \"for\": \"Waiting on you for: your pick between the two layouts.\", \"reply\": \"B\"}").unwrap().3.as_deref(),
+            Some("your pick between the two layouts")
+        );
         assert_eq!(parse_q("nope"), None);
         assert_eq!(ports_in("it's up at **http://100.64.0.7:3417** and on localhost:8790; also port 5173, not 12:30 or 80"), vec![3417, 8790, 5173]);
+    }
+
+    #[test]
+    fn you_said() {
+        assert!(system_note("[Decision: Home layout] The user picked: B [b]"));
+        assert!(system_note("[Build report — 1 new failure]\n• x"));
+        assert!(system_note("continue") && system_note("Continue.") && system_note("/rename x"));
+        assert!(!system_note("[Image #1] what's wrong here?"));
+        assert!(!system_note("continue with the enclosure, but measure twice"));
+        let dir = std::env::temp_dir().join(format!("mm-said-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.jsonl");
+        let u = |ts: &str, t: &str| json!({"type": "user", "timestamp": ts, "message": {"role": "user", "content": t}});
+        let lines = [
+            u("2026-10-10T09:00:00.000Z", "Fix the enclosure fit and tell me what you need from me"),
+            json!({"type": "assistant", "timestamp": "2026-10-10T09:01:00.000Z", "message": {"id": "m1", "content": [{"type": "text", "text": "Send me the numbers?"}]}}),
+            u("2026-10-10T09:02:00.000Z", "continue"),
+            u("2026-10-10T09:03:00.000Z", "[Decision: Fit] The user picked: A [a]"),
+            u("2026-10-10T09:04:00.000Z", "[Message from agent \"Nightly Build\" (pane w6:p3) via sheprd]\nThe build is green, rerun the benchmarks?"),
+            u("2026-10-10T09:05:00.000Z", "<command-name>/clear</command-name>"),
+        ];
+        std::fs::write(&p, lines.iter().map(|l| l.to_string() + "\n").collect::<String>()).unwrap();
+        let mut sc = Scan::default();
+        scan_more(&mut sc, &p, "/home");
+        let v = said_json(&sc);
+        assert_eq!(v["text"], "Fix the enclosure fit and tell me what you need from me");
+        assert_eq!(v["ts"], crate::transcript::parse_ts("2026-10-10T09:00:00.000Z"));
+        assert_eq!(v["then"]["from"], "Nightly Build");
+        assert_eq!(v["then"]["text"], "The build is green, rerun the benchmarks?");
+        assert_eq!(sc.asst_ts, crate::transcript::parse_ts("2026-10-10T09:01:00.000Z"));
+        // the user writes again: the steer note goes
+        let more = u("2026-10-10T09:06:00.000Z", "Width is 112 mm");
+        std::fs::OpenOptions::new().append(true).open(&p).map(|mut f| std::io::Write::write_all(&mut f, (more.to_string() + "\n").as_bytes())).unwrap().unwrap();
+        scan_more(&mut sc, &p, "/home");
+        assert_eq!(said_json(&sc)["text"], "Width is 112 mm");
+        assert!(said_json(&sc)["then"].is_null());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -11,7 +11,12 @@
 // A4  "Just put to sleep": for 6 h after a sleep,
 //     a card under Recent lists them with one-tap Wake (resume in its old workspace and tab, no message sent) and
 //     Wake all, until Hide. The sheet says what Sleep does under the button, with a "What does sleep do?" expander.
-import { G, $, h, esc, api, post, toast, haptic, tick, sheet, shortPath, ls, HOME_NAME } from './app.js';
+// C3  Catch up from Home (server/src/catchup.rs, API.md "Catch up"): "Catch up on N agents waiting on you" under the
+//     Decide card whenever an agent's last message waits on the user (Tidy's per-turn verdict), minus agents with an open
+//     decision (those are the Decide deck's). The same cards with Answer (no promise to sleep), Continue, Sleep, Keep.
+//     Every card (and the asleep wake card, Just put to sleep) shows "You said" (the user's last prompt, 3 lines, tap to
+//     expand; "Last from you" + "then <agent> sent…" when an agent wrote after them) and "Waiting on you for: …".
+import { G, $, h, esc, api, post, toast, haptic, tick, sheet, shortPath, ls, whoName, HOME_NAME } from './app.js';
 import { md } from './md.js';
 import { favHTML, colCls, forget, agents, cached, nameOf, MOON } from './find.js';
 
@@ -32,6 +37,8 @@ const IC = {
   doc: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 15.5h6"/></svg>',
   pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 5 4 4H6l4-4zM12 13v8"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  go: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>',
 };
 const CHIP_IC = { ok: IC.check, q: IC.q, draft: IC.draft, git: IC.git, srv: IC.srv, shell: IC.shell, sub: IC.sub };
 const ago = ms => { const m = Math.max(0, Math.round(ms / 60e3)); return m < 60 ? `${Math.max(1, m)}m` : m < 2880 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
@@ -76,6 +83,47 @@ const face = (r, sz) => favHTML({ name: r.name, color: r.color, home: r.home }, 
 const chipHTML = x => `<span class="tchip k-${esc(x.kind)}">${CHIP_IC[x.kind] || ''}${esc(x.text)}</span>`;
 const ctxHTML = r => r.ctx?.pct != null ? `<span class="tctx" style="--p:${Math.round(r.ctx.pct)}"><i></i>${Math.round(r.ctx.pct)}%</span>` : '';
 const fold = s => String(s || '').replace(/\s+/g, ' ').trim();
+const clip = (s, n) => { s = fold(s); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
+
+// ---------- "You said" and "Waiting on you for" (catch-up cards, the asleep wake card, Just put to sleep) ----------
+/** the user's last prompt to it: 3 lines, tap to expand. After an agent's message: "Last from you" + "then X sent…". */
+export function saidHTML(s, { row = false } = {}) {
+  if (!s || (!s.text && !s.then)) return '';
+  const lab = s.then ? 'Last from you' : 'You said', when = s.ts ? ` · ${ago(Date.now() - s.ts)} ago` : '';
+  const then = s.then ? `<div class="cs-then">then <b>${esc(whoName(s.then.from) || s.then.from)}</b> sent… <span>“${esc(clip(s.then.text, row ? 60 : 110))}”</span></div>` : '';
+  if (row) return `<span class="cs-row">${s.text ? `<button type="button" class="cu-said cs-r" aria-expanded="false"><span class="cs-t"><em>${lab}:</em> ${esc(s.text.trim())}</span></button>` : ''}${then}</span>`;
+  return `<div class="cs"><h4>${lab}<span class="cs-ago">${when}</span></h4>`
+    + (s.text ? `<button type="button" class="cu-said" aria-expanded="false"><span class="cs-t">${esc(s.text.trim())}</span></button>` : '') + then + '</div>';
+}
+export const waitHTML = w => w ? `<div class="cu-wait"><b>Waiting on you for:</b> ${esc(w)}</div>` : '';
+// tap a clamped "You said" to read all of it (capture: inside a row link it must not open the chat)
+document.addEventListener('click', e => {
+  const b = e.target.closest('.cu-said'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const o = b.classList.toggle('open'); b.setAttribute('aria-expanded', o);
+}, true);
+/** sid → {said, wait, at}: asleep agents' last prompt (GET /api/catchup/said), fetched in one batch. */
+const SAID = new Map();
+let SAIDQ = null;
+export function saidFor(sids) {
+  const want = sids.filter(s => !(SAID.get(s)?.at > Date.now() - 5 * 60e3));
+  if (!want.length) return Promise.resolve(SAID);
+  if (SAIDQ) return SAIDQ.then(() => saidFor(sids));
+  return SAIDQ = api('catchup/said?sids=' + want.slice(0, 20).map(encodeURIComponent).join(',')).then(r => {
+    for (const s of want.slice(0, 20)) SAID.set(s, { said: r.said?.[s] || null, wait: r.wait?.[s] || null, at: Date.now() });
+    return SAID;
+  }).finally(() => { SAIDQ = null; });
+}
+/** The asleep chat's wake card (find.js): what the user last said to it and what it waits on, above the buttons. */
+export async function saidInto(w, sid) {
+  if (!w || $('.wsaid', w)) return;
+  try {
+    const x = (await saidFor([sid])).get(sid);
+    if (!x || !w.isConnected || $('.wsaid', w)) return;
+    const html = waitHTML(x.wait) + saidHTML(x.said);
+    if (html) $('.w1', w).after(h(`<div class="wsaid">${html}</div>`));
+  } catch { }
+}
 
 /** Puts these agents to sleep after the undo window; shows the undo toast. */
 async function sleepNow(rows, note) {
@@ -144,6 +192,41 @@ export function drawCard(el, st) {
   const html = `<div class="tc-top"><span class="tc-ic">${IC.broom}</span><div class="tc-tx"><b>${plural(n, 'agent')} ${n === 1 ? 'is' : 'are'} idle</b><small>${sub}</small></div></div>`
     + `<div class="tc-faces">${faces.map(r => `<span class="tcf${colCls(r.color)}">${face(r, 30)}</span>`).join('')}${more > 0 ? `<span class="tc-more">+${more}</span>` : ''}</div>`
     + '<div class="tc-btns"><button class="btn primary tc-go">Tidy up</button><button class="btn tc-no">Not now</button></div>';
+  if (box._h !== html) { box._h = html; box.innerHTML = html; }
+}
+
+// ---------- C3: Catch up from Home ----------
+let C = null, CAT = 0, CLOAD = null, CSIG = '';
+/** sid → question key acted on here (Answer / Continue / Sleep / Keep): off the entry until the server catches up. */
+const ACTED = new Map();
+function loadCatch(force) {
+  if (!force && C && Date.now() - CAT < 15e3) return Promise.resolve(C);
+  CLOAD ??= api('catchup').then(r => { C = r; CAT = Date.now(); return r; }).finally(() => { CLOAD = null; });
+  return CLOAD;
+}
+/** Agents whose last message waits on the user, minus open decisions (the server leaves those to Decide) and what the user just did. */
+export const catchRows = () => (C?.rows || []).filter(r => ACTED.get(r.sid) !== r.key);
+// a turn ending, starting or a decision closing can change the list: fetch again then
+const csig = st => (st?.agents || []).map(a => `${a.pane}:${a.status}:${a.completionSeq}`).join('|') + '|' + (st?.decisions?.open || 0) + '|' + (st?.decisions?.stale || 0);
+/** Called from home.js draw: one terse row under the Decide card (else under the briefing), above the hero. */
+export function drawCatch(el, st) {
+  const sig = csig(st);
+  if (sig !== CSIG || !C || Date.now() - CAT > 15e3) {
+    const force = sig !== CSIG; CSIG = sig;
+    loadCatch(force).then(() => { if (G.view?.el === el) drawCatch(el, G.st); }, () => { });
+  }
+  let box = $('.cu-entry', el);
+  const rows = catchRows(), n = rows.length;
+  if (!n) { box?.remove(); return; }
+  if (!box) {
+    box = h('<button type="button" class="cu-entry"></button>');
+    box.onclick = () => { haptic(); const l = catchRows(); if (l.length) catchUp(l, 0, { home: true }); };
+  }
+  const d = $('.dwrap', el), after = d && !d.hidden ? d : $('.brief', el);
+  if (after && box.previousElementSibling !== after) after.after(box);
+  const r0 = rows[0], what = r0.wait || r0.reasons?.find(x => x.kind === 'q')?.text || '';
+  const html = `<span class="ce-tx"><b>Catch up on ${plural(n, 'agent')} waiting on you</b>`
+    + `<span class="ce-s"><span class="ce-f">${rows.slice(0, 3).map(r => `<span class="tcf${colCls(r.color)}">${face(r, 20)}</span>`).join('')}</span><small>${esc(r0.name)}${what ? ': ' + esc(what) : ''}</small></span></span><span class="ce-go">${IC.chev}</span>`;
   if (box._h !== html) { box._h = html; box.innerHTML = html; }
 }
 
@@ -249,45 +332,55 @@ export async function review() {
 }
 
 // ---------- C2: catch-up, one card at a time ----------
-function fixHTML(r) {
+function fixHTML(r, home) {
   const q = r.reasons.find(x => x.kind === 'q');
-  const fixes = r.reasons.filter(x => x.fix && x.kind !== 'q');
+  const fixes = home ? [] : r.reasons.filter(x => x.fix && x.kind !== 'q');
   let out = '';
   if (q) {
     out += q.fix?.reply ? `<h4>Suggested reply</h4><button class="cu-sug">${esc(q.fix.reply)}</button>` : '';
-    out += '<form class="cu-ans"><input type="text" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" placeholder="Answer, then it sleeps…"><button class="btn primary" type="submit">Send</button></form>';
+    out += `<form class="cu-ans"><input type="text" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" placeholder="${home ? 'Answer…' : 'Answer, then it sleeps…'}"><button class="btn primary" type="submit">Send</button></form>`;
   }
   if (fixes.length) out += `<div class="cu-fixes">${fixes.map(x => `<button class="btn cu-fix" data-k="${esc(x.fix.kind)}" data-text="${esc(x.fix.text || '')}">${esc(x.fix.label || x.fix.kind)}</button>`).join('')}</div>`;
-  if (q || fixes.length) out += '<p class="cu-why">Sent with a promise to sleep: once it’s done and asks nothing new, its pane closes.</p>';
+  if (home && q) out += '<p class="cu-why">Goes to it as your message (held while you have a draft there). It stays awake.</p>';
+  else if (q || fixes.length) out += '<p class="cu-why">Sent with a promise to sleep: once it’s done and asks nothing new, its pane closes.</p>';
   return out;
 }
-function cardHTML(r) {
+function cardHTML(r, home = false) {
   const q = r.reasons.some(x => x.kind === 'q'), full = r.full || r.last || '';
   const pct = r.ctx?.pct != null ? Math.round(r.ctx.pct) : null;
   return `<div class="cu-card${colCls(r.color)}" data-pane="${esc(r.pane)}"><div class="cu-h">${face(r, 46)}<div><b class="nm">${esc(r.name)}</b><small>${esc(shortPath(r.cwd || ''))} · last spoke ${ago(r.idleMs)} ago</small></div></div>`
     + (pct != null ? `<div class="cu-ctx"><span>Context</span><i class="bar"><b style="width:${Math.min(100, pct)}%"></b></i><span>${pct}%${r.ctx.tokens ? ' · ' + kTok(r.ctx.tokens) : ''}</span></div>` : '')
+    + (q ? waitHTML(r.wait) : '') + saidHTML(r.said)
     + (full ? `<h4>${q ? 'It asked you' : 'Its last message'}</h4><div class="cu-msg${q ? ' ask' : ''}">${md(full)}</div>` : '')
     + `<div class="cu-chips">${r.reasons.filter(x => x.kind !== 'q').map(chipHTML).join('')}</div>`
-    + fixHTML(r) + '</div>';
+    + fixHTML(r, home) + '</div>';
 }
 let FLOW = null;
-export function catchUp(list, start = 0) {
+/** The catch-up flow. `home`: opened from Home's "Catch up on N" (catch-up rows, not Tidy's): Answer goes to the agent
+ *  without a promise to sleep, the tiles are Continue · Sleep · Keep (until it asks something new). */
+export function catchUp(list, start = 0, { home = false } = {}) {
   if (!list?.length) return;
   FLOW?.remove();
-  const f = FLOW = h(`<div class="tdy-flow"><header class="cu-bar"><button class="ib cu-back" aria-label="Back">${IC.back}</button><b>Clean up</b><span class="sp"></span><button class="cu-close">Close</button></header>
+  const tiles = home
+    ? `<button data-t="cont">${IC.go}<b>Continue</b><small>it carries on</small></button><button data-t="sleep">${MOON}<b>Sleep</b><small>close its tab</small></button><button data-t="keep">${IC.pin}<b>Keep</b><small>till it asks again</small></button>`
+    : `<button data-t="sleep">${MOON}<b>Sleep</b><small></small></button><button data-t="note">${IC.doc}<b>Note + sleep</b><small>5 lines saved</small></button><button data-t="keep">${IC.pin}<b>Keep</b><small>skip till next time</small></button>`;
+  const f = FLOW = h(`<div class="tdy-flow${home ? ' cu-home' : ''}"><header class="cu-bar"><button class="ib cu-back" aria-label="Back">${IC.back}</button><b>${home ? 'Catch up' : 'Clean up'}</b><span class="sp"></span><button class="cu-close">Close</button></header>
     <div class="cu-sc"><div class="cu-prog"></div><div class="cu-step"></div><div class="cu-slot"></div>
-    <div class="cu-tiles"><button data-t="sleep">${MOON}<b>Sleep</b><small></small></button><button data-t="note">${IC.doc}<b>Note + sleep</b><small>5 lines saved</small></button><button data-t="keep">${IC.pin}<b>Keep</b><small>skip till next time</small></button></div>
+    <div class="cu-tiles">${tiles}</div>
     <div class="cu-foot"></div></div></div>`);
   document.body.append(f);
   requestAnimationFrame(() => f.classList.add('in'));
   let k = start, busy = false;
   const done = new Set();
-  const close = () => { f.classList.remove('in'); setTimeout(() => f.remove(), 260); if (FLOW === f) FLOW = null; T = null; load(true).then(redraw, () => { }); };
+  const close = () => {
+    f.classList.remove('in'); setTimeout(() => f.remove(), 260); if (FLOW === f) FLOW = null; T = null; load(true).then(redraw, () => { });
+    if (home) loadCatch(true).then(redraw, () => { });
+  };
   const show = dir => {
     const r = list[k];
     $('.cu-prog', f).innerHTML = list.map((_, i) => `<i class="${i < k ? 'f' : i === k ? 'cur' : ''}"></i>`).join('');
-    $('.cu-step', f).textContent = `${k + 1} of ${list.length} to look at`;
-    const slot = $('.cu-slot', f), n = h(cardHTML(r));
+    $('.cu-step', f).textContent = home ? `${k + 1} of ${list.length} waiting on you` : `${k + 1} of ${list.length} to look at`;
+    const slot = $('.cu-slot', f), n = h(cardHTML(r, home));
     slot.querySelectorAll('.go-l, .go-r').forEach(x => x.remove()); // a quick tap: the one before is still leaving
     const old = slot.querySelector('.cu-card');
     if (old && dir) { old.classList.add('go-' + dir); setTimeout(() => old.remove(), 300); n.classList.add('enter'); slot.append(n); requestAnimationFrame(() => requestAnimationFrame(() => n.classList.remove('enter'))); }
@@ -295,20 +388,35 @@ export function catchUp(list, start = 0) {
     tick(n);
     $('[data-t="sleep"] small', f).textContent = r.reasons.some(x => x.kind === 'q') ? 'drop the question' : 'close its tab';
     const rest = list.slice(k + 1).map(x => x.name);
-    $('.cu-foot', f).innerHTML = `Sleep closes its tab; the chat is kept and wakes from Asleep any time.<br>Swipe the card: ← sleep · → keep${rest.length ? `<br>Next: ${rest.map(esc).join(' · ')}` : '<br>Last one'}`;
+    $('.cu-foot', f).innerHTML = (home ? 'Continue sends it “continue”. ' : '') + `Sleep closes its tab; the chat is kept and wakes from Asleep any time.<br>Swipe the card: ← sleep · → keep${rest.length ? `<br>Next: ${rest.map(esc).join(' · ')}` : '<br>Last one'}`;
     $('.cu-sc', f).scrollTop = 0;
   };
-  const next = dir => { done.add(list[k].pane); busy = false; if (k + 1 >= list.length) { close(); toast('All caught up', 'ok', null, 1400); return; } k++; show(dir); };
+  const next = dir => { done.add(list[k].pane); if (home) { ACTED.set(list[k].sid, list[k].key); redraw(); } busy = false; if (k + 1 >= list.length) { close(); toast('All caught up', 'ok', null, 1400); return; } k++; show(dir); };
+  /** Home: Answer / Continue through POST /api/catchup/send (awake: the steer path, held on a draft or menu; asleep: resume). */
+  const send = async (kind, text) => {
+    const r = list[k];
+    const x = await post('catchup/send', { sid: r.sid, pane: r.pane, text, kind });
+    const held = x?.held ? ' · held for your draft there' : '';
+    toast(kind === 'continue' ? `${esc(r.name)} carries on${held}` : `Sent to ${esc(r.name)}${held}`, 'ok', null, 1600);
+  };
   const act = async (t, dir) => {
     if (busy) return; busy = true; haptic();
     const r = list[k];
-    if (t === 'keep') { try { await post('tidy/snooze', { pane: r.pane }); } catch (e) { toast(esc(e.message), 'err'); busy = false; return; } toast(`Kept ${esc(r.name)} till tomorrow`, 'ok', null, 1200); }
-    else if (!(await sleepNow([r], t === 'note'))) { busy = false; return; }
-    next(dir || (t === 'keep' ? 'r' : 'l'));
+    if (t === 'keep') {
+      try { await post(home ? 'catchup/keep' : 'tidy/snooze', { pane: r.pane }); } catch (e) { toast(esc(e.message), 'err'); busy = false; return; }
+      toast(home ? `Kept ${esc(r.name)} · back when it asks something new` : `Kept ${esc(r.name)} till tomorrow`, 'ok', null, 1400);
+    } else if (t === 'cont') {
+      try { await send('continue', 'continue'); } catch (e) { toast('Couldn’t send: ' + esc(e.message), 'err'); busy = false; return; }
+    } else if (!(await sleepNow([r], home ? noteOn() : t === 'note'))) { busy = false; return; }
+    next(dir || (t === 'sleep' || t === 'note' ? 'l' : 'r'));
   };
   const fix = async (kind, text) => {
     if (busy) return; busy = true; haptic();
     const r = list[k];
+    if (home) {
+      try { await send('answer', text); next('r'); } catch (e) { toast('Couldn’t send: ' + esc(e.message), 'err'); busy = false; }
+      return;
+    }
     try {
       const x = await post('tidy/fix', { pane: r.pane, kind, text, note: noteOn() });
       toast(x?.via === 'held' ? `Held for its draft · ${esc(r.name)} sleeps once it’s done` : `Sent · ${esc(r.name)} sleeps once it’s done`, 'ok', null, 1800);
@@ -371,9 +479,11 @@ export function drawJust(el, st) {
   const after = $('.tdy-card', el) || $('.frec', el) || $('.brief', el);
   if (after && box.previousElementSibling !== after) after.after(box);
   const n = list.length, waking = list.filter(a => WAKING.has(a.sid)).length;
+  if (list.some(a => !SAID.has(a.sid))) saidFor(list.map(a => a.sid)).then(() => { if (box.isConnected) drawJust(el, G.st); }, () => { });
+  const said = a => saidHTML(SAID.get(a.sid)?.said, { row: true });
   const html = `<div class="tj-h"><span class="tj-ic">${MOON}</span><div class="tj-tx"><b>Just put to sleep</b><small>${plural(n, 'agent')} · ${esc(clock(Math.min(...list.map(a => a.sleptAt))))} · chats kept</small></div><button class="tj-hide">Hide</button></div>`
     + `<div class="tj-list">${list.map(a => `<div class="tj-row${colCls(a.color)}" data-sid="${esc(a.sid)}">${favHTML(a, { sz: 34 })}`
-      + `<a class="tj-b" href="#/t/${enc(a.sid)}"><b class="nm">${esc(nameOf(a))}</b><small>${tabOf({ ...a, name: nameOf(a) }) ? `tab ${esc(a.tab)} · ` : ''}${esc(a.job || shortPath(a.cwd || ''))}</small></a>`
+      + `<a class="tj-b" href="#/t/${enc(a.sid)}"><b class="nm">${esc(nameOf(a))}</b><small>${tabOf({ ...a, name: nameOf(a) }) ? `tab ${esc(a.tab)} · ` : ''}${esc(a.job || shortPath(a.cwd || ''))}</small>${said(a)}</a>`
       + (WAKING.has(a.sid) ? '<button class="btn cont tj-wake" disabled><span class="spin"></span>Waking</button>' : `<button class="btn cont tj-wake" data-sid="${esc(a.sid)}">Wake</button>`) + '</div>').join('')}</div>`
     + (n - waking > 1 ? `<button class="btn tj-all">Wake all ${n - waking}</button>` : '')
     + '<p class="tj-why">Wake reopens it in its old workspace and tab, right where it left off. Nothing is sent to it.</p>';
@@ -422,4 +532,4 @@ export async function noteInto(w, sid) {
     const at = $('.wb', w); at ? at.before(n) : w.append(n);
   } catch { }
 }
-export const _test = { keepWhy, cardHTML, rowHTML, namesLine, justList, tabOf };
+export const _test = { keepWhy, cardHTML, rowHTML, namesLine, justList, tabOf, saidHTML, catchRows };

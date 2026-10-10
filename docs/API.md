@@ -1503,6 +1503,7 @@ Builds on Find and continue:
   the same deferred close (`by: "commit"`, the phone shows the undo toast via `GET /api/tidy/pending`); a question or a
   blocked prompt drops the commitment and the card comes back. Commitments expire after 3 h.
 - Haiku: ≤ 150 calls a day (questions + notes), only while the phone is in use or the user asks; `SHEPRD_TIDY_HAIKU=0` off.
+  The question call also writes the "Waiting on you for" line (`wait`); check rows carry `said` / `wait` (see "Catch up").
   Tests: `SHEPRD_FAKE_TIDY=1`, `SHEPRD_TIDY_IDLE_MS`.
 - Phone: Home card under Recent with ≥ 3 safe agents; review sheet; catch-up flow (full screen, swipe left = sleep,
   right = keep); undo toast; just-slept agents first in Asleep. Tests: `cargo test tidy::`.
@@ -1535,6 +1536,48 @@ Builds on Find and continue:
   name / tab label `master*`) and Tidy's deferred close (above). Quiet's "Close tests" now opens one sheet naming every
   test agent. Nothing in the server or web stops herdr, closes a workspace or kills a process (Running apps Stop and
   Tidy's Stop :port ask the owning agent; the Machine tab is read-only).
+
+## Catch up (`server/src/catchup.rs`, `web/cleanup.js` C3 + `cleanup.css`)
+The catch-up cards without going through Tidy: Home shows **"Catch up on N agents waiting on you"** whenever an awake
+agent's last message waits on the user, and opens the same full-screen flow, one agent at a time.
+
+- **Waiting on the user** = Tidy's per-turn question verdict (`tidy.json` `q`, one Haiku call per finished turn, keyed by
+  completionSeq + last ts; the heuristic until it answers). The same call now also returns `for` → `wait`, the one-line
+  **"Waiting on you for: …"** (a lowercase noun phrase, ≤ 70 chars): no extra calls, same ≤ 150/day cap. The warmer runs
+  every 20 s while the phone is in use and now also classifies settled turns (idle ≥ 1 min) under Tidy's idle threshold,
+  but only those the heuristic flags (a `?` near the end, "send me", "should I", …), so the cap goes to likely questions.
+  Left out: the home agent / never-sleep panes, working or blocked agents, a message held or queued for it, a pane going
+  to sleep or committed to sleep, and agents the user kept (below).
+- **One place for a question (Decide)**: an agent with a decision still waiting in the Decide deck (open, later, or
+  stale awaiting Clear / Keep; matched by the card's session, else its pane when the card has none) belongs to Decide
+  and is left out of Catch up until that decision closes (answered, cleared, withdrawn, superseded). Decide's card is
+  the structured form of the same question and answering it already reaches the agent, so it wins.
+- **"You said"** (the user's last prompt to that agent, `tidy::said_json` from the incremental transcript scan): the last
+  user message that is the user's: not another agent's (a `/steer` with `from`, a hand-written sender header, an agent-message
+  report; `transcript::user_msg`), not a server note (`[Decision: …]`, `[Send to Master …]`), not a slash command, not the phone's "continue". `{text ≤ 2000, ts, then: {from, text ≤ 300, ts}
+  | null}`; `then` = the last agent message after it: the phone shows **"Last from you: …"** and "then <agent> sent…".
+- `GET /api/catchup` → `{n, rows, decide, now}` (cached 4 s). Rows as Tidy's (`pane, sid, name, tab, color, cwd, home,
+  status, idleMs, last, full, ctx, reasons: [{kind: "q", text, fix: {kind: "answer", reply}}]`) plus `said`, `wait`,
+  `key` (the question key), `by` (haiku | guess); newest first. `decide` = `[{sid, pane, name, id}]` left to Decide.
+  Tidy's `check` rows carry `said` and `wait` too.
+- `GET /api/catchup/said?sids=a,b` (≤ 20) → `{said: {sid: said | null}, wait: {sid: line | null}}`: for asleep agents
+  (the asleep chat's wake card, "Just put to sleep" rows); `wait` only while the cached verdict is for its last text.
+- `POST /api/catchup/send {sid, pane?, text, kind: answer | continue}` → `{ok, via: steer | held:draft | held:menu |
+  resume, held, pane}`: awake (the pane its session runs in now) → the steer path (`modbridge::steer`: typed in when idle,
+  inbox while working, **held while the user has a draft or a menu there**); asleep → the duplicate-safe resume
+  (`fleet::resume_from`, never a second Claude) with that text. No commitment to sleep (that stays Tidy's). Answers are
+  recorded in My asks.
+- `POST /api/catchup/keep {pane}`: left out until its question key changes (it asks something new).
+- Every send and keep → `tidy-log.jsonl` `{"ev": "catchup", kind, sid, pane, via, status, src}` (a resume also logs `wake`).
+- Phone: the entry is one row right under the Decide card (else under the briefing), above the hero: "Catch up on 3
+  agents waiting on you", then small faces + "<first agent>: <what it waits for>". The flow ("Catch up", "1 of 3
+  waiting on you"): header, context bar, **Waiting on you for**, **You said** (3 lines, tap to expand), It asked you,
+  the suggested reply chip + composer ("Answer…", sent as the user's message, it stays awake), tiles **Continue** ("continue")
+  · **Sleep** (Tidy's deferred close with the 8 s undo toast and the note pref, explained in the footer) · **Keep**;
+  swipe left = sleep, right = keep. Tidy's own catch-up cards and the asleep wake card / Just put to sleep rows show the
+  same You said / Waiting on you for.
+- Tests: `cargo test catchup:: tidy::`, web-dev/t-catchup.mjs (mocks `MOCK_FIND=1 MOCK_TIDY=1 MOCK_CALM=1`, and with
+  `MOCK_DECIDE=1` for the dedupe), web-dev/t-catchup-real.mjs (real binary, private port, temp HOME, fake herdr).
 
 ## Branch from here (`server/src/branch.rs`, `web/sheets.js` branchSheet)
 

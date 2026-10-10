@@ -439,6 +439,7 @@ export function draw(el, st, o) {
   const html = fitBrief(brief, b => briefHTML(st, items, tiles, ready, o.failing || [], b));
   if (patchHTML(brief, `${kick}<h1 class="bl">${html}</h1>`)) tick(brief);
   if (st?.decisions?.open || $('.dwrap', el)) lazy('decide').then(m => m.homeCard(el, G.st), () => { }); // decide.js: "N to decide" under the briefing
+  lazy('cleanup').then(m => m.drawCatch(el, G.st), () => { }); // cleanup.js: "Catch up on N agents waiting on you" under Decide
   drawHero(heroBox, items, tiles.length);
   drawApps(el, o.jobs || [], byPane);
   return { hero: items[0]?.pane || null, tiles: new Set() };

@@ -763,17 +763,17 @@ mod tests {
     #[test]
     fn names_and_listing() {
         let mut s = sess("a");
-        s.ai = Some("Repo investigation: sysid bench, Darth Vader".into());
+        s.ai = Some("Repo investigation: bench harness, flaky tests".into());
         s.first = Some("look at the repo".into());
-        let mut i = Info { nick: Some("Sysid Bench".into()), ..Default::default() };
-        assert_eq!(asleep_name(Some(&i), &s), "Sysid Bench");
+        let mut i = Info { nick: Some("Perf Bench".into()), ..Default::default() };
+        assert_eq!(asleep_name(Some(&i), &s), "Perf Bench");
         s.custom = Some("Robot Bench".into());
         assert_eq!(asleep_name(Some(&i), &s), "Robot Bench");
         i.name = Some("Bench".into());
         assert_eq!(asleep_name(Some(&i), &s), "Bench");
         assert_eq!(asleep_name(None, &sess("b")), "Untitled");
         // a live agent's short name only stands in for a non-custom title
-        assert_eq!(live_short(Some(&i), Some(&sess("c")), "Long ai title", false), Some("Sysid Bench".into()));
+        assert_eq!(live_short(Some(&i), Some(&sess("c")), "Long ai title", false), Some("Perf Bench".into()));
         assert_eq!(live_short(Some(&i), Some(&s), "Robot Bench", false), None);
         assert_eq!(live_short(Some(&i), Some(&sess("c")), "Long ai title", true), None);
         let now = now_ms();

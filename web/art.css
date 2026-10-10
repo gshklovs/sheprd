@@ -1,19 +1,19 @@
 /* art.js: artifact cards in chats, chips on agent cards / tray / switcher, fullscreen preview */
-.artc { margin: 8px 0; background: var(--bg2); box-shadow: var(--card-sh); border-radius: 14px; overflow: hidden; }
+.artc { margin: 8px 0; background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); overflow: hidden; }
 .artc:empty, .surf:empty { display: none; } /* never an empty box (art.js not loaded yet / failed) */
 .ac-pv { position: relative; height: 210px; overflow: hidden; background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 16%, var(--bg3)), var(--bg3)); border-bottom: .5px solid var(--sep); cursor: pointer; }
 .ac-pv iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #fff; opacity: 0; transition: opacity .2s; }
 .ac-pv.live iframe { opacity: 1; }
 .ac-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0 18px; text-align: center; }
 .ac-ph span { font-size: 34px; line-height: 1; }
-.ac-ph b { font-size: 15px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ac-ph small { color: var(--fg2); font-size: 12px; }
+.ac-ph b { font: 600 16.5px/1.2 var(--f-mid); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-ph small { font: 500 13.5px/1.25 var(--f-mid); color: var(--fg2); }
 .ac-pv.live .ac-ph { visibility: hidden; }
 .ac-pv.gone { cursor: default; }
 .ac-meta { display: flex; align-items: center; gap: 10px; padding: 10px 12px 4px; min-width: 0; }
 .ac-ico { font-size: 22px; line-height: 1; flex: none; width: 34px; height: 34px; border-radius: 9px; background: var(--bg3); display: flex; align-items: center; justify-content: center; }
 .ac-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.ac-tx b { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-tx b { font: 600 16.5px/1.2 var(--f-mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac-tx small { color: var(--fg2); font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ac-v { flex: none; font-size: 11px; font-weight: 600; color: var(--fg2); background: var(--bg3); border-radius: 6px; padding: 2px 6px; font-variant-numeric: tabular-nums; }
 .ac-act { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 12px 12px; }

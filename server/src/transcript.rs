@@ -1277,6 +1277,29 @@ fn loose_sender(t: &str) -> Option<(Option<String>, String, String)> {
     (!body.trim().is_empty()).then(|| (pane, name, body.trim().to_string()))
 }
 
+/// Who wrote a user line's text (catch-up's "You said", tidy.rs): `None` = not a message (a command, its output, a
+/// task notification, a prompt a plugin submitted), `Some((Some(agent), body))` = another agent sent it (a `/steer`
+/// with `from`, a hand-written sender header, an agent-message report, another agent's report), `Some((None,
+/// text))` = typed by the user (or sent from their phone).
+pub fn user_msg(s: &str) -> Option<(Option<String>, String)> {
+    let t = s.trim_start();
+    if let Some((from, body)) = agent_report(t) {
+        return Some((Some(from), body));
+    }
+    let text = strip_reminders(s);
+    if text.is_empty() || (text.starts_with('<') && !text.starts_with("<pasted_content")) {
+        return None;
+    }
+    let text = unwrap_pasted(&text).unwrap_or(text);
+    if unwrap_plugin(&text).is_some() {
+        return None;
+    }
+    Some(match steer_from(&text) {
+        Some((_, name, body)) => (Some(name), body),
+        None => (None, text),
+    })
+}
+
 /// "The <name> plugin sent a message:\n<text>\n\nThis is how Claude Code surfaces a prompt a plugin submits…" → text.
 fn unwrap_plugin(t: &str) -> Option<String> {
     let (first, rest) = t.trim_start().split_once('\n')?;

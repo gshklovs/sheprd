@@ -144,7 +144,7 @@ function draw(view) {
       + `<form class="wform" hidden><textarea rows="2" placeholder="Message ${esc(nm)}" enterkeyhint="send"></textarea><button class="btn primary">Send</button></form>`
       + '<div class="wn">Continue wakes it right here with its whole history. It reads the last message and carries on.</div></div>');
     el.insertBefore(w, $('.composer', el));
-    tidy().then(m => m.noteInto(w, a.sid), () => { }); // its handoff note, when it was put to sleep with one
+    tidy().then(m => { m.saidInto(w, a.sid); m.noteInto(w, a.sid); }, () => { }); // what the user last said to it and what it waits on; its handoff note
     $('.wgo', w).onclick = e => continueAgent(a.sid, { btn: e.currentTarget, name: nm });
     const f = $('.wform', w), ta = $('textarea', f);
     $('.wmsg', w).onclick = () => { f.hidden = false; $('.wb', w).hidden = true; $('.wn', w).textContent = 'Sending wakes it with your message, right here with its whole history.'; ta.focus(); };

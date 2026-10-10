@@ -8,6 +8,7 @@ mod alerts;
 mod apps;
 mod asks;
 mod branch;
+mod catchup;
 mod artifacts;
 mod chips;
 mod cli;
@@ -342,6 +343,7 @@ async fn main() {
         .merge(launcher::routes())
         .merge(slash::routes())
         .merge(tidy::routes())
+        .merge(catchup::routes())
         .fallback(get(static_file))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         // never gzip media: it is already compressed, and a gzipped 200 drops Accept-Ranges (ranged.rs)

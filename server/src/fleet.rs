@@ -465,6 +465,12 @@ pub async fn resume_with(app: Shared, sid: String, text: String) -> Response {
     api_resume(State(app), AxPath(sid), axum::http::HeaderMap::new(), Some(Json(ResumeBody { ws: None, text: Some(text), wake: false }))).await
 }
 
+/// The same resume for a phone request made elsewhere (catch-up's Continue / Answer on an asleep agent): its headers
+/// say who asked in tidy-log.jsonl.
+pub async fn resume_from(app: Shared, sid: String, text: String, h: axum::http::HeaderMap) -> Response {
+    api_resume(State(app), AxPath(sid), h, Some(Json(ResumeBody { ws: None, text: Some(text), wake: false }))).await
+}
+
 async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, h: axum::http::HeaderMap, body: Option<Json<ResumeBody>>) -> Response {
     let src = crate::tidy::origin(&h, "POST /api/sessions/:sid/resume");
     if !crate::valid_sid(&sid) {

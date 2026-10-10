@@ -1,12 +1,12 @@
 /* git.js: branch view, git diff, CI card, usage rings */
 .gitv h3 { margin: 18px 2px 4px; font-size: 13px; font-weight: 600; color: var(--fg2); text-transform: none; }
-.g-card { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.g-card { background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); padding: 10px 12px; margin-bottom: 10px; }
 .g-card code, .g-vs code { font: 12px var(--mono); color: var(--fg); }
 .g-br { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .g-br svg { width: 16px; height: 16px; flex: none; }
 .g-br b { font: 600 15px var(--mono); overflow-wrap: anywhere; }
-.g-tag { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--bg3); color: var(--fg2); }
-.g-vs { margin-top: 4px; font-size: 13px; color: var(--fg2); }
+.g-tag { font: 600 12.5px/1.2 var(--f-mid); padding: 1px 7px; border-radius: 99px; background: var(--bg3); color: var(--fg2); }
+.g-vs { font: 500 14px/1.25 var(--f-mid); margin-top: 4px; color: var(--fg2); }
 .g-acts { display: flex; gap: 8px; margin: 0 0 12px; }
 .g-acts .btn { flex: 1; justify-content: center; }
 .g-acts .btn[disabled] { opacity: .4; }
@@ -15,7 +15,7 @@
 .g-bin { font: 11px var(--mono); color: var(--fg3); }
 .g-st { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font: 700 11px var(--mono); background: var(--bg3); color: var(--fg2); }
 .g-st-A, .g-st-U { color: var(--done); } .g-st-D { color: var(--red); } .g-st-M { color: var(--work); }
-.g-commits { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; overflow: hidden; }
+.g-commits { background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); overflow: hidden; }
 .g-cm { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font-size: 14px; }
 .g-cm + .g-cm { border-top: .5px solid var(--sep); }
 .g-cm code { font: 12px var(--mono); color: var(--fg2); flex: none; }
@@ -24,14 +24,14 @@
 .g-ci-h a { color: var(--fg); display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .g-ci-h a svg { width: 13px; height: 13px; }
 .g-ci-h { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
-.g-ci-s { font-size: 13px; color: var(--fg2); margin-top: 3px; display: flex; gap: 6px; }
+.g-ci-s { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); margin-top: 3px; display: flex; gap: 6px; }
 .g-ci-fail .g-ci-s { color: var(--red); }
 .g-ci-pass .g-ci-s { color: var(--done); }
 .g-ci-pending .g-ci-s { color: var(--warn); }
 .g-chks { margin-top: 8px; display: flex; flex-direction: column; }
 .g-chk { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; color: var(--fg); font-size: 14px; }
 .g-chk i { font-style: normal; width: 14px; text-align: center; font-weight: 700; }
-.g-chk small { color: var(--fg3); font-size: 12px; margin-left: auto; }
+.g-chk small { font: 500 13px/1.25 var(--f-mid); color: var(--fg3); margin-left: auto; }
 .g-fail i { color: var(--red); } .g-pass i { color: var(--done); } .g-pending i { color: var(--warn); }
 .g-conn b { display: block; margin-bottom: 3px; }
 .gitv .group { margin-bottom: 10px; }
@@ -48,20 +48,21 @@
 .seg.usage { gap: 4px; padding: 0 8px 0 5px; color: var(--fg2); }
 .seg.usage.mid { color: var(--warn); } .seg.usage.hi { color: var(--red); }
 .u-lims { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 4px; }
-.u-lim { display: flex; gap: 12px; align-items: center; background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 10px 12px; }
+.u-lim { display: flex; gap: 12px; align-items: center; background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); padding: 10px 12px; }
 .u-lim b { margin-right: 8px; }
 .u-pct { font-weight: 700; } .u-pct.mid { color: var(--warn); } .u-pct.hi { color: var(--red); }
 .u-days { display: flex; align-items: flex-end; gap: 4px; height: 90px; padding: 6px 2px 0; }
 .u-day { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; }
 .u-day i { width: 100%; max-width: 22px; background: var(--work); border-radius: 4px 4px 1px 1px; opacity: .85; }
-.u-day small { font-size: 10px; color: var(--fg3); }
+.u-day small { font: 500 11.5px/1.25 var(--f-mid); color: var(--fg3); }
 .u-set { display: inline-flex; align-items: center; gap: 8px; color: var(--fg) !important; }
-.u-row b, .u-row small { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+.u-row b, .u-row small { font-family: var(--f-mid); }
+.u-lim { font-family: var(--f-mid); } .u-lim b { font-size: 17px; font-weight: 600; } .u-lim .small { font-size: 14px; } .u-lim .u-pct { font-weight: 600; font-size: 17px; }
 .u-row .fm { font-weight: 600; color: var(--fg); }
 /* overview sheet (overviewSheet): this chat, plan, today, agents' context */
-.ov-chat { background: var(--bg2); box-shadow: var(--card-sh); border-radius: 12px; padding: 12px 12px 10px; margin: 6px 0 4px; }
+.ov-chat { background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); padding: 12px 12px 10px; margin: 6px 0 4px; }
 .ov-chat .cxr { margin: 0; }
-.ov-hint { margin-top: 6px; font-size: 13px; color: var(--fg2); } .ov-hint.mid { color: var(--warn); } .ov-hint.hi { color: var(--red); }
+.ov-hint { font: 500 14px/1.25 var(--f-mid); margin-top: 6px; color: var(--fg2); } .ov-hint.mid { color: var(--warn); } .ov-hint.hi { color: var(--red); }
 .ov-cx { margin-top: 10px; } .ov-cx summary { list-style: none; display: inline-flex; } .ov-cx summary::-webkit-details-marker { display: none; }
 .ov-cx[open] summary { display: none; } .ov-cx textarea { width: 100%; margin: 0 0 8px; }
 .ov-ag { gap: 10px; } .ov-ag .ctxg { flex: none; }
