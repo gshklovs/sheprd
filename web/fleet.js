@@ -26,10 +26,10 @@ const isoMs = s => s ? Date.parse(s) || 0 : 0;
 
 // ---------- router ----------
 const TABS = [['', 'Sessions'], ['asks', 'Asks'], ['sched', 'Schedules'], ['cloud', 'Cloud'], ['desk', 'Screen']];
-// segments per tab-bar tab (app.js tabBar): History · Automations · Machine; "#…" entries live outside fleet.js
-const SEGS = { '': [['', 'Sessions'], ['asks', 'Asks'], ['#/search', 'Search']], sched: [['sched', 'Schedules'], ['cloud', 'Cloud']],
+// segments per tab-bar tab (app.js tabBar): History (Automations folded in, 2026-10-10) · Machine; "#…" entries live outside fleet.js
+const SEGS = { '': [['', 'Sessions'], ['asks', 'Asks'], ['sched', 'Schedules'], ['cloud', 'Cloud'], ['#/search', 'Search']],
   desk: [['#/r', 'Live'], ['#/r/disk', 'Disk'], ['desk', 'Screen'], ['#usage', 'Usage']] };
-SEGS.cloud = SEGS.sched;
+SEGS.sched = SEGS.cloud = SEGS[''];
 SEGS.asks = SEGS[''];
 const VIEWS = {};
 export function route(hs) {

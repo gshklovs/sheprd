@@ -22,6 +22,7 @@ mod gpu;
 mod herdr;
 mod inputbox;
 mod keep;
+mod launcher;
 mod live;
 mod modbridge;
 mod newagent;
@@ -333,6 +334,7 @@ async fn main() {
         .merge(send::routes())
         .merge(asks::routes())
         .merge(repos::routes())
+        .merge(launcher::routes())
         .merge(slash::routes())
         .merge(tidy::routes())
         .fallback(get(static_file))

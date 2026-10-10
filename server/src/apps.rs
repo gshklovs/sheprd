@@ -322,6 +322,12 @@ pub fn remember(jobs: &[Value]) {
     }
 }
 
+/// The running app jobs the phone last saw (`/api/jobs`), each with its `app {port, …}`: the launcher (launcher.rs)
+/// links a registered app to the server behind it by port.
+pub fn running() -> Vec<Value> {
+    SEEN.lock().unwrap().values().cloned().collect()
+}
+
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 struct AboutStore {

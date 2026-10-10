@@ -1349,18 +1349,20 @@ function getAgentsView() {
   };
 }
 
-// ---------- Tab bar: Agents · History · Automations · Machine · Repos (docs/simplify.md C6, C8, C9) ----------
-// One bar, moved into whichever tab screen is showing. History = Sessions + Search; Automations = Schedules (with
-// system timers and all watches) + Cloud; Machine = Live, Disk, desktop Screen and Claude usage. Each tab reopens its
+// ---------- Tab bar: Agents · History · Machine · Repos · Apps (docs/simplify.md C6, C8, C9) ----------
+// One bar, moved into whichever tab screen is showing. History = Sessions, Asks, Schedules (with system timers and all
+// watches), Cloud and Search (Automations folded in when Apps came); Home's Scheduled strip still opens #/fleet/sched.
+// Machine = Live, Disk, desktop Screen and Claude usage. Each tab reopens its
 // last screen; tapping the current tab goes to its first screen (Agents: scroll to top). res.js puts a dot on
 // Machine for warn/alert only (a busy GPU during training is normal).
 const TABS = [
   ['agents', 'Agents', '#/agents', k => k === 'agents', '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>'],
-  ['history', 'History', '#/fleet', k => k === 'fleet/' || k === 'fleet/asks' || k === 'search', '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4M12 8v4l3 2"/></svg>'],
-  ['auto', 'Automations', '#/fleet/sched', k => k === 'fleet/sched' || k === 'fleet/cloud', '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>'],
+  ['history', 'History', '#/fleet', k => k === 'fleet/' || k === 'fleet/asks' || k === 'fleet/sched' || k === 'fleet/cloud' || k === 'search', '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4M12 8v4l3 2"/></svg>'],
   ['machine', 'Machine', '#/r', k => k === 'r' || k.startsWith('r/disk') || k === 'fleet/desk', '<svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/></svg>'],
   // Repos (repos.js): repos being worked on, GitHub / Vercel links, Deploy to Vercel
   ['repos', 'Repos', '#/repos', k => k === 'repos', '<svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-11 7"/></svg>'],
+  // Apps (apps-tab.js): your self-hosted apps, a grid of the apps' own thumbnails (launcher.rs registry)
+  ['apps', 'Apps', '#/apps', k => k === 'apps', '<svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><circle cx="9" cy="9" r=".9"/><circle cx="15" cy="9" r=".9"/><circle cx="9" cy="15" r=".9"/><circle cx="15" cy="15" r=".9"/></svg>'],
 ];
 let tabEl = null;
 const tabLast = {};
@@ -3015,8 +3017,8 @@ class DocView {
 
 // ---------- router ----------
 const cache = new Map(); // warm chat views, LRU (max 4)
-// tab screens (Agents · History · Automations · Machine) are siblings: switching tabs doesn't slide
-const TAB_KEYS = k => k === 'agents' || k === 'search' || k === 'r' || k === 'r/disk' || k.startsWith('fleet/') || k === 'repos';
+// tab screens (Agents · History · Machine · Repos · Apps) are siblings: switching tabs doesn't slide
+const TAB_KEYS = k => k === 'agents' || k === 'search' || k === 'r' || k === 'r/disk' || k.startsWith('fleet/') || k === 'repos' || k === 'apps';
 const depth = k => k === '/' || k.startsWith('home') ? 0 : TAB_KEYS(k) ? 1 : k.startsWith('r/disk?') ? 3 : k[0] === 't' || k[0] === 'f' || k[0] === 'd' ? 3 : 2;
 // lazily loaded feature modules (search, files, sheets): import once, then re-route
 const MODS = {};
@@ -3064,6 +3066,10 @@ function route() {
   else if (/^\/repos(\?|$)/.test(hs)) { // Repos tab (repos.js)
     if (!MODS.repos) { lazy('repos').then(() => { G.route = null; route(); }, e => toast('Load failed: ' + esc(e.message), 'err')); return; }
     ({ key, make, focus: rfocus } = MODS.repos.route(hs));
+  }
+  else if (/^\/apps(\?|$)/.test(hs)) { // Apps tab (apps-tab.js)
+    if (!MODS['apps-tab']) { lazy('apps-tab').then(() => { G.route = null; route(); }, e => toast('Load failed: ' + esc(e.message), 'err')); return; }
+    ({ key, make } = MODS['apps-tab'].route(hs));
   }
   else if (hs.startsWith('/f?')) { const p = new URLSearchParams(hs.slice(3)).get('path') || '/'; key = 'f' + p; make = () => new DocView(p); }
   else if (/^\/gd?\//.test(hs)) { // branch vs main, git diffs (git.js)

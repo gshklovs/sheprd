@@ -1532,3 +1532,51 @@ Limits: the branch has no file-history (Claude's rewind / checkpoints of the par
 a message in the middle of a tool-using turn keeps only the text (tool calls after it, and their results, stay in
 the parent); a message from before a `/compact` branches from the full pre-compact chain as Claude stored it.
 Tests: `cargo test branch`.
+
+## Apps (launcher) (`server/src/launcher.rs`, `web/apps-tab.js` + `apps-tab.css`, the Apps tab `#/apps`)
+Your self-hosted apps as a 2-column grid: each tile = the app's own thumbnail (4:3, object-fit: cover), its name with
+a health dot and a one-line description; tap opens the app. **Not** the "Running apps" of `apps.rs` / `POST /api/apps/about`
+(servers agents start as background jobs, shown on Home); a registered app on this machine whose port is one of those
+running servers is linked to it (`running`: "Served by <agent>" in its sheet). State `<state>/launcher.json`, thumbnails
+`<state>/launcher/<id>-<hash>.<ext>`.
+- **Register / update** (upsert by `id`): `POST /api/launcher`, `Content-Type: application/json`, either the fields
+  `{id, name, description?, url, thumbnail?, accent?, background?}` or `{"manifest": "<url of the app's app.json>"}`
+  (the server GETs it, same shape; fields in the body win over it; it is re-pulled hourly while the tab is looked at,
+  and on `POST /api/launcher/<id>/refresh`). Aliases: `desc`, `thumb`, `bg`, `title`. One-liner:
+  ```
+  curl -s -X POST 127.0.0.1:7878/api/launcher -H 'content-type: application/json' -d '{"manifest":"http://100.64.0.7:3000/app.json"}'
+  ```
+  → `{ok, created, app: <view>, warnings: [..]}` (e.g. a thumbnail that isn't 4:3, no thumbnail, a thumbnail fetch error:
+  the app is still registered and keeps its old picture). Errors: 400 (validation, the message names the field), 502
+  (manifest unreachable / not JSON), 415 (not JSON), 403 (guard), 507 (more than 48 apps).
+- Validation (everything is untrusted): `id` 1–48 of `a-z 0-9 - _` (lowercased); `name` ≤ 40 and `description` ≤ 160
+  characters, one line (control / bidi characters and runs of whitespace → one space), stored as text and escaped by the
+  web; `url`, `manifest`, `thumbnail`: `http://` or `https://` only, ≤ 512 characters, no `user:pw@`, no quotes/brackets/
+  spaces; `accent` / `background`: `#rgb` / `#rrggbb` (the tile's colour while there is no picture). `thumbnail` may
+  also be `data:image/…;base64,…`.
+- Thumbnails: fetched by the server with curl (http/https only, redirects too, ≤ 3 MB, 6 s), kept only when the bytes
+  are PNG, JPEG, WebP or GIF (magic bytes; SVG and HTML are refused), served same-origin at
+  `GET /api/launcher/<id>/thumb?v=<hash>` (`Content-Type` from the bytes, nosniff, `CSP: default-src 'none'; sandbox`,
+  immutable), so the https PWA never loads an http tailnet URL. Design them 800×600 PNG.
+- `GET /api/launcher` → `{apps: [<view>], checking, register: "<the one-liner>"}`, registration order. `<view>` =
+  `{id, name, description, url, open, https, reach, port, thumb, thumbSize: [w,h], thumbnail, manifest, accent,
+  background, added, updated, pulled, pullError, thumbError, health: {state: up|down|error, code, ms, at, error?}|null,
+  running: {pane, agentTitle, job, port, desc}|null}`. `GET /api/launcher/<id>` = one view.
+  - `open` = what the tile opens: `https` when the URL is plain http on this machine (tailnet IP, 127.0.0.1, localhost)
+    and a `tailscale serve` web handler at `/` proxies that port (`tailscale serve status --json`, cached 60 s): never an
+    invented URL; else `url` (http on a tailnet IP opens in Safari). `reach`: `https` | `tailnet` | `local` (only this
+    computer: the sheet says the phone can't open it) | `web`.
+  - Health: a server-side GET of `url` (3 s, any HTTP answer < 500 = `up`, 5xx = `error`, no answer = `down`), only when
+    the list is asked for and the last check is over 20 s old (`checking: true` while they run; the tab polls ≤ 6 times).
+    Also checked once at registration.
+- `DELETE /api/launcher/<id>` → `{ok, deleted}` (its thumbnail file goes too); `POST /api/launcher/<id>/refresh` →
+  same answer as register.
+- Who may write (POST/DELETE): the `/api/send` guard (share.rs `check_sender`): Host one of ours (no DNS rebinding),
+  not over Funnel, `Sec-Fetch-Site` absent / same-origin / none, and an Origin, when sent, must be ours. curl from an
+  agent on this machine passes; a web page elsewhere can't (browsers always send Origin cross-site).
+- Web: tap = open (`target=_blank`); long-press = sheet (thumbnail, description, health, URL, "opens in Safari" /
+  "only this computer", Served by <agent> ›, Open · Copy link · Copy its own URL (when `open` is the https form) ·
+  Refresh from app.json · Remove (second tap confirms)); `+` and the empty state show the one-liner with Copy.
+- Tab bar: Agents · History · Machine · Repos · Apps. Automations folded into History (segments Sessions · Asks ·
+  Schedules · Cloud · Search; `#/fleet/sched` and `#/fleet/cloud` light History).
+- Tests: `cargo test launcher`.

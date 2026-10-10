@@ -1,0 +1,45 @@
+/* Apps tab (apps-tab.js): a 2-column grid of app tiles, each the app's own 4:3 thumbnail + name (health dot) + one line.
+   Cards like every other card: no outline, light mode lifts with --card-sh, dark by surface colour. */
+.appsv .apsc { padding: 12px calc(16px + var(--sar)) 16px calc(16px + var(--sal)); }
+.appsv .rf.busy svg { animation: spin .8s linear infinite; }
+.ap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ap-tile { display: flex; flex-direction: column; min-width: 0; background: var(--bg2); border-radius: 14px; overflow: hidden; box-shadow: var(--card-sh);
+  color: var(--fg); -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; transition: transform .12s ease; }
+.ap-tile:active { transform: scale(.97); }
+.ap-th { position: relative; display: block; aspect-ratio: 4 / 3; background: var(--ap-bg, var(--bg3)); overflow: hidden; }
+.ap-th img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; }
+.ap-th::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 -.5px 0 var(--sep); pointer-events: none; }
+.ap-mono { position: absolute; inset: 0; display: grid; place-items: center; font: 700 44px/1 -apple-system, system-ui, sans-serif; color: var(--ap-ac, var(--fg2)); }
+.ap-nm { display: flex; align-items: center; gap: 6px; padding: 9px 11px 0; min-width: 0; }
+.ap-nm b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ap-ds { display: block; padding: 1px 11px 10px; font-size: 13px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* health: green = answers, red = refused / timed out / 5xx, hollow grey = being checked */
+.ap-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg3); display: inline-block; }
+.ap-dot.up { background: var(--done); }
+.ap-dot.bad { background: var(--red); }
+.ap-dot.wait { background: none; box-shadow: inset 0 0 0 1.5px var(--fg3); }
+/* empty state + add sheet */
+.ap-empty { padding: 28px 6px 10px; text-align: center; }
+.ap-empty h3 { margin: 10px 0 6px; font-size: 20px; font-weight: 700; }
+.ap-eic svg { width: 46px; height: 46px; stroke: var(--fg3); stroke-width: 1.5; }
+.ap-hint { color: var(--fg2); font-size: 14.5px; line-height: 1.45; margin: 0 0 12px; text-align: left; }
+.ap-hint.small { font-size: 13px; margin-top: 12px; }
+.ap-hint code, .ap-cmd { font-family: var(--mono); font-size: 12.5px; }
+.ap-hint code { background: var(--bg3); padding: 1px 4px; border-radius: 5px; color: var(--fg); }
+.ap-cmd { text-align: left; background: var(--code); color: var(--fg); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; white-space: pre-wrap; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.ap-empty .ap-cp, .apsh .ap-cp { display: block; width: 100%; }
+/* the long-press sheet */
+.aps-top { display: flex; align-items: center; gap: 12px; padding: 6px 2px 12px; }
+.ap-th.sm { width: 96px; flex: none; border-radius: 10px; }
+.aps-top .tb { min-width: 0; flex: 1; }
+.aps-top .tb b { display: block; font-size: 19px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aps-top .tb span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; color: var(--fg2); margin-top: 2px; }
+.aps-meta { font-size: 13.5px; color: var(--fg2); margin: 0 2px 14px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.aps-meta > div { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.aps-meta .mono { font-family: var(--mono); font-size: 12.5px; }
+.aps-meta .bad { color: var(--red); }
+.aps-run { text-align: left; color: var(--accent); font-size: 13.5px; padding: 6px 0; min-height: 32px; }
+.apsh .act { display: flex; align-items: center; gap: 12px; }
+.apsh .act svg { width: 20px; height: 20px; flex: none; }
+.apsh .act.arm { font-weight: 600; }
+.apsh .act .spin { margin-right: 4px; }
