@@ -169,13 +169,13 @@ class DeckView {
     const optHTML = P || strip
       ? `<div class="dk-opts">${(P ? opts : r.images.map((s, k) => ({ id: null, label: '', images: [s], k }))).map((o, k) => `
           <div class="dk-opt${o.id ? '' : ' pic'}" ${o.id ? `data-o="${esc(o.id)}"` : `data-pic="${k}"`}>
-            <div class="img">${o.images?.length ? `<img alt="" loading="lazy" src="${esc(o.images[0])}">` : ''}${(P ? o.images?.length > 1 : true) ? `<span class="pg" data-pg="${k}">${P ? `1 of ${o.images.length}` : `${k + 1} of ${r.images.length}`}</span>` : ''}</div>
+            <div class="img">${o.images?.length ? `<img alt="" loading="lazy" src="${esc(o.images[0])}">` : ''}${o.images?.length ? `<span class="pg" data-pg="${k}">${P ? (o.images.length > 1 ? `1 of ${o.images.length}` : 'View') : `${k + 1} of ${r.images.length}`} ⤢</span>` : ''}</div>
             ${o.id ? `<div class="lab"><span class="rk"></span><div><b>${esc(o.label)}</b>${o.sub ? `<i>${esc(o.sub)}</i>` : ''}</div></div>` : ''}
           </div>`).join('')}</div>
          <div class="dk-dots">${(P ? opts : r.images).map((_, k) => `<i class="${k ? '' : 'on'}"></i>`).join('')}</div>`
       : '';
     const words = !P ? opts.map(o => `<button class="bigopt" data-o="${esc(o.id)}"><div>${esc(o.label)}${o.sub ? `<small>${esc(o.sub)}</small>` : ''}</div>${d.kind === 'rank' || d.kind === 'multi' ? '<span class="rk"></span>' : ''}</button>`).join('') : '';
-    const hint = d.kind === 'rank' ? 'Tap in the order you want them.' : d.kind === 'multi' ? 'Tap every one that applies.' : P ? 'Tap the one you want.' : '';
+    const hint = d.kind === 'rank' ? `Tap ${P ? 'the names ' : ''}in the order you want them.` : d.kind === 'multi' ? `Tap every one that applies${P ? ' by its name' : ''}.` : P ? 'Tap a picture to see it full screen, its name to pick it.' : '';
     this.body.innerHTML = `
       <div class="dk-who">${avHTML(w)}<span>${nameHTML(w)} · ${esc(rel(r.ts))} · ${this.i + 1} of ${n}</span></div>
       <div class="dk-q">${esc(plain(r.title))}</div>
@@ -207,6 +207,9 @@ class DeckView {
       lightbox(P ? list[0] : list[k], list); return;
     }
     const pic = e.target.closest('[data-pic]'); if (pic && r) { lightbox(r.images[+pic.dataset.pic], r.images); return; }
+    // a picture option: the picture opens full screen; its name row below picks it
+    const im = e.target.closest('.dk-opt[data-o] .img');
+    if (im && r) { const o = r.decision.options.find(x => x.id === im.parentElement.dataset.o); if (o?.images?.length) { lightbox(o.images[0], o.images); return; } }
     const b = e.target.closest('[data-o]');
     if (b && r) return this.pick(b.dataset.o);
     const s = e.target.closest('[data-st]'); if (s) return this.staleAct(s.dataset.id, s.dataset.st);
