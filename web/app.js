@@ -603,7 +603,7 @@ function surfaceToast(s) {
   if (G.st && !G.st.surfaces?.some(x => x.id === s.id)) { G.st.surfaces = [s, ...(G.st.surfaces || [])]; G.view?.onState?.(G.st); }
   const k = surfKey(s);
   toast(`<b>${esc(s.title)}</b>${s.agentTitle ? `<span>${esc(whoName(s.agentTitle, s.pane))}</span>` : ''}${s.images?.length ? thumbs(s.images.map(asImg)) : ''}${s.replies?.length && !REPLIED[k] && !REPLIED['s:' + s.id] ? `<div class="sf-rep" data-sfkey="${esc(k)}" data-id="${esc(s.id)}" data-pane="${esc(s.pane || '')}">${s.replies.map(r => `<button class="btn sm${DONE_REP.test(r.trim()) ? ' did' : ''}" data-reply="${esc(r)}">${esc(repLabel(r))}</button>`).join('')}</div>` : ''}`,
-    'l-' + s.level, () => openSurface(s), s.replies?.length ? 9000 : 5000);
+    'l-' + s.level, () => isDecision(s) ? nav('#/decide/' + enc(s.id)) : openSurface(s), s.replies?.length ? 9000 : 5000);
 }
 
 // ---------- messages other agents sent with /steer {from} (transcript kind "steer") ----------
@@ -642,6 +642,10 @@ async function flushDismiss() {
 }
 const REPLIED = ls.get('replied', {});
 const surfKey = s => s.tid && s.i != null ? `t:${s.tid}:${s.i}` : 's:' + s.id;
+// A card that is a decision (decide.rs decision_of): its own `decision`, or a legacy attention card with reply chips.
+// While open it lives only in the Decide card / deck: not in "You should see this", never the hero; its push and
+// toast open #/decide/<id>. Answered / cleared ones are dismissed on the server, so they never come back as cards.
+const isDecision = s => !!s && !s.dismissed && (s.decision && typeof s.decision === 'object' || (s.level === 'attention' && !!s.replies?.length && !s.blocker));
 const asImg = p => /^(\/api\/|https?:)/.test(p) ? p : fileUrl(p);
 // Surface bodies are clipped to a few lines with a fade; "Show more" expands in place.
 const SF_OPEN = new Set();
@@ -717,6 +721,9 @@ document.addEventListener('click', e => {
   if (G.view instanceof ChatView && G.view.target === pane && G.view.target === G.view.pane) G.view.send(text);
   else { haptic(); post(`a/${enc(pane)}/prompt`, { text, nonce: rid() }).then(() => toast('Sent: ' + esc(text), 'ok', null, 1600), x => toast('Not sent: ' + esc(x.message), 'err')); }
   REPLIED[k] = text; if (box.dataset.id) REPLIED['s:' + box.dataset.id] = text; ls.set('replied', REPLIED);
+  // a legacy decision (attention card with chips) answered by its chip: closed in the Decide deck too, not sent twice
+  const sc = box.dataset.id && G.st?.surfaces?.find(x => String(x.id) === box.dataset.id);
+  if (sc && isDecision(sc)) post('decide/' + enc(sc.id), { sent: text }).catch(() => { });
   rb.closest('.toast')?.remove();
   const sid = box.dataset.id && !box.dataset.id.startsWith('toolu') ? `, .surf[data-id="${CSS.escape(box.dataset.id)}"] .sf-rep` : '';
   document.querySelectorAll(`[data-sfkey="${CSS.escape(k)}"] .sf-rep${sid}`).forEach(r => r.replaceWith(h(`<div class="sf-sent">✓ Sent: ${esc(text)}</div>`)));
@@ -1110,7 +1117,7 @@ function getAgentsView() {
     // up, also when the hero has it; a card that is gone by then leaves a note, the panel shows anyway.
     const see = G.see, seeOn = !!see && !see.gone && !G.dismissed.has(see.id);
     const inQ = new Set(MODS.queue?.items(st).filter(x => x.kind === 'surf').map(x => String(x.s.id))); // the hero has those
-    const surfs = (st.surfaces || []).filter(s => { const id = String(s.id); return !G.dismissed.has(id) && (!inQ.has(id) || (seeOn && id === see.id)); });
+    const surfs = (st.surfaces || []).filter(s => { const id = String(s.id); return !G.dismissed.has(id) && !isDecision(s) && (!inQ.has(id) || (seeOn && id === see.id)); });
     if (seeOn) {
       const k = surfs.findIndex(s => String(s.id) === see.id), c = see.card || (see.hint && { id: see.id, ts: see.t, level: 'attention', title: see.hint.title, body: see.hint.body });
       if (k > 0) surfs.unshift(...surfs.splice(k, 1)); else if (k < 0 && c) surfs.unshift(c);
@@ -1330,6 +1337,7 @@ function getAgentsView() {
     keep: true, suspend() { scrollY = sc.scrollTop; }, resume() { render(G.st); sc.scrollTop = scrollY; jobsSig = null; jobsCheck(G.st); loadSched(); },
     onState: st => { render(st); jobsCheck(st); },
     see(id) { // #/see/<id>: render the panel with that card first and lit, scrolled up under the bar
+      if (isDecision(G.st?.surfaces?.find(x => String(x.id) === id))) return nav('#/decide/' + enc(id)); // an older push of a decision
       const hint = G.seeHint?.id === id ? G.seeHint : null; G.seeHint = null;
       const s = G.see = { id, t: Date.now(), hint, card: null, gone: G.dismissed.has(id) && 'dismissed', moved: false };
       surfOpen = false; render(G.st); seePin();
@@ -1338,7 +1346,7 @@ function getAgentsView() {
       // not in this state (stale while the app slept, or older than the newest 50): ask the server for that card
       if (!s.gone && !G.st?.surfaces?.some(x => String(x.id) === id)) api('surface/' + enc(id)).then(r => {
         if (G.see !== s) return;
-        if (r?.gone || !r?.surface) s.gone = 'dismissed'; else s.card = r.surface;
+        if (r?.gone || !r?.surface) s.gone = 'dismissed'; else if (isDecision(r.surface)) { G.see = null; return nav('#/decide/' + enc(id)); } else s.card = r.surface;
         if (G.view === agentsView) render(G.st);
       }, e => {
         if (G.see !== s || e.status !== 404) return; // offline: keep the notification's text
@@ -3307,7 +3315,7 @@ setTimeout(() => (window.requestIdleCallback || setTimeout)(() => { lazy('search
 // shared with the lazily loaded feature modules (search.js, files.js, sheets.js)
 export { morph, patchHTML, cardAct, copyText, G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, agentHref, itemHref, nav, getPrefs, DEF_SNIPS, insertAt, longPress, linkify, md, fileUrl, debounce, closeSheets, goBack, cdot, dispStatus, markSeen, LABEL, setMeta, renameSheet, sendKeys, switcher, newAgentSheet, wirePlus, quickNew };
 export { surfHTML, MODS, lazy, DONE_REP, repLabel, HOME_NAME }; // v3.js, queue.js, …
-export { dismissSurfs }; // queue.js
+export { dismissSurfs, isDecision }; // queue.js
 export { takeMods, modSuffix, PMODS, asksYou }; // queue.js hero reply
 export { settingsSheet, openSearch }; // res.js (Machine gear), fleet.js (History)
 export { lightbox, mediaViewer }; // fleet.js, art.js

@@ -2596,8 +2596,9 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
         republish(&app2);
         if push && level != "info" && !v3::at_desk(&app2, pane.as_deref().unwrap_or("")).await {
             let who = shown_who.unwrap_or_else(|| "agent".into());
-            // `pushUrl`: a deep link of the server's own, else Home's "You should see this" panel at this card
-            let url = push_url.unwrap_or_else(|| see_url(&id2));
+            // `pushUrl`: a deep link of the server's own; a decision (or a legacy attention card with reply chips):
+            // the Decide deck at it; else Home's "You should see this" panel at this card
+            let url = push_url.or_else(|| decide::push_url(&item)).unwrap_or_else(|| see_url(&id2));
             let body = v3::surface_body(body.as_deref(), item["command"].as_str(), &who);
             let payload = json!({"title": shown, "body": transcript::cut(&body, 300).0, "url": url, "tag": id2});
             send_push(&app2, &payload, level == "attention").await;

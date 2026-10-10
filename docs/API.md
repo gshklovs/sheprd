@@ -1632,7 +1632,15 @@ note, ts, via, held, text}, until, keepTs, closed, legacy?}`; `state` = open | l
 (or after Keep): a user message of theirs, not an agent's / server note (`[`…) / another decision's answer → stale "you wrote
 in its chat after this: “…”". These wait in the deck's Stale section (Clear / Keep open). Superseded and withdrawn close
 themselves. **Legacy**: an undismissed `level: attention` card with reply chips and no `decision` counts as a pick between
-its chips (`legacy: true`), and answering it writes a decision onto it.
+its chips (`legacy: true`), and answering it writes a decision onto it. Its answer is the chip's text itself (what the
+chip sends; a note follows after a blank line), not the `[Decision: …]` line. A chip tapped elsewhere (a toast, the chat)
+records it: `POST /api/decide/<id>` `{sent: "<chip text>"}` → answered `via: "chip"`, nothing sent again.
+
+**One place**: while open (open, later, or stale waiting for Clear / Keep) a decision lives only in the Decide card and
+deck: it is never in Home's "You should see this" panel and never the hero (queue.js skips it; app.js `isDecision`
+mirrors `decision_of`, legacy cards included). Its push and its in-app toast open `#/decide/<id>` (the server picks that
+over `#/see/<id>` for any card `decision_of` reads as a decision); an older `#/see/<id>` of one forwards to the deck.
+Answered, cleared, withdrawn and superseded ones are dismissed, so they never come back as cards.
 
 **Phone**: Home (Agents tab) shows "N to decide" right under the briefing (thumbnails, "1 pick with pictures · 7 quick
 calls", about how long, the oldest; "Next up: <agent> · <title>") → `#/decide`. The deck: progress bar, who asked + age +

@@ -746,6 +746,8 @@ body.kb .sh-body { padding-bottom: 12px; }
 .diffv .btns .btn svg { width: 18px; height: 18px; }
 /* F9 card swipe actions */
 .cwrap { position: relative; overflow: hidden; }
+/* hold on an in-app link (tiles, rows, Recent cells) opens our menu, not iOS's link preview; outside links keep it */
+#app a[href^="#"] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .cwrap .card { position: relative; z-index: 1; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .cact { position: absolute; top: 0; bottom: 0; display: flex; visibility: hidden; }
 .cact.l { left: 0; } .cact.r { right: 0; }

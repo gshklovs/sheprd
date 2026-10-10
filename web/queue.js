@@ -1,10 +1,10 @@
 // Needs-you queue (lazy; was the triage deck, removed 2026-10-05 as "not that good compared to
 // looking at a chat"). One list of open items across all agents — permission prompts, auto-mode denials,
-// AskUserQuestion / ask_phone questions, plan approvals, generic menus, surfaces with replies and finished turns not
-// yet seen — in one order (answer → denied → reply → done) with one count. Readers: the Home hero (home.js, which
-// answers the top item in place through the same endpoints the chat uses), "Next up" and the Master strip. Opening an
-// item always means its agent's chat at the item (hrefOf).
-import { G, $, h, esc, md, api, post, ls, toast, haptic, tick, patchHTML, nav, agentHref, dispStatus, markSeen, DONE_REP, repLabel, dismissSurfs, takeMods, modSuffix, PMODS, asksYou, whoName, HOME_NAME } from './app.js';
+// AskUserQuestion / ask_phone questions, plan approvals, generic menus, surfaces with replies (not decisions: those
+// are the Decide deck's) and finished turns not yet seen — in one order (answer → denied → reply → done) with one
+// count. Readers: the Home hero (home.js, which answers the top item in place through the same endpoints the chat
+// uses), "Next up" and the Master strip. Opening an item always means its agent's chat at the item (hrefOf).
+import { G, $, h, esc, md, api, post, ls, toast, haptic, tick, patchHTML, nav, agentHref, dispStatus, markSeen, DONE_REP, repLabel, dismissSurfs, isDecision, takeMods, modSuffix, PMODS, asksYou, whoName, HOME_NAME } from './app.js';
 const nmOf = a => a.home ? HOME_NAME() : whoName(a.title || a.name || a.pane, a.pane);
 
 const enc = encodeURIComponent;
@@ -41,6 +41,7 @@ function itemsOf(st) {
     if (dispStatus(a) === 'done') out.push({ ...base, kind: 'done', key: `done:${a.pane}:${a.completionSeq}`, rank: 3 + (a.muted ? 1 : 0), ts: a.since });
   }
   for (const s of st?.surfaces || []) {
+    if (isDecision(s)) continue; // an open decision (or a legacy attention card with chips) lives in the Decide deck only
     if (!s.replies?.length || replied[surfKey(s)] || replied['s:' + s.id] || G.dismissed?.has(String(s.id)) || t - s.ts > SURF_AGE) continue;
     const a = agents.find(x => x.pane === s.pane); if (!a) continue;
     out.push({ a, nm: a.home ? HOME_NAME() : a.title || a.name || a.pane, pane: a.pane, kind: 'surf', key: 'surf:' + surfKey(s), rank: 2, ts: s.ts, s });

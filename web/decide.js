@@ -20,6 +20,7 @@ const IC = {
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   mic: '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
   chk: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
   dec: '<svg viewBox="0 0 24 24"><path d="M4 6h10M4 12h7M4 18h10"/><path d="M15.5 12.5l2.5 2.5 4-5"/></svg>',
 };
 
@@ -75,7 +76,7 @@ class DeckView {
   constructor(start) {
     this.start = start; this.q = null; this.stale = []; this.i = 0; this.sel = []; this.log = [];
     this.el = h(`<div class="view deck">
-      <div class="dk-top"><div class="dk-prog"></div><button class="dk-x" aria-label="Close">${IC.x}</button></div>
+      <div class="dk-top"><button class="dk-back" aria-label="Previous question" disabled>${IC.back}<span>Back</span></button><div class="dk-prog"></div><button class="dk-x" aria-label="Close">${IC.x}</button></div>
       <div class="dk-flash" aria-live="polite"></div>
       <div class="dk-body"><div class="dk-empty"><span class="spin"></span></div></div>
       <div class="dk-foot" hidden>
@@ -89,21 +90,24 @@ class DeckView {
   get pane() { return this.q?.[this.i]?.pane || ''; } // voice.js names the upload after it
   mount() {
     $('.dk-x', this.el).onclick = () => goBack('#/agents');
-    $('.later', this.el).onclick = () => this.later();
-    $('.send', this.el).onclick = () => this.sendSel();
+    $('.dk-back', this.el).onclick = () => this.back();
+    $('.later', this.el).onclick = () => this.answered() ? this.skip() : this.later();
+    $('.send', this.el).onclick = () => this.answered() ? this.changeOn() : this.sendSel();
     const vfile = $('.vfile', this.el);
     $('.mic', this.el).onclick = () => window.isSecureContext && window.MediaRecorder && navigator.mediaDevices?.getUserMedia ? lazy('voice').then(m => m.record(this)) : vfile.click();
     vfile.onchange = () => { const f = vfile.files[0]; vfile.value = ''; if (f) lazy('voice').then(m => m.transcribe(this, f)); };
     this.ta.addEventListener('input', () => this.autosize());
     this.ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.ta.blur(); } });
     this.body.addEventListener('click', e => this.tap(e));
-    // swipe up (at the bottom of the card) = later
+    // swipe up (at the bottom of the card) = later; swipe right (not from the screen edge: that's the app's back) = the
+    // previous question. Not on the sideways row of picture options, which scrolls.
     let t0 = null;
     this.body.addEventListener('touchstart', e => { const t = e.touches[0]; t0 = e.target.closest('.dk-opts') ? null : { x: t.clientX, y: t.clientY, end: this.body.scrollTop + this.body.clientHeight >= this.body.scrollHeight - 4 }; }, { passive: true });
     this.body.addEventListener('touchend', e => {
-      const t = e.changedTouches[0]; if (!t0 || !this.cur) return;
+      const t = e.changedTouches[0]; if (!t0) return;
       const dy = t.clientY - t0.y, dx = t.clientX - t0.x;
-      if (t0.end && dy < -90 && Math.abs(dx) < 60) this.later();
+      if (this.cur && !this.answered() && t0.end && dy < -90 && Math.abs(dx) < 60) this.later();
+      else if (t0.x >= 28 && dx > 90 && Math.abs(dy) < 50) this.back();
       t0 = null;
     }, { passive: true });
     this.load();
@@ -125,14 +129,34 @@ class DeckView {
   }
   prog() {
     const n = this.q.length;
-    $('.dk-prog', this.el).innerHTML = n ? this.q.map((r, k) => `<i class="${k < this.i ? (this.log.find(l => l.r === r)?.how === 'later' ? 's' : 'd') : k === this.i ? 'c' : ''}"></i>`).join('') : '';
+    $('.dk-prog', this.el).innerHTML = n ? this.q.map((r, k) => { const l = this.res(r); return `<i class="${k === this.i ? 'c' : l?.how === 'later' ? 's' : l ? 'd' : ''}"></i>`; }).join('') : '';
+    $('.dk-back', this.el).disabled = this.i === 0 || !n;
   }
+  // this deck session's history: the latest result for a question (sent / later), or none
+  res(r) { for (let k = this.log.length - 1; k >= 0; k--) if (this.log[k].r === r) return this.log[k]; return null; }
+  answered() { const r = this.cur; return !!r && this.res(r)?.how === 'sent' && !this.changing; }
+  // back to the previous question: an answered one shows the answer (Change answer), a put-off one is open again
+  async back() {
+    if (!this.q?.length || this.i === 0 || this.busy) return;
+    haptic(); this.changing = false;
+    this.i = Math.min(this.i, this.q.length) - 1;
+    const r = this.q[this.i], l = this.res(r);
+    if (l?.how === 'later') {
+      this.busy = true;
+      try { await post('decide/' + enc(r.id) + '/keep', {}); this.log = this.log.filter(x => x.r !== r); }
+      catch (e) { toast(esc(e.message), 'err'); }
+      finally { this.busy = false; }
+    }
+    this.render();
+  }
+  skip() { this.changing = false; this.next(); } // past an answered one without changing it
+  changeOn() { this.changing = true; this.sel = []; this.ta.value = ''; this.mark(); this.card(this.cur); haptic(); }
   render() {
     if (this.dead) return;
     this.prog();
     const r = this.cur;
     $('.dk-foot', this.el).hidden = !r;
-    this.body.scrollTop = 0; this.body.classList.remove('out');
+    this.body.scrollTop = 0; this.body.classList.remove('out', 'done');
     if (r) return this.card(r);
     if (this.stale.length) return this.staleList();
     this.summary();
@@ -165,6 +189,13 @@ class DeckView {
       [...$('.dk-dots', this.body).children].forEach((x, j) => x.classList.toggle('on', j === k));
     }, { passive: true });
     this.sel = []; this.ta.value = ''; this.autosize();
+    const l = this.res(r);
+    if (l?.how === 'sent' && !this.changing) { // answered earlier in this session: show what went
+      this.sel = l.choice.slice(); this.mark();
+      $('.dk-who', this.body).insertAdjacentHTML('beforebegin', `<div class="dk-was">${IC.chk}<span>You ${l.changed ? 'changed it to' : 'picked'} <b>${esc(l.what)}</b>${l.note ? ` · “${esc(l.note)}”` : ''}${l.held ? ' · waits for your draft' : ''}</span></div>`);
+      this.body.classList.add('done');
+    } else this.body.classList.remove('done');
+    this.foot();
     this.body.classList.remove('out');
   }
   tap(e) {
@@ -182,6 +213,7 @@ class DeckView {
     if (e.target.closest('.dk-close')) goBack('#/agents');
   }
   pick(id) {
+    if (this.answered()) return; // Change answer first
     const r = this.cur, d = r.decision; haptic();
     if (d.kind === 'rank' || d.kind === 'multi') {
       const k = this.sel.indexOf(id);
@@ -203,6 +235,11 @@ class DeckView {
   }
   foot() {
     const r = this.cur; if (!r) return;
+    const ans = this.answered();
+    $('.later', this.el).textContent = ans ? 'Next' : 'Later';
+    $('.crow', this.el).hidden = ans;
+    $('.dk-hint', this.el).textContent = ans ? 'Change it and the agent gets a correction from you' : this.changing ? 'The agent gets “The user changed their answer: …”' : 'Swipe up = later · the agent gets it as a message from you';
+    if (ans) { const b = $('.send', this.el); b.disabled = false; $('span', b).textContent = 'Change answer'; return; }
     const d = r.decision, opts = d.options || [];
     const note = this.ta.value.trim();
     const tags = this.sel.map(id => { const k = opts.findIndex(o => o.id === id); return tag(opts[k], k); });
@@ -218,11 +255,14 @@ class DeckView {
     const w = who(r), note = this.ta.value.trim();
     this.busy = true;
     try {
-      const j = await post('decide/' + enc(r.id), { choice, note });
+      const change = !!this.changing;
+      const j = await post('decide/' + enc(r.id), change ? { choice, note, change: true } : { choice, note });
       const opts = r.decision.options || [];
       const what = choice.map(id => opts.find(o => o.id === id)?.label || id).join(', ') || 'a note';
-      this.log.push({ r, how: 'sent', what, held: j.held });
-      this.flash(j.held ? `Waits for your draft in ${w.name}’s box, then goes in` : j.via === 'resume' ? `Waking ${w.name} with your pick` : `Sent to ${w.name}`);
+      this.log = this.log.filter(x => x.r !== r);
+      this.log.push({ r, how: 'sent', what, held: j.held, choice: choice.slice(), note, changed: change });
+      this.changing = false;
+      this.flash(j.held ? `Waits for your draft in ${w.name}’s box, then goes in` : change ? `Sent the change to ${w.name}` : j.via === 'resume' ? `Waking ${w.name} with your pick` : `Sent to ${w.name}`);
       this.next();
     } catch (e) { toast(esc(e.message), 'err'); }
     finally { this.busy = false; }
@@ -230,7 +270,7 @@ class DeckView {
   async later() {
     const r = this.cur; if (!r || this.busy) return;
     this.busy = true;
-    try { await post('decide/' + enc(r.id) + '/later', {}); this.log.push({ r, how: 'later' }); haptic(); this.next(); }
+    try { await post('decide/' + enc(r.id) + '/later', {}); this.log = this.log.filter(x => x.r !== r); this.log.push({ r, how: 'later' }); haptic(); this.next(); }
     catch (e) { toast(esc(e.message), 'err'); }
     finally { this.busy = false; }
   }
@@ -267,7 +307,8 @@ class DeckView {
   }
   summary() {
     const sent = this.log.filter(l => l.how === 'sent'), later = this.log.filter(l => l.how === 'later');
-    $('.dk-prog', this.el).innerHTML = this.q.map(r => `<i class="${this.log.find(l => l.r === r)?.how === 'later' ? 's' : 'd'}"></i>`).join('');
+    $('.dk-prog', this.el).innerHTML = this.q.map(r => `<i class="${this.res(r)?.how === 'later' ? 's' : 'd'}"></i>`).join('');
+    $('.dk-back', this.el).disabled = !this.q.length;
     this.body.innerHTML = `<div class="dk-empty"><div class="big">${IC.chk}</div>
         <h2>${this.log.length ? 'All decided' : 'Nothing to decide'}</h2>
         <p>${this.log.length ? [sent.length ? `${sent.length} sent` : '', later.length ? `${later.length} for later` : ''].filter(Boolean).join(' · ') : 'No agent is waiting on a choice from you.'}</p></div>

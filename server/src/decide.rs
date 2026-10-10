@@ -219,11 +219,26 @@ fn has_pictures(r: &Value) -> bool {
         || r["images"].as_array().is_some_and(|i| !i.is_empty())
 }
 
-/// The message the agent gets.
+/// A changed answer: "[Decision: X] The user picked: B [b]" → "[Decision: X] The user changed their answer: B [b]" (rank: "… answer: ranked 1. …").
+pub fn changed_text(t: &str) -> String {
+    match t.split_once("] The user ") {
+        Some((head, rest)) => {
+            let rest = rest.strip_prefix("picked: ").map(str::to_string).or_else(|| rest.strip_prefix("ranked: ").map(|r| format!("ranked {r}"))).unwrap_or_else(|| rest.to_string());
+            format!("{head}] The user changed their answer: {rest}")
+        }
+        None => t.to_string(),
+    }
+}
+
+/// The message the agent gets. A legacy card's answer is its chip's text (what tapping the chip sends), the note after.
 pub fn answer_text(title: &str, d: &Value, choice: &[String], note: &str) -> String {
     let label = |id: &str| {
         d["options"].as_array().and_then(|o| o.iter().find(|x| x["id"] == id)).and_then(|x| x["label"].as_str()).unwrap_or(id).to_string()
     };
+    if d["legacy"] == true {
+        let parts: Vec<String> = choice.iter().map(|c| label(c)).chain(Some(note.trim().to_string()).filter(|n| !n.is_empty())).collect();
+        return parts.join("\n\n");
+    }
     let named: Vec<String> = choice.iter().map(|c| format!("{} [{c}]", label(c))).collect();
     let what = if choice.is_empty() {
         "The user picked none of these".to_string()
@@ -280,8 +295,22 @@ async fn api_decide(State(app): State<Shared>, AxPath(id): AxPath<String>, Json(
     };
     let Some(card) = card else { return not_found() };
     let Some(d) = decision_of(&card) else { return not_found() };
-    if matches!(d["state"].as_str(), Some("answered" | "withdrawn")) || !d["closed"].is_null() {
+    // `change: true`: the user went back in the deck and changes an answer they already sent (the agent gets a correction)
+    let change = b["change"].as_bool() == Some(true) && d["state"] == "answered";
+    if !change && (matches!(d["state"].as_str(), Some("answered" | "withdrawn")) || !d["closed"].is_null()) {
         return json_err(StatusCode::CONFLICT, format!("already {}", d["state"].as_str().unwrap_or("closed")));
+    }
+    // `{sent: "<chip text>"}`: a legacy card's reply chip (toast / chat) already sent it → recorded, not sent again
+    if let Some(sent) = b["sent"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+        let hit = d["options"].as_array().and_then(|o| o.iter().find(|x| x["label"].as_str().map(str::trim) == Some(sent))).and_then(|x| x["id"].as_str());
+        let ans = json!({"choice": hit.into_iter().collect::<Vec<_>>(), "note": "", "ts": now_ms(), "via": "chip", "held": false, "text": sent});
+        let out = edit(&app, &id, |c, d| {
+            d["state"] = json!("answered");
+            d["answer"] = ans.clone();
+            d["closed"] = json!(now_ms());
+            c["dismissed"] = json!(true);
+        });
+        return Json(json!({"ok": true, "via": "chip", "held": false, "surface": out})).into_response();
     }
     let choice: Vec<String> = b["choice"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
     let known = |c: &String| d["options"].as_array().is_some_and(|o| o.iter().any(|x| x["id"] == c.as_str()));
@@ -295,12 +324,19 @@ async fn api_decide(State(app): State<Shared>, AxPath(id): AxPath<String>, Json(
     if choice.is_empty() && note.is_empty() {
         return json_err(StatusCode::BAD_REQUEST, "pick an option or write a note");
     }
-    let text = answer_text(card["title"].as_str().unwrap_or(""), &d, &choice, &note);
+    let mut text = answer_text(card["title"].as_str().unwrap_or(""), &d, &choice, &note);
+    if change {
+        text = changed_text(&text);
+    }
     let (via, held) = match deliver(&app, &card, text.clone()).await {
         Ok(x) => x,
         Err(r) => return r,
     };
-    let ans = json!({"choice": choice, "note": note, "ts": now_ms(), "via": via, "held": held, "text": text});
+    let mut ans = json!({"choice": choice, "note": note, "ts": now_ms(), "via": via, "held": held, "text": text});
+    if change {
+        ans["changed"] = json!(true);
+        ans["before"] = d["answer"].clone();
+    }
     let out = edit(&app, &id, |c, d| {
         d["state"] = json!("answered");
         d["answer"] = ans.clone();
@@ -444,6 +480,11 @@ async fn api_attach(State(app): State<Shared>, AxPath(id): AxPath<String>, Json(
     }
 }
 
+/// Where a card's push opens: the deck at it while it is (or reads as) a decision, else None.
+pub fn push_url(s: &Value) -> Option<String> {
+    decision_of(s).map(|_| format!("/#/decide/{}", crate::urlencode(s["id"].as_str().unwrap_or(""))))
+}
+
 /// The card's "Decide" link (its push opens the deck at it: an in-app link is the push URL).
 pub fn add_link(s: &mut Value) {
     let url = format!("#/decide/{}", s["id"].as_str().unwrap_or(""));
@@ -560,6 +601,23 @@ mod tests {
         assert_eq!(answer_text("Pick", &d, &["c".into(), "a".into()], ""), "[Decision: Pick] The user ranked: 1. Jump [c], 2. Find [a]");
         assert_eq!(answer_text("Pick", &d, &["b".into()], "grid"), "[Decision: Pick] The user picked: Recent [b]\nTheir note: grid");
         assert_eq!(answer_text("Pick", &d, &[], "none"), "[Decision: Pick] The user picked none of these\nTheir note: none");
+        assert_eq!(changed_text(&answer_text("Pick", &d, &["b".into()], "")), "[Decision: Pick] The user changed their answer: Recent [b]");
+    }
+
+    #[test]
+    fn legacy_answer_is_the_chip_text() {
+        let d = decision_of(&json!({"id": "s1", "level": "attention", "replies": ["continue", "stop"], "title": "Go on?"})).unwrap();
+        assert_eq!(answer_text("Go on?", &d, &["b".into()], ""), "stop");
+        assert_eq!(answer_text("Go on?", &d, &["a".into()], "and push"), "continue\n\nand push");
+    }
+
+    #[test]
+    fn decisions_push_to_the_deck() {
+        let legacy = json!({"id": "s1", "level": "attention", "replies": ["A", "B"], "title": "L"});
+        assert_eq!(push_url(&legacy).as_deref(), Some("/#/decide/s1"));
+        assert_eq!(push_url(&card("s2", parse(&json!({"kind": "yesno"}), &[]).unwrap())).as_deref(), Some("/#/decide/s2"));
+        assert_eq!(push_url(&json!({"id": "s3", "level": "info", "replies": ["A"]})), None);
+        assert_eq!(push_url(&json!({"id": "s4", "level": "attention", "replies": []})), None);
     }
 
     #[test]
