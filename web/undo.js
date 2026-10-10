@@ -93,9 +93,9 @@ export function undoSheet(view) {
       G.undoing.set(pane, Date.now() + 20000);
       haptic(); sh.close();
       putBack(view, r.text || '');
-      reload(view, r.tid);
+      if (r.fresh) startOver(view, r.tid); else reload(view, r.tid);
       const nf = files ? (p.files || []).filter(f => f.act !== 'same' && f.act !== 'missing').length : 0;
-      toast(`Undone${nf ? ` · ${nf} file${nf > 1 ? 's' : ''} back` : ''}${r.restarted ? '' : ' · it didn’t restart: look at its terminal'}`, r.restarted ? 'ok' : 'err', null, 2600);
+      toast(`Undone${r.fresh ? ' · a fresh start' : ''}${nf ? ` · ${nf} file${nf > 1 ? 's' : ''} back` : ''}${r.restarted ? '' : ' · it didn’t restart: look at its terminal'}`, r.restarted ? 'ok' : 'err', null, 2600);
     } catch (e) {
       G.undoing?.set(pane, Date.now() + 15000);
       toast('Couldn’t undo: ' + esc(e.message), 'err', null, 5000);
@@ -113,6 +113,14 @@ function putBack(view, text) {
   ta.dispatchEvent(new Event('input'));
   try { ls.set('draft.' + view.dkey, ta.value); } catch { }
   ta.setSelectionRange?.(ta.value.length, ta.value.length);
+}
+
+/** The first prompt was undone: nothing is left to resume, Claude started a fresh session in the pane. The chat
+ *  shows empty until the new session appears in the state (onState loads its tid then). */
+function startOver(view, tid) {
+  tid ||= view.tid;
+  if (tid) { G.tc?.delete(tid); ls.set('t.' + tid, null); }
+  view.closeStream?.(); view.reset(); view.emptyState?.(true);
 }
 
 /** The transcript was cut: drop the cached copy and load it again. */

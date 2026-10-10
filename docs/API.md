@@ -1587,8 +1587,11 @@ prompt and deletes files the turn created; on failure Claude starts again on the
 cut in place at the prompt's line (a full copy first in `<state>/undo/<sid>.<ms>.jsonl`, last 20 kept); the latest
 `custom-title` / `agent-name` / `agent-color` / `ai-title` / `mode` / `permission-mode` / `tag` rows after the cut are
 re-appended; 4. `claude --resume <sid> --permission-mode <its mode> --model <its model>` in the same pane under the same
-herdr name (`master` stays `master`, so the home agent keeps its pin), prompts sent meanwhile
-wait in the boot queue. The phone keeps the chat (and the home agent's Home) up during the restart (`G.undoing`, `G.homePending`)
+herdr name (`master` stays `master`, so the home agent keeps its pin; an agent started by hand
+has no herdr name: a slug of its title, never `master*` unless it is home), prompts sent meanwhile wait in the boot
+queue. Undoing the **first** prompt leaves no conversation (`claude --resume` would say "No conversation found"): Claude
+starts fresh in the pane without `--resume` (a new session id) and the answer has `fresh: true`; the phone shows the
+chat empty, the prompt in the composer, and picks up the new session from the state. The phone keeps the chat (and the home agent's Home) up during the restart (`G.undoing`, `G.homePending`)
 and reloads the transcript after. `SHEPRD_CLAUDE_ARGS` (tests) appends args to the restart.
 Not undone: shell commands, git commits, pushes, messages to other agents, web calls, MCP tools; files Claude never
 checkpointed. A turn without a checkpoint (file history off) undoes the conversation only. Test: `cargo test undo::`.

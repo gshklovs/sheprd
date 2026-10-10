@@ -375,16 +375,30 @@ fn ctx(app: &Shared, pane: &str) -> Result<Ctx, Response> {
     Ok(Ctx {
         sid,
         path,
-        // herdr's agent name, which the restart reuses; an agent started by hand (`claude` typed in a pane) has none,
-        // so it gets a valid one from its title (never `master*` unless it is the home agent)
-        name: a["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| {
-            let t = a["title"].as_str().filter(|t| !t.is_empty()).unwrap_or("agent");
-            let n = crate::agent_slug(t);
-            if a["home"] != true && n.starts_with("master") { format!("a-{n}") } else { n }
-        }),
+        name: restart_name(a["name"].as_str(), a["title"].as_str(), a["home"] == true),
         cwd: a["cwd"].as_str().unwrap_or("").to_string(),
         home: a["home"] == true,
         status: a["status"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+/// herdr's agent name for the restart: its own, else (an agent started by hand, `claude` typed in a pane, has none and
+/// agent.start refuses an empty one) a slug of its title; never `master*` unless it is the home agent (that prefix
+/// marks the home agent).
+pub fn restart_name(name: Option<&str>, title: Option<&str>, home: bool) -> String {
+    if let Some(n) = name.map(str::trim).filter(|n| !n.is_empty()) {
+        return n.to_string();
+    }
+    let n = crate::agent_slug(title.map(str::trim).filter(|t| !t.is_empty()).unwrap_or("agent"));
+    if !home && n.starts_with("master") { format!("a-{n}") } else { n }
+}
+
+/// Whether a (cut) transcript still holds a conversation: undoing the first prompt leaves only session rows, and
+/// `claude --resume` on that says "No conversation found".
+pub fn has_conversation(bytes: &[u8]) -> bool {
+    bytes.split(|&b| b == b'\n').any(|l| {
+        (l.windows(6).any(|w| w == b"\"user\"") || l.windows(11).any(|w| w == b"\"assistant\""))
+            && serde_json::from_slice::<Value>(l).is_ok_and(|v| v["type"] == "user" || v["type"] == "assistant")
     })
 }
 
@@ -609,12 +623,11 @@ async fn undo(app: &Shared, pane: &str, c: &Ctx, b: &UndoBody) -> Result<Value, 
     }
     eprintln!("undo {pane}: cut {} at {} ({} → {} bytes), files {}", c.sid, t.uuid, now.len(), out.len(), want_files);
 
-    // 4. Claude again, same pane, same name. Undoing the first prompt leaves no conversation to resume: start fresh.
-    let empty = !out.split(|&b| b == b'\n').any(|l| {
-        serde_json::from_slice::<Value>(l).is_ok_and(|v| v["type"] == "user" || v["type"] == "assistant")
-    });
+    // 4. Claude again, same pane, same name. Undoing the first prompt leaves nothing to resume: a fresh session there
+    // (Claude names it anew; the old file keeps only the session rows, the full copy is in <state>/undo/).
+    let fresh = !has_conversation(&out);
     let mut args = args;
-    if empty {
+    if fresh {
         args.drain(0..2); // "--resume", sid
     }
     let started = restart(args).await;
@@ -627,7 +640,7 @@ async fn undo(app: &Shared, pane: &str, c: &Ctx, b: &UndoBody) -> Result<Value, 
         "error": started.err().map(|e| e.to_string()),
         "backup": backup.to_string_lossy(),
         "tid": c.sid,
-        "fresh": empty,
+        "fresh": fresh,
     }))
 }
 
@@ -768,6 +781,33 @@ mod tests {
         ]
         .join("\n");
         assert!(analyze(only.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn undoing_the_first_prompt_leaves_no_conversation() {
+        let f = fixture();
+        let t = analyze(f.as_bytes()).unwrap();
+        assert!(has_conversation(&cut_jsonl(f.as_bytes(), &t)));
+        // cut the cut once more: back before "first", only session rows are left
+        let once = cut_jsonl(f.as_bytes(), &t);
+        let t1 = analyze(&once).unwrap();
+        assert_eq!(t1.uuid, "u1");
+        let none = cut_jsonl(&once, &t1);
+        assert!(!none.is_empty());
+        assert!(!has_conversation(&none));
+        assert!(!has_conversation(b""));
+    }
+
+    #[test]
+    fn a_hand_started_agent_gets_a_name() {
+        assert_eq!(restart_name(Some("undotest"), Some("Whatever"), false), "undotest");
+        assert_eq!(restart_name(Some("master"), None, true), "master");
+        // agent_slug adds a short hex suffix
+        assert!(restart_name(None, Some("Fix the parser"), false).starts_with("fix-the-parser-"));
+        assert!(restart_name(Some(""), Some(""), false).starts_with("agent-"));
+        assert!(restart_name(None, Some("Master plan"), false).starts_with("a-master-plan-"));
+        assert!(restart_name(None, Some("Master plan"), true).starts_with("master-plan-"));
+        assert!(!restart_name(None, Some("42 things"), false).is_empty());
     }
 
     #[test]
