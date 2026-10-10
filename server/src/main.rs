@@ -12,6 +12,7 @@ mod artifacts;
 mod chips;
 mod cli;
 mod cloud;
+mod decide;
 mod desk;
 mod disk;
 mod find;
@@ -260,6 +261,7 @@ async fn main() {
     tokio::spawn(v3::run(app.clone()));
     tokio::spawn(sched::run(app.clone()));
     tokio::spawn(asks::run(app.clone()));
+    tokio::spawn(decide::run(app.clone()));
     tokio::spawn(git::run(app.clone()));
     tokio::spawn(find::run(app.clone()));
     tokio::spawn(artifacts::run(app.clone()));
@@ -333,6 +335,7 @@ async fn main() {
         .merge(theme::routes())
         .merge(send::routes())
         .merge(asks::routes())
+        .merge(decide::routes())
         .merge(repos::routes())
         .merge(launcher::routes())
         .merge(slash::routes())
@@ -1029,6 +1032,7 @@ fn publish_state(app: &App, agents: Value, shells: Value, workspaces: Value, her
         "home": home,
         "host": app.host, "workDir": work_dir(), "homeName": home_name(), "tsName": app.ts_name, "tsIp": app.ts_ip, "herdr": herdr_ok,
         "agents": agents, "shells": shells, "workspaces": workspaces, "surfaces": surfaces,
+        "decisions": decide::summary(&inner.surfaces),
     });
     v["services"] = services::standalone(app, &v["agents"], herdr_ok);
     let jobs_running: u64 = v["agents"].as_array().map(|l| l.iter().filter_map(|a| a["jobs"]["running"].as_u64()).sum()).unwrap_or(0);
@@ -2511,12 +2515,24 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
     // they take the newest item at once and push without waiting. An older mod sends no flag: wait as for a tool.
     let from_tool = b["tool"].as_bool() != Some(false);
     let body_text = b["body"].as_str().unwrap_or("").to_string();
-    let item = json!({
+    let mut item = json!({
         "id": id, "ts": now_ms(), "pane": pane, "session": session, "tid": session,
         "agentTitle": agent_title, "title": shown, "body": body_text,
         "level": level, "images": images, "links": links, "replies": replies, "command": command, "i": null,
         "review": b.get("review").cloned().unwrap_or(Value::Null),
     });
+    // a decision (decide.rs): options to pick from, answered in the Decide deck; its "Decide" link is the push URL
+    if b["decision"].is_object() {
+        match decide::parse(&b["decision"], &replies) {
+            Ok(d) => {
+                item["decision"] = d;
+                item["replies"] = json!([]);
+                decide::add_link(&mut item);
+            }
+            Err(e) => return json_err(StatusCode::BAD_REQUEST, e),
+        }
+    }
+    let push = b["push"].as_bool() != Some(false); // `push: false`: shown, never pushed
     let fps = surfaces::keys(session.as_deref(), pane.as_deref(), &shown, item["body"].as_str().unwrap_or(""));
     let claimed: Vec<usize> = {
         let mut inner = app.inner.lock().unwrap();
@@ -2532,6 +2548,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
             .filter(|s| s["tid"].as_str().is_some() && s["tid"].as_str() == session.as_deref())
             .filter_map(|s| s["i"].as_u64().map(|i| i as usize))
             .collect();
+        decide::supersede(&mut inner.surfaces, &item);
         inner.surfaces.push_front(item.clone());
         inner.surfaces.truncate(200);
         save_surfaces(&inner.surfaces);
@@ -2577,7 +2594,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
             save_surfaces(&inner.surfaces);
         }
         republish(&app2);
-        if level != "info" && !v3::at_desk(&app2, pane.as_deref().unwrap_or("")).await {
+        if push && level != "info" && !v3::at_desk(&app2, pane.as_deref().unwrap_or("")).await {
             let who = shown_who.unwrap_or_else(|| "agent".into());
             // `pushUrl`: a deep link of the server's own, else Home's "You should see this" panel at this card
             let url = push_url.unwrap_or_else(|| see_url(&id2));

@@ -99,7 +99,7 @@ test('session.start registers the tool', async ($, on) => {
     return { value: { tool: `mcp__sheprd__${e.name}` } }
   })
   await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
-  expect(names).toEqual(['surface'])
+  expect(names).toEqual(['surface', 'decide'])
 })
 
 test('prompt.compose adds a short section only where the tool is offered', async ($, on) => {
@@ -807,4 +807,21 @@ test('the AskUserQuestion / plan dialogs are not turned into permission cards', 
   const r = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [] } } as never)
   expect(r.decision).toBeUndefined()
   expect(w.some(p => p.url.endsWith('/api/talk/perm'))).toBe(false)
+})
+
+test('decide posts a decision card (images per option, absolute) and says how the answer arrives', async ($, on) => {
+  const posted = world(on, { posts: { '/api/surface': () => ({ ok: true, id: 's9' }) } })
+  const ran = await $.tool.call({
+    tool: 'mcp__sheprd__decide', title: 'Home layout?', kind: 'rank', key: 'home',
+    options: [{ id: 'a', label: 'A · Briefing', images: ['shots/a.png'] }, 'B · Island'], push: false,
+  })
+  const body = posted.find(p => p.url.endsWith('/api/surface'))?.body as Record<string, any>
+  expect(body.level).toBe('attention')
+  expect(body.push).toBe(false)
+  expect(body.decision.kind).toBe('rank')
+  expect(body.decision.key).toBe('home')
+  expect(body.decision.options[0].images[0]).toBe('/work/app/shots/a.png')
+  expect(body.decision.options[1].label).toBe('B · Island')
+  expect(String(ran.result)).toContain('id s9')
+  expect(String(ran.result)).toContain('[Decision: ')
 })

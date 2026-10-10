@@ -1580,3 +1580,63 @@ running servers is linked to it (`running`: "Served by <agent>" in its sheet). S
 - Tab bar: Agents · History · Machine · Repos · Apps. Automations folded into History (segments Sessions · Asks ·
   Schedules · Cloud · Search; `#/fleet/sched` and `#/fleet/cloud` light History).
 - Tests: `cargo test launcher`.
+
+## Decisions (`server/src/decide.rs`, `web/decide.js` + `decide.css`, the deck `#/decide`)
+A decision is a surface card that asks the user to choose (a Home card and a full-screen deck). It lives inside its surface in `surfaces.json` (field `decision`), so it shares the card's lifecycle.
+
+**Posting** (agents): `POST /api/surface` with the usual fields plus
+```jsonc
+{ "pane": "w6:pB", "title": "Home layout: which, in what order?", "body": "optional context", "level": "attention",
+  "push": false,                                   // optional: shown and in the deck, no phone notification
+  "decision": {
+    "kind": "pick",                                // pick (one) | rank (order some/all) | multi (any number) | yesno
+    "options": [                                   // 1–8; strings are labels; yesno may omit them (Yes / No)
+      { "id": "a", "label": "A · Briefing", "sub": "one line", "images": ["/abs/path/a.png"] },  // id defaults a, b, c…
+      "B · Island" ],
+    "key": "home-layout",                          // optional: a newer card with the same key from the same agent supersedes
+    "deadline": 1791700000000,                     // optional ms (or "deadlineMin": 90): goes stale when it passes
+    "allowNote": true } }
+```
+→ `{ok, id}`; 400 with the reason for a bad shape. Option images become `/api/file?path=` links (and kept copies,
+keep.rs). The card gets a first link `#/decide/<id>` (its push opens the deck there) and no raw reply chips.
+The sheprd mod has a `decide` tool with the same fields (`kind, options, key, deadlineMin, push, title, body`;
+relative image paths resolved against the session's cwd). From a shell:
+`curl -s -X POST 127.0.0.1:7878/api/surface -H 'content-type: application/json' -d @decision.json`.
+`POST /api/decide/<id>/attach` (body = a `decision` object) turns an existing card into one.
+
+**The answer** arrives at the asking agent as a message through the steer path (inbox append while it works, typed in
+when idle, **held while the user has a draft or a menu is open there** and typed once the box is empty; an asleep agent is
+resumed with it as its first message, `POST /api/sessions/<sid>/resume`):
+```
+[Decision: <title>] The user picked: B · Island [b]
+[Decision: <title>] The user ranked: 1. B · Island [b], 2. A · Briefing [a]
+[Decision: <title>] The user picked none of these
+Their note: <note, when they wrote one>
+```
+
+**Routes**
+- `GET /api/decisions` → `{open, later, stale, done}`: rows `{id, ts, pane, session, agentTitle, title, body, images,
+  links, decision}`; open by deadline then oldest first; done = the 30 newest closed. `state.decisions` = `{open,
+  pictures, stale, later, oldest, thumbs:[≤3 urls], next:{id, title, pane, agentTitle}}` (Home's card).
+- `POST /api/decide/<id>` `{choice:[ids] (in order for rank), note?}` → `{ok, via: steer|resume|held:draft|held:menu,
+  held, surface}`; 400 unknown option / several for a pick / nothing at all, 409 already answered or the agent is gone.
+- `POST /api/decide/<id>/later` `{hours?}` (default 3) · `/clear` (closed as stale, card dismissed, never deleted) ·
+  `/keep` (open again; the user's messages before now no longer count) · `/withdraw` `{reason?}` (the agent takes it back) ·
+  `/stale` `{reason, clear?}`.
+
+**Decision object**: `{kind, options:[{id, label, sub, images}], key, deadline, allowNote, state, reason, answer:{choice,
+note, ts, via, held, text}, until, keepTs, closed, legacy?}`; `state` = open | later | answered | stale | withdrawn
+(`closed` set = no longer shown: answered, withdrawn, superseded, cleared).
+
+**Stale** (a watcher every 30 s, no model calls): deadline passed → stale; the user wrote in that agent's chat after the card
+(or after Keep): a user message of theirs, not an agent's / server note (`[`…) / another decision's answer → stale "you wrote
+in its chat after this: “…”". These wait in the deck's Stale section (Clear / Keep open). Superseded and withdrawn close
+themselves. **Legacy**: an undismissed `level: attention` card with reply chips and no `decision` counts as a pick between
+its chips (`legacy: true`), and answering it writes a decision onto it.
+
+**Phone**: Home (Agents tab) shows "N to decide" right under the briefing (thumbnails, "1 pick with pictures · 7 quick
+calls", about how long, the oldest; "Next up: <agent> · <title>") → `#/decide`. The deck: progress bar, who asked + age +
+k of n, the question, picture options as a sideways row of big cards (tap to pick; rank numbers / multi ticks in tap
+order; "1 of 4" opens all of an option's images), word options as big buttons (a pick or yes/no sends on tap), a note
+(text, or a voice note through voice.js), Later or a swipe up at the bottom of the card, then the Stale section, then a
+summary of what went where. Tests: `cargo test decide`, the mod's `decide` test.

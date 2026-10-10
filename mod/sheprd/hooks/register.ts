@@ -101,6 +101,46 @@ const INPUT_SCHEMA = {
   required: ['title', 'level'],
 }
 
+// Decide (server/src/decide.rs, API.md "Decisions"): a choice for the user's Decide deck on the phone. Non-blocking:
+// the pick arrives later as a message "[Decision: <title>] The user picked: <label> [<id>]" (rank: "The user ranked: 1. …").
+const DECIDE_TOOL = 'decide'
+const DECIDE_TOOL_FULL = 'mcp__sheprd__decide'
+const DECIDE_DESCRIPTION = [
+  "Ask the user to choose, on their phone's Decide deck (one question at a time, big tap targets, pictures side by side).",
+  'Use it instead of a plain question whenever the answer is a choice between options, especially design options with',
+  'screenshots: put each option\'s images on that option (absolute paths) so they are labelled. kinds: pick (one),',
+  'rank (order some or all), multi (any number), yesno. The user may add a note or pick none with a note.',
+  'It does not block: carry on with other work or end your turn; the answer arrives as your next prompt,',
+  '"[Decision: <title>] The user picked: <label> [<id>]". Re-asking the same thing? Pass the same `key`: the old card is replaced.',
+].join('\n')
+const DECIDE_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string', description: 'The question, short (under ~70 chars), e.g. "Home layout: which direction?"' },
+    body: { type: 'string', description: 'Optional context in a sentence or two (markdown).' },
+    kind: { type: 'string', enum: ['pick', 'rank', 'multi', 'yesno'], description: 'Default pick.' },
+    options: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Short id returned in the answer (default a, b, c…).' },
+          label: { type: 'string', description: 'What the user sees, under 60 chars, e.g. "A · Briefing".' },
+          sub: { type: 'string', description: 'Optional one-line detail.' },
+          images: { type: 'array', items: { type: 'string' }, description: 'Absolute image paths for this option.' },
+        },
+        required: ['label'],
+      },
+      description: 'The options (yesno may omit them).',
+    },
+    key: { type: 'string', description: 'Stable id for this question: a newer card with the same key replaces the old one.' },
+    deadlineMin: { type: 'number', description: 'Minutes until the question goes stale (optional).' },
+    push: { type: 'boolean', description: 'false: no phone notification, it just waits in the deck (default true).' },
+  },
+  required: ['title'],
+}
+
 const GUIDE =
   'The user often supervises this session from their phone (the sheprd app) rather than the terminal. ' +
   `When something must be seen rather than read, call ${TOOL_FULL}: screenshots or visual results you produced ` +
@@ -212,6 +252,7 @@ export const register: Register = (on, options) => {
   // (a) the tool the model calls
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT_SCHEMA })
+    await $.tool.register({ name: DECIDE_TOOL, description: DECIDE_DESCRIPTION, inputSchema: DECIDE_SCHEMA })
     await $.command
       .register({
         name: PHONE_CMD,
@@ -366,6 +407,41 @@ export const register: Register = (on, options) => {
         ? `Surfaced to the user's phone${sent.id ? ` (id ${sent.id})` : ''}.` +
           (item.replies ? ' If you are waiting on them, end your turn now; their tap arrives as your next prompt.' : '')
         : `Noted. (The phone app is not reachable right now: ${sent.why}; nothing else to do, carry on.)`,
+    }
+  })
+
+  on('tool.call', { tool: DECIDE_TOOL_FULL }, async ($, e) => {
+    const title = typeof e.title === 'string' && e.title.trim() ? e.title.trim() : ''
+    if (!title) return { result: 'decide needs a title (the question).', isError: true }
+    const cwd = await $.session.cwd().catch(() => undefined)
+    const options: Record<string, unknown>[] = []
+    for (const o of Array.isArray(e.options) ? e.options : []) {
+      if (typeof o === 'string') { options.push({ label: o }); continue }
+      if (!o || typeof o !== 'object') continue
+      const x = o as Record<string, unknown>
+      const images: string[] = []
+      for (const p of Array.isArray(x.images) ? x.images : []) {
+        if (typeof p === 'string' && p.trim()) images.push(await absolute($, p.trim(), cwd))
+      }
+      options.push({ id: x.id, label: x.label, sub: x.sub, images })
+    }
+    const decision: Record<string, unknown> = { kind: typeof e.kind === 'string' ? e.kind : 'pick', options }
+    if (typeof e.key === 'string' && e.key.trim()) decision.key = e.key.trim()
+    if (typeof e.deadlineMin === 'number' && e.deadlineMin > 0) decision.deadlineMin = Math.round(e.deadlineMin)
+    const body: Record<string, unknown> = { title, level: 'attention', tool: true, decision }
+    if (typeof e.body === 'string' && e.body.trim()) body.body = e.body
+    if (e.push === false) body.push = false
+    const sent = await postFull($, `${baseUrl}/api/surface`, body, POST_TIMEOUT_MS)
+    if (!sent.ok) {
+      const err = typeof sent.json.error === 'string' ? sent.json.error : sent.why
+      return { result: `Not posted: ${err}.`, isError: true }
+    }
+    const id = typeof sent.json.id === 'string' ? sent.json.id : ''
+    return {
+      result:
+        `Posted to the user's Decide deck${id ? ` (id ${id})` : ''}. The answer arrives as a later prompt starting ` +
+        '"[Decision: ". Continue other work or end your turn; do not ask the same question again in chat.' +
+        (id ? ` To take it back: curl -s -X POST ${baseUrl}/api/decide/${id}/withdraw` : ''),
     }
   })
 
@@ -947,6 +1023,37 @@ async function postJson(
     return { ok: true, id }
   } catch (err) {
     return { ok: false, why: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+async function postFull(
+  $: EngineInterface,
+  url: string,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<{ ok: boolean; json: Record<string, unknown>; why?: string }> {
+  try {
+    const [session, pane] = await Promise.all([$.session.id().catch(() => undefined), $.env.get('HERDR_PANE_ID').catch(() => undefined)])
+    const payload: Record<string, unknown> = { ...body }
+    if (session) payload.session = session
+    if (pane) payload.pane = pane
+    const timeout = $.clock.sleep(timeoutMs).then(
+      () => null,
+      () => new Promise<null>(() => {}),
+    )
+    const res = await Promise.race([
+      $.http.fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }),
+      timeout,
+    ])
+    if (res === null) return { ok: false, json: {}, why: 'the sheprd server timed out' }
+    let json: Record<string, unknown> = {}
+    try {
+      const v: unknown = JSON.parse(res.text)
+      if (v && typeof v === 'object') json = v as Record<string, unknown>
+    } catch {}
+    return res.ok ? { ok: true, json } : { ok: false, json, why: `HTTP ${res.status}` }
+  } catch (err) {
+    return { ok: false, json: {}, why: err instanceof Error ? err.message : String(err) }
   }
 }
 

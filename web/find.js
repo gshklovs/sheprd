@@ -18,7 +18,7 @@ const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'p
 export const colCls = c => COLORS.includes(c) ? ' col-' + c : '';
 const isHome = a => !!a?.home || isMasterName(a?.short || a?.name || a?.title); // the home agent (herdr name master*)
 export const nameOf = a => isHome(a) ? HOME_NAME() : a?.short || a?.name || a?.title || 'Agent';
-const initial = a => isHome(a) ? HOME_NAME().slice(0, 2).toUpperCase() : (nameOf(a).replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase();
+const initial = a => isHome(a) ? '' : (nameOf(a).replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase();
 const working = a => a && !a.asleep && (a.status === 'working');
 /** The agent's disc: pastel fill + initial; asleep = faded with a moon, working = a blue arc. */
 export const favHTML = (a, { sz } = {}) => `<span class="fav${isHome(a) ? ' xed' : ''}${a?.asleep ? ' zz' : ''}"${sz ? ` style="--sz:${sz}px"` : ''}>${initial(a)}`
@@ -275,7 +275,8 @@ export function drawRecent(el, st) {
     $('.fedit', box).onclick = () => editSheet();
     longPress(box, '.fgc', c => { const r = recentList(G.st).find(x => x.sid === c.dataset.sid); if (!r) return false; pinSheet(r, c); });
   }
-  if (box.previousElementSibling !== brief) brief.after(box);
+  const prev = box.previousElementSibling; // right under the briefing, or under Decide's card (decide.js) that sits there
+  if (prev !== brief && !(prev?.classList.contains('dwrap') && prev.previousElementSibling === brief)) brief.after(box);
   const html = rows.map(r => `<a class="fgc${colCls(r.color)}" href="${hrefOf(r)}" data-sid="${esc(r.sid)}">${favHTML(r, { sz: 30 })}<span class="gb"><b>${esc(nameOf(r))}</b><small>${cellSub(r)}</small>${r.branchOf ? `<small class="gfrom" data-go="${r.branchOf.pane ? '#/a/' + enc(r.branchOf.pane) : '#/t/' + enc(r.branchOf.sid)}">↳ from ${esc(whoName(r.branchOf.name))}</small>` : ''}</span></a>`).join('');
   const g = $('.fgrid', box);
   if (g._h !== html) { g._h = html; g.innerHTML = html; }

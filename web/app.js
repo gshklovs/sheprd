@@ -610,7 +610,7 @@ function surfaceToast(s) {
 // the sender: its live pane, or (escalations sent before `from` existed) the live agent with that name
 // find.js `senderHead` for a live sender (sync: the card draws before find.js loads); same markup
 const findHead = (p, what, it) => MODS.find ? MODS.find.senderHead({ ...p, name: p.short || p.title, sid: p.session, asleep: false }, what, p.pane, it.from)
-  : `<a class="am-h fx" href="#/a/${enc(p.pane)}"><span class="am-av fav${p.home ? ' xed' : ''}">${p.home || isMasterName(p.short || p.title) ? esc(HOME_NAME().slice(0, 2).toUpperCase()) : esc((p.short || p.title || '?').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1).toUpperCase())}</span>`
+  : `<a class="am-h fx" href="#/a/${enc(p.pane)}"><span class="am-av fav${p.home || isMasterName(p.short || p.title) ? ' xed' : ''}">${p.home || isMasterName(p.short || p.title) ? '' : esc((p.short || p.title || '?').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1).toUpperCase())}</span>`
   + `<span class="am-w"><span class="snd">${esc(p.home ? HOME_NAME() : whoName(p.short || p.title || p.pane, p.pane))}<svg class="chev-i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span><small>${p.status === 'working' ? '<span class="wkt">Working</span>' : esc(LABEL[dispStatus(p)] || '')} · ${esc(what)}</small></span>`
   + '<span class="opn">Open<svg class="chev-i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span></a>';
 const steerAgent = it => G.st?.agents.find(x => x.pane === it.agentId)
@@ -3070,6 +3070,10 @@ function route() {
   else if (/^\/apps(\?|$)/.test(hs)) { // Apps tab (apps-tab.js)
     if (!MODS['apps-tab']) { lazy('apps-tab').then(() => { G.route = null; route(); }, e => toast('Load failed: ' + esc(e.message), 'err')); return; }
     ({ key, make } = MODS['apps-tab'].route(hs));
+  }
+  else if (/^\/decide(\/|$)/.test(hs)) { // the Decide deck (decide.js)
+    if (!MODS.decide) { lazy('decide').then(() => { G.route = null; route(); }, e => toast('Load failed: ' + esc(e.message), 'err')); return; }
+    ({ key, make } = MODS.decide.route(hs));
   }
   else if (hs.startsWith('/f?')) { const p = new URLSearchParams(hs.slice(3)).get('path') || '/'; key = 'f' + p; make = () => new DocView(p); }
   else if (/^\/gd?\//.test(hs)) { // branch vs main, git diffs (git.js)

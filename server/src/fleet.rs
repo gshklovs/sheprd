@@ -454,6 +454,11 @@ struct ResumeBody {
     text: Option<String>,
 }
 
+/// Resume an asleep session with `text` as its first message (decide.rs: the user's pick wakes the agent that asked).
+pub async fn resume_with(app: Shared, sid: String, text: String) -> Response {
+    api_resume(State(app), AxPath(sid), Some(Json(ResumeBody { ws: None, text: Some(text) }))).await
+}
+
 async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body: Option<Json<ResumeBody>>) -> Response {
     if !crate::valid_sid(&sid) {
         return json_err(StatusCode::BAD_REQUEST, "bad session id");

@@ -422,6 +422,7 @@ export function draw(el, st, o) {
   if (run.length) loadProg(run);
   const ready = o.list.filter(a => !a.home && dispStatus(a) === 'done');
   if (patchHTML(brief, `<div class="kick">${esc(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${o.list.length} agent${o.list.length === 1 ? '' : 's'}${run.length ? ` · ${run.length} job${run.length > 1 ? 's' : ''}` : ''}</div><h1 class="bl">${briefHTML(st, items, tiles, ready, o.failing || [])}</h1>`)) tick(brief);
+  if (st?.decisions?.open || $('.dwrap', el)) lazy('decide').then(m => m.homeCard(el, G.st), () => { }); // decide.js: "N to decide" under the briefing
   drawHero(heroBox, items, tiles.length);
   drawApps(el, o.jobs || [], byPane);
   tilesSec.hidden = !tiles.length;

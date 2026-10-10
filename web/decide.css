@@ -1,0 +1,104 @@
+/* Decide (decide.js): Home's "N to decide" card and the full-screen deck at #/decide. Plain iOS, one accent; cards lifted by --card-sh in light, by surface colour in dark. */
+
+/* ---------- Home card under the briefing ---------- */
+.dentry { margin: 2px 0 0; padding: 14px; border-radius: 16px; background: var(--bg2); box-shadow: var(--card-sh); display: flex; gap: 12px; align-items: center; color: var(--fg); }
+.dentry:active { background: var(--bg3); }
+.dentry .dstack { position: relative; width: 74px; height: 70px; flex: none; }
+.dentry .dstack img { position: absolute; width: 44px; height: 66px; object-fit: cover; object-position: top; border-radius: 7px; border: .5px solid var(--sep); box-shadow: 0 2px 6px rgba(0, 0, 0, .12); background: var(--bg3); }
+.dentry .dstack img:nth-child(1) { left: 0; top: 0; transform: rotate(-4deg); z-index: 3; }
+.dentry .dstack img:nth-child(2) { left: 14px; top: 2px; transform: rotate(2deg); z-index: 2; }
+.dentry .dstack img:nth-child(3) { left: 28px; top: 4px; transform: rotate(7deg); z-index: 1; }
+.dentry .dico { width: 52px; height: 52px; border-radius: 14px; flex: none; display: grid; place-items: center; background: var(--awash); color: var(--accent); }
+.dentry .dico svg { width: 28px; height: 28px; }
+.dentry .dtx { min-width: 0; flex: 1; }
+.dentry .dt1 { font-size: 17px; font-weight: 700; }
+.dentry .dt2 { font-size: 13px; color: var(--fg2); margin-top: 2px; line-height: 1.35; }
+.dentry .dgo { flex: none; display: inline-flex; align-items: center; min-height: 34px; padding: 0 16px; border-radius: 17px; background: var(--accent-fill); color: #fff; font-size: 15px; font-weight: 600; }
+.dnext { margin: 8px 16px 0; font-size: 13px; color: var(--fg2); }
+.dnext b { font-weight: 600; color: var(--act, var(--fg)); }
+.dwrap { margin-bottom: 14px; }
+
+/* ---------- the deck ---------- */
+.view.deck { background: var(--bg); padding-top: var(--sat); }
+.deck .dk-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px 10px; }
+.deck .dk-prog { flex: 1; display: flex; gap: 4px; }
+.deck .dk-prog i { flex: 1; height: 4px; border-radius: 2px; background: var(--bg3); }
+.deck .dk-prog i.d { background: var(--accent); } .deck .dk-prog i.c { background: var(--fg2); } .deck .dk-prog i.s { background: var(--fg3); }
+.deck .dk-x { width: 30px; height: 30px; border-radius: 50%; background: var(--bg3); display: grid; place-items: center; color: var(--fg2); flex: none; }
+.deck .dk-x svg { width: 16px; height: 16px; stroke-width: 2.5; }
+.deck .dk-flash { position: absolute; z-index: 3; bottom: calc(var(--sab) + 156px); left: 50%; transform: translate(-50%, -6px); max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 16px; background: var(--bg2); box-shadow: 0 2px 10px rgba(0, 0, 0, .12);
+  font-size: 13px; font-weight: 600; color: var(--fg2); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+.deck .dk-flash span { overflow: hidden; text-overflow: ellipsis; }
+.deck .dk-flash svg { width: 15px; height: 15px; flex: none; stroke: var(--accent); stroke-width: 3; }
+.deck .dk-flash.on { opacity: 1; transform: translate(-50%, 0); }
+.deck .dk-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; transition: transform .25s ease, opacity .25s ease; }
+.deck .dk-body.out { transform: translateY(-40px); opacity: 0; }
+.deck .dk-who { display: flex; align-items: center; gap: 8px; padding: 0 20px; font-size: 14px; color: var(--fg2); }
+.deck .dk-who b { color: var(--act, var(--fg)); font-weight: 600; }
+.deck .dav { width: 30px; height: 30px; border-radius: 50%; display: inline-grid; place-items: center; font: 600 13px system-ui; background: var(--pf, var(--bg3)); color: var(--pt, var(--fg2)); flex: none; }
+.deck .dav.ed { background: var(--fg); color: var(--bg2); font-size: 10px; letter-spacing: .5px; }
+.deck .dk-q { font: 700 23px/1.2 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; letter-spacing: -.3px; padding: 8px 20px 4px; overflow-wrap: anywhere; }
+.deck .dk-sub { padding: 0 20px 10px; color: var(--fg2); font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.deck .dk-sub.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.deck .dk-due { display: inline-block; margin: 0 20px 10px; padding: 2px 9px; border-radius: 10px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--attn) 18%, var(--bg2)); color: var(--warn); }
+/* picture options: a sideways snap row */
+.deck .dk-opts { display: flex; gap: 12px; padding: 4px 20px 4px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; scroll-padding: 0 20px; }
+.deck .dk-opts::-webkit-scrollbar { display: none; }
+.deck .dk-opt { flex: none; width: min(262px, 72vw); border-radius: 18px; background: var(--bg2); box-shadow: var(--card-sh); overflow: hidden; position: relative; scroll-snap-align: start; text-align: left; }
+.deck .dk-opt .img { height: min(360px, 44vh); background: var(--bg3); position: relative; overflow: hidden; }
+.deck .dk-opt .img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.deck .dk-opt .pg { position: absolute; top: 10px; right: 10px; padding: 2px 8px; border-radius: 10px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 12px; font-weight: 600; }
+.deck .dk-opt .lab { padding: 10px 14px 12px; display: flex; align-items: center; gap: 10px; }
+.deck .dk-opt .lab b { font-size: 16px; display: block; } .deck .dk-opt .lab i { font-style: normal; color: var(--fg2); font-size: 13px; display: block; }
+.deck .dk-opt.sel { outline: 3px solid var(--accent); outline-offset: -3px; }
+.deck .rk { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 15px; border: 2px solid var(--fg3); color: transparent; }
+.deck .rk svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 3; }
+.deck .sel .rk { background: var(--accent-fill); border-color: var(--accent-fill); color: #fff; }
+.deck .dk-dots { display: flex; justify-content: center; gap: 6px; padding: 8px 0 0; }
+.deck .dk-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--fg3); } .deck .dk-dots i.on { background: var(--fg); }
+/* word options: big buttons */
+.deck .bigopt { display: flex; align-items: center; gap: 12px; width: calc(100% - 32px); margin: 0 16px 10px; padding: 16px; border-radius: 16px; background: var(--bg2); box-shadow: var(--card-sh); font-size: 17px; font-weight: 600; text-align: left; }
+.deck .bigopt small { display: block; font-weight: 400; font-size: 14px; color: var(--fg2); margin-top: 2px; }
+.deck .bigopt .rk { margin-left: auto; }
+.deck .bigopt.sel { background: var(--accent-fill); color: #fff; } .deck .bigopt.sel small { color: rgba(255, 255, 255, .8); }
+.deck .bigopt.sel .rk { border-color: #fff; background: transparent; }
+.deck .bigopt:active { transform: scale(.985); }
+/* foot: note (+ voice), Later / Send */
+.deck .dk-foot { flex: none; padding: 8px 16px calc(10px + var(--sab)); display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+.deck .crow { display: flex; align-items: flex-end; gap: 6px; min-height: 42px; padding: 4px 4px 4px 14px; border-radius: 21px; background: var(--bg2); box-shadow: var(--card-sh); }
+.deck .crow textarea { flex: 1; min-width: 0; border: 0; outline: 0; resize: none; background: transparent; padding: 7px 0 7px 2px; max-height: 96px; line-height: 20px; height: 34px; }
+.deck .crow textarea::placeholder { color: var(--fg3); }
+.deck .crow .mic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); flex: none; }
+.deck .crow .mic.on { background: var(--accent-fill); color: #fff; }
+.deck .crow .mic svg { width: 20px; height: 20px; }
+.deck .dk-row { display: flex; gap: 10px; align-items: center; }
+.deck .dbtn { height: 50px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; padding: 0 18px; min-width: 0; }
+.deck .dbtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck .dbtn.pri { flex: 1; background: var(--accent-fill); color: #fff; }
+.deck .dbtn.pri:disabled { opacity: .4; }
+.deck .dbtn.sec { background: var(--bg2); color: var(--accent); box-shadow: var(--card-sh); }
+.deck .dk-hint { text-align: center; font-size: 12px; color: var(--fg3); }
+.deck .vnote { border-radius: 14px; }
+/* stale + done */
+.deck .dk-sec { font-size: 13px; font-weight: 600; text-transform: uppercase; color: var(--fg2); letter-spacing: .2px; margin: 18px 32px 7px; }
+.deck .dk-card { margin: 0 16px 10px; background: var(--bg2); border-radius: 14px; box-shadow: var(--card-sh); padding: 12px 14px; }
+.deck .dk-card .h { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg2); }
+.deck .dk-card .h .ago { margin-left: auto; }
+.deck .dk-card .h b { color: var(--act, var(--fg)); font-weight: 600; }
+.deck .dk-card .q { font-size: 16px; font-weight: 600; margin: 4px 0 4px; line-height: 1.3; }
+.deck .dk-card .why { font-size: 14px; color: var(--fg2); margin-bottom: 10px; }
+.deck .dk-card .ch { display: flex; gap: 8px; }
+.deck .chipb { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 14px; border-radius: 17px; background: var(--bg3); color: var(--fg); font-size: 15px; font-weight: 500; }
+.deck .chipb.pri { background: var(--accent-fill); color: #fff; }
+.deck .dk-empty { padding: 60px 32px 20px; text-align: center; }
+.deck .dk-empty .big { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 14px; display: grid; place-items: center; background: var(--accent-fill); color: #fff; }
+.deck .dk-empty .big svg { width: 32px; height: 32px; stroke-width: 2.6; }
+.deck .dk-empty h2 { font-size: 22px; margin: 0 0 6px; }
+.deck .dk-empty p { color: var(--fg2); margin: 0 0 4px; }
+.deck .dk-sent { margin: 0 16px; background: var(--bg2); border-radius: 14px; box-shadow: var(--card-sh); }
+.deck .dk-sent div { display: flex; gap: 10px; padding: 10px 14px; border-top: .5px solid var(--sep); font-size: 14px; }
+.deck .dk-sent div:first-child { border-top: 0; }
+.deck .dk-sent span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg2); }
+.deck [class*="col-"] > b { color: var(--act); }
+.deck .dk-sent div > span:first-child { flex: none; width: 34%; color: var(--fg); font-weight: 600; }
