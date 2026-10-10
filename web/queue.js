@@ -4,7 +4,8 @@
 // yet seen — in one order (answer → denied → reply → done) with one count. Readers: the Home hero (home.js, which
 // answers the top item in place through the same endpoints the chat uses), "Next up" and the Master strip. Opening an
 // item always means its agent's chat at the item (hrefOf).
-import { G, $, h, esc, md, api, post, ls, toast, haptic, tick, patchHTML, nav, agentHref, dispStatus, markSeen, DONE_REP, repLabel, dismissSurfs, takeMods, modSuffix, PMODS, asksYou } from './app.js';
+import { G, $, h, esc, md, api, post, ls, toast, haptic, tick, patchHTML, nav, agentHref, dispStatus, markSeen, DONE_REP, repLabel, dismissSurfs, takeMods, modSuffix, PMODS, asksYou, whoName, HOME_NAME } from './app.js';
+const nmOf = a => a.home ? HOME_NAME() : whoName(a.title || a.name || a.pane, a.pane);
 
 const enc = encodeURIComponent;
 const SNOOZE = 15 * 60e3, HOLD = 30e3, SURF_AGE = 12 * 3600e3;
@@ -27,7 +28,7 @@ const saveSnz = () => { const t = Date.now(); for (const k in snz) if (snz[k] < 
 function itemsOf(st) {
   const out = [], t = Date.now(), agents = st?.agents || [], replied = ls.get('replied', {});
   for (const a of agents) {
-    const nm = a.home ? 'Master' : a.title || a.name || a.pane, tk = a.talk || {}, base = { a, nm, pane: a.pane };
+    const nm = nmOf(a), tk = a.talk || {}, base = { a, nm, pane: a.pane };
     if (a.status === 'blocked') {
       const q = a.ask?.questions;
       if (tk.perm) out.push({ ...base, kind: 'perm', key: 'perm:' + tk.perm.id, rank: 0, ts: tk.perm.ts || a.since, p: tk.perm });
@@ -42,7 +43,7 @@ function itemsOf(st) {
   for (const s of st?.surfaces || []) {
     if (!s.replies?.length || replied[surfKey(s)] || replied['s:' + s.id] || G.dismissed?.has(String(s.id)) || t - s.ts > SURF_AGE) continue;
     const a = agents.find(x => x.pane === s.pane); if (!a) continue;
-    out.push({ a, nm: a.home ? 'Master' : a.title || a.name || a.pane, pane: a.pane, kind: 'surf', key: 'surf:' + surfKey(s), rank: 2, ts: s.ts, s });
+    out.push({ a, nm: a.home ? HOME_NAME() : a.title || a.name || a.pane, pane: a.pane, kind: 'surf', key: 'surf:' + surfKey(s), rank: 2, ts: s.ts, s });
   }
   for (const [k, at] of held) if (t - at > HOLD) held.delete(k);
   return out.filter(x => !held.has(x.key) && !(snz[x.key] > t)).sort((x, y) => x.rank - y.rank || (x.ts || 0) - (y.ts || 0));

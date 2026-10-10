@@ -716,7 +716,7 @@ fn watch_json(w: &Watch) -> Value {
 
 async fn api_watch_add(State(app): State<Shared>, Json(b): Json<WatchBody>) -> Response {
     let Some(a) = agent_json(&app, &b.pane) else { return json_err(StatusCode::NOT_FOUND, "unknown pane") };
-    let title = if a["home"] == true { "Master".to_string() } else { a["title"].as_str().unwrap_or(&b.pane).to_string() };
+    let title = if a["home"] == true { crate::home_name() } else { a["title"].as_str().unwrap_or(&b.pane).to_string() };
     let mut w = Watch {
         id: format!("w{:x}", now_ms()),
         pane: b.pane.clone(),
@@ -956,7 +956,7 @@ async fn tick(app: &Shared) {
                 continue;
             }
             let mins = (now - a["since"].as_i64().unwrap_or(now)) / 60_000;
-            let title = if a["home"] == true { "Master".to_string() } else { a["title"].as_str().unwrap_or(&pane).to_string() };
+            let title = if a["home"] == true { crate::home_name() } else { a["title"].as_str().unwrap_or(&pane).to_string() };
             let what = a["plan"]["text"]
                 .as_str()
                 .map(|p| format!("Plan waiting for approval: {}", p.lines().map(|l| l.trim_start_matches('#').trim()).find(|l| !l.is_empty()).unwrap_or("")))

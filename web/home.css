@@ -35,6 +35,12 @@
 .h-rep input { flex: 1; min-width: 0; height: 38px; border-radius: 19px; border: .5px solid var(--sep); background: var(--bg2); padding: 0 14px; font: inherit; font-size: 16px; color: var(--fg); outline: none; }
 .h-rep button { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--accent-fill); color: #fff; display: grid; place-items: center; }
 .h-rep button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+/* All clear folds away after a few seconds (home.js CALM): fade, then the row collapses so the list rises */
+.hcalmw { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .45s cubic-bezier(.3,.7,.3,1) .1s, opacity .3s ease, margin .45s ease .1s; }
+.hcalmi { min-height: 0; }
+.hcalmw.gone { grid-template-rows: 0fr; opacity: 0; margin-bottom: -4px; pointer-events: none; } /* -4px: the .hero's own margin */
+.hcalmw.gone .hcalmi { overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .hcalmw { transition: opacity .3s ease, grid-template-rows 0s .3s, margin 0s .3s; } }
 .hcalm { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 12px; background: var(--bg2); box-shadow: var(--card-sh); font-size: 15px; color: var(--fg2); }
 .hcalm .ok { display: inline-grid; } .hcalm .ok svg { width: 19px; height: 19px; fill: none; stroke: var(--done); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .hcalm b { color: var(--fg); font-weight: 600; } .hcalm .hsn { color: var(--accent); font-size: 13.5px; padding: 8px 0 8px 8px; }

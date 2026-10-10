@@ -1,0 +1,131 @@
+/* Find and continue agents (web/find.js). Plain iOS: pastel discs, no outlines. */
+
+/* the agent disc: pastel fill + initial in the deep shade; asleep = faded with a moon, working = a blue arc */
+.fav { --sz: 34px; position: relative; flex: none; width: var(--sz); height: var(--sz); border-radius: 50%; display: grid; place-items: center;
+  background: var(--pf, var(--bg3)); color: var(--pt, var(--fg)); font: 700 calc(var(--sz) * .42)/1 -apple-system, system-ui, sans-serif; }
+.fav.xed { background: var(--fg); color: var(--bg2); font-size: calc(var(--sz) * .3); letter-spacing: .5px; }
+.fav.zz { color: color-mix(in srgb, var(--pt, var(--fg)) 62%, var(--bg2)); background: color-mix(in srgb, var(--pf, var(--bg3)) 62%, var(--bg2)); }
+.fav .moon { position: absolute; right: -3px; bottom: -3px; width: 17px; height: 17px; border-radius: 50%; background: var(--bg2); display: grid; place-items: center; color: var(--fg2); }
+.fav .moon svg { width: 11px; height: 11px; }
+.fav .xwk { position: absolute; inset: -3px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--work); border-right-color: var(--work); animation: fav-spin 1.4s linear infinite; }
+@keyframes fav-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .fav .xwk { animation: none; } }
+.moon-i { fill: currentColor; stroke: none; }
+.chev-i { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.zzt { color: var(--fg2); display: inline-flex; align-items: center; gap: 4px; }
+.zzt svg { width: 11px; height: 11px; }
+.wkt { color: var(--work); } .dnt { color: var(--done); } .bkt { color: var(--fg); font-weight: 600; }
+
+/* 3a: the sender of an agent-message card */
+.amsg .am-h.fx { padding: 9px 12px; gap: 10px; color: var(--fg2); }
+.amsg .am-h.fx .am-av { --sz: 30px; width: 30px; height: 30px; background: var(--pf, var(--bg3)); color: var(--pt, var(--fg)); font-size: 13px; }
+.amsg .am-h.fx .am-av.xed { background: var(--fg); color: var(--bg2); }
+.amsg .am-h.fx .am-av.zz { color: color-mix(in srgb, var(--pt, var(--fg)) 62%, var(--bg2)); background: color-mix(in srgb, var(--pf, var(--bg3)) 62%, var(--bg2)); }
+.amsg .am-h.fx .am-av .moon { right: -4px; bottom: -4px; width: 15px; height: 15px; }
+.amsg .am-h.fx .am-av .moon svg { width: 10px; height: 10px; }
+.am-w .snd { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; max-width: 100%; color: var(--pt, var(--fg)); font-size: 15px; font-weight: 600;
+  border-radius: 7px; margin: -2px -6px; padding: 2px 6px; transition: background .15s; }
+.amsg .am-h.fx .am-w { flex: 1; min-width: 0; }
+.am-w .snd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.am-w .snd svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.amsg .am-h.fx:active .snd { background: color-mix(in srgb, var(--pf, var(--bg3)) 80%, transparent); }
+.am-w small { display: flex; align-items: center; gap: 3px; white-space: nowrap; overflow: hidden; }
+.amsg .am-h.fx .opn { margin-left: auto; flex: none; font-size: 14px; font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 1px; padding: 6px 0 6px 8px; }
+.amsg .am-h.fx .opn svg { width: 15px; height: 15px; }
+.amsg .am-h.fx .opn[disabled] { opacity: .5; }
+
+/* 3b: an asleep agent's chat: header line, "Fell asleep at", the wake card above the (hidden) composer */
+.chat.zzv .t2 .zzt { color: inherit; font: inherit; }
+.chat.zzv .fl-rbar { display: none; }
+.fasleep-div { display: flex; align-items: center; gap: 10px; margin: 18px 6px 8px; font-size: 12.5px; color: var(--fg2); }
+.fasleep-div::before, .fasleep-div::after { content: ""; flex: 1; height: .5px; background: var(--sep); }
+.fasleep-div span { display: inline-flex; align-items: center; gap: 4px; }
+.fasleep-div svg { width: 11px; height: 11px; }
+.fwake { margin: 0 calc(12px + var(--sar)) calc(8px + var(--sab)) calc(12px + var(--sal)); background: var(--bg2); border-radius: 16px; box-shadow: var(--card-sh); padding: 12px 14px; }
+.fwake .w1 { display: flex; align-items: center; gap: 10px; }
+.fwake .w1 > div { min-width: 0; }
+.fwake .w1 .mn { width: 30px; height: 30px; border-radius: 50%; background: var(--pf, var(--bg3)); color: var(--pt, var(--fg2)); display: grid; place-items: center; flex: none; }
+.fwake .w1 .mn svg { width: 16px; height: 16px; }
+.fwake .w1 b { display: block; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fwake .w1 small { display: block; font-size: 13px; color: var(--fg2); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fwake .wb { display: flex; gap: 8px; margin-top: 11px; }
+.fwake .wb .btn { flex: 1; min-height: 44px; font-size: 16px; border-radius: 12px; }
+.fwake .wb .btn.primary { flex: 1.4; }
+.fwake .wform { display: flex; gap: 8px; margin-top: 11px; align-items: flex-end; }
+.fwake .wform textarea { flex: 1; min-width: 0; font: inherit; font-size: 16px; border: 0; border-radius: 12px; padding: 9px 11px; background: var(--bg3); color: var(--fg); resize: none; }
+.fwake .wform .btn { min-height: 40px; border-radius: 12px; }
+.fwake .wn { font-size: 12.5px; color: var(--fg2); margin-top: 9px; line-height: 1.35; }
+
+/* 1a: the Agents tab: find field, job line on rows, the Asleep group */
+.ffind { display: flex; align-items: center; gap: 7px; width: 100%; height: 40px; border-radius: 11px; background: color-mix(in srgb, var(--fg) 6%, var(--bg)); padding: 0 11px; color: var(--fg2); font-size: 16px; margin: 6px 0 2px; text-align: left; }
+.ffind svg { width: 17px; height: 17px; flex: none; }
+.ffind span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .c-job { font-size: 14px; color: var(--fg); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xrow { display: flex; gap: 12px; align-items: center; padding: 10px 14px 10px 13px; position: relative; color: var(--fg); text-decoration: none; background: var(--bg2); }
+.xrow:active { background: var(--bg3); }
+.xrow + .xrow::before { content: ""; position: absolute; left: 59px; right: 0; top: 0; height: .5px; background: var(--sep); }
+.xrow .xb { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.xrow .f1 { display: flex; align-items: baseline; gap: 6px; font-size: 16px; font-weight: 600; line-height: 1.3; }
+.xrow .f1 .xnm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pt, var(--fg)); }
+.xrow .f1 .tm { margin-left: auto; flex: none; font-size: 13px; font-weight: 400; color: var(--fg2); }
+.xrow .f2 { font-size: 14px; color: var(--fg); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xrow .f3 { font-size: 13px; color: var(--fg2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 4px; align-items: center; }
+.xrow .f3 .xlt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.xrow > .btn.cont { align-self: center; }
+.xrow .xchev { align-self: center; color: var(--fg3); flex: none; display: flex; }
+.xrow .xchev svg { width: 18px; height: 18px; }
+.btn.cont { min-height: 32px; font-size: 14px; font-weight: 600; padding: 0 13px; border-radius: 16px; background: var(--accent-fill); color: #fff; flex: none; }
+.btn.cont.ghost { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.g-zz .fhint { font-size: 12.5px; color: var(--fg3); padding: 7px 16px 2px; line-height: 1.35; }
+.g-zz .fhint a { color: var(--accent); }
+
+/* 1b: search: Agents, then Messages */
+.fres-h { display: flex; align-items: baseline; gap: 6px; font-size: 13px; text-transform: uppercase; color: var(--fg2); font-weight: 600; margin: 10px 6px 6px 4px; letter-spacing: .3px; }
+.fres-h .gn { color: var(--fg3); font-weight: 500; }
+.fres { background: var(--bg2); border-radius: 14px; box-shadow: var(--card-sh); overflow: hidden; margin-bottom: 14px; }
+.fres .xrow { align-items: flex-start; }
+.fres .xrow > .btn.cont, .fres .xrow .xchev { align-self: center; }
+.fres .f2 { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fres .snip { font-size: 14px; line-height: 1.4; color: var(--fg); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fres .snip .xwho { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--fg3); margin-right: 5px; }
+.fres .snip .xwho.u { color: var(--accent); }
+.fres mark, .g-zz mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 4px; padding: 0 1px; }
+
+/* 2a: Recent on Home: a 2 × 3 grid of discs */
+.frec { margin: 0 0 12px; }
+.frec .gh { padding-right: 4px; }
+.frec .sp { flex: 1; }
+.frec .fedit { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 15px; color: var(--accent); padding: 4px 6px; }
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg2); border-radius: 14px; box-shadow: var(--card-sh); overflow: hidden; }
+.fgc { display: flex; align-items: center; gap: 9px; padding: 10px 10px 10px 11px; min-width: 0; position: relative; color: var(--fg); text-decoration: none; transition: transform .15s, box-shadow .15s; }
+.fgc:active, .fgc.press { background: var(--bg3); }
+.fgc:nth-child(odd)::after { content: ""; position: absolute; right: 0; top: 10px; bottom: 10px; width: .5px; background: var(--sep); }
+.fgc:nth-child(n+3)::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: .5px; background: var(--sep); }
+.fgc .gb { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.fgc b { font-size: 14.5px; font-weight: 600; color: var(--pt, var(--fg)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fgc small { font-size: 12px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 3px; align-items: center; }
+.fgc small svg { width: 10px; height: 10px; flex: none; }
+.pin-i { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.fgc .gpin { display: inline-flex; color: var(--fg3); }
+
+/* 2b: the long-press sheet */
+.fsh-top { display: flex; align-items: center; gap: 12px; padding: 6px 2px 14px; }
+.fsh-top .tb { min-width: 0; flex: 1; }
+.fsh-top .tb b { display: block; font-size: 19px; font-weight: 700; color: var(--pt, var(--fg)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fsh-top .tb > span { display: block; font-size: 14px; color: var(--fg); margin-top: 1px; }
+.fsh-top .tb small { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--fg2); margin-top: 3px; white-space: nowrap; overflow: hidden; }
+.fsh-top .tb small svg { width: 11px; height: 11px; flex: none; }
+.fsh-acts { margin-bottom: 12px; }
+.fsh-acts .act { display: flex; align-items: center; gap: 12px; }
+.fsh-acts .act svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fsh-acts .act .xax { margin-left: auto; font-size: 13px; color: var(--fg2); font-weight: 400; }
+.fsh-acts .act.xpri { font-weight: 600; }
+.fpinned { font-size: 13px; color: var(--fg2); padding: 0 4px 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px; border-radius: 14px; background: var(--bg2); font-size: 13px; font-weight: 600; color: var(--pt, var(--fg)); white-space: nowrap; }
+.fchip .d { width: 8px; height: 8px; border-radius: 50%; background: var(--pe, var(--fg)); flex: none; }
+.fchip .xpn { color: var(--fg3); display: inline-flex; } .fchip .xpn svg { width: 11px; height: 11px; }
+.fsh-note { font-size: 14px; color: var(--fg2); margin: 0 4px 12px; line-height: 1.4; }
+.fmeta { display: flex; flex-direction: column; gap: 12px; }
+.fmeta label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--fg2); }
+.fmeta input { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 0; border-radius: 10px; padding: 10px 12px; }
+.fmeta small { font-size: 12.5px; color: var(--fg3); }

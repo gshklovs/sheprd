@@ -1,7 +1,7 @@
 // Phase 2: machine resources (lazy). #/r Live, #/r/disk Disk, process sheet, alerts sheet, plus the
 // workspace tiles / card line / job line, home GPU segment and chat gauge. docs/phase2-ux.md, API.md "Phase 2".
 // Idle cost ≈ 0: every poller stops when its view is hidden or left; the server stops sampling 10 s later.
-import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, rel, shortPath, agentHref, itemHref, longPress, closeSheets, goBack, dispStatus, copyText, getPrefs, debounce, newAgentSheet, settingsSheet, lazy } from './app.js';
+import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, rel, shortPath, agentHref, itemHref, longPress, closeSheets, goBack, dispStatus, copyText, getPrefs, debounce, newAgentSheet, settingsSheet, lazy, whoName, HOME_NAME } from './app.js';
 
 // styles ship with the module so nothing paints unstyled
 await new Promise(r => {
@@ -25,7 +25,7 @@ const put = (el, html) => { if (el && el._h !== html) { el._h = html; el.innerHT
 const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink'];
 const ccls = c => COLORS.includes(c) ? ' col-' + c : '';
 const agentOf = p => p ? G.st?.agents.find(a => a.pane === p) : null;
-const atitle = (a, p) => a ? (a.home ? 'Master' : a.title || a.name || a.pane) : p || '';
+const atitle = (a, p) => a ? (a.home ? HOME_NAME() : whoName(a.title || a.name || a.pane, a.pane)) : p || '';
 const DOT = { working: 'var(--work)', blocked: 'var(--attn)', done: 'var(--done)', idle: 'var(--idle)', unknown: 'var(--fg3)' };
 const R = {
   chip: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>',
@@ -332,7 +332,7 @@ class LiveView {
   async procMenu(pid) {
     const p = allProcs(this.d).find(x => x.p.pid === pid); if (!p) return false;
     const owner = p.grp === 'agent' ? p.pane : G.st?.home;
-    const sh = sheet(`<h2 class="jt">${esc(p.p.label)}</h2><div class="acts"><button class="act" data-a="pid">Copy PID ${pid}</button><button class="act" data-a="cmd">Copy command</button><button class="act" data-a="ask">Ask ${esc(atitle(agentOf(owner), 'Master'))} about it…</button></div>`, 'compact');
+    const sh = sheet(`<h2 class="jt">${esc(p.p.label)}</h2><div class="acts"><button class="act" data-a="pid">Copy PID ${pid}</button><button class="act" data-a="cmd">Copy command</button><button class="act" data-a="ask">Ask ${esc(atitle(agentOf(owner), HOME_NAME()))} about it…</button></div>`, 'compact');
     let cmd = p.p.label; api('res/p/' + pid).then(r => { cmd = r.cmd || cmd; }, () => { });
     sh.addEventListener('click', e => {
       const b = e.target.closest('[data-a]'); if (!b) return;
@@ -424,7 +424,7 @@ class LiveView {
     for (const c of cl) {
       const g = 'c:' + c.pane, open = this.isOpen(g, true);
       citems.push([g, `<div class="grpbox closed"><div class="gh${open ? ' open' : ''}" data-g="${esc(g)}"><span class="tri"></span><span class="gt"><b>Closed tab ${esc(c.pane)} · still running</b><small>${c.procs} proc${c.procs === 1 ? '' : 's'}${c.gpuMem ? ' · holds ' + fb(c.gpuMem) + ' VRAM' : ''}</small></span>${cols(c)}<span class="lsp"></span></div>
-        ${open ? (c.top || []).map(p => procRow(p)).join('') + `<div class="askrow"><button class="btn sm" data-askm="${esc(c.pane)}">${R.ask}Ask Master about it…</button></div>` : ''}</div>`]);
+        ${open ? (c.top || []).map(p => procRow(p)).join('') + `<div class="askrow"><button class="btn sm" data-askm="${esc(c.pane)}">${R.ask}Ask ${esc(HOME_NAME())} about it…</button></div>` : ''}</div>`]);
     }
     sync(cb, citems);
     // other
@@ -506,7 +506,7 @@ export function processSheet(pid) {
     if (!d) return;
     const a = d.group === 'agent' ? agentOf(d.pane) : null, s = a ? dispStatus(a) : null;
     const gT = (LV?.d || GL.d)?.gpu?.[0]?.memTotal;
-    const who = d.group === 'agent' ? `<i style="background:${DOT[s || 'unknown']}"></i>${s ? esc(s) + ' · ' : ''}<b class="ach${ccls(a?.color)}" data-chat="${esc(d.pane || '')}">${esc(d.agentTitle || atitle(a, d.pane))}</b> · ${esc(d.pane || '')}`
+    const who = d.group === 'agent' ? `<i style="background:${DOT[s || 'unknown']}"></i>${s ? esc(s) + ' · ' : ''}<b class="ach${ccls(a?.color)}" data-chat="${esc(d.pane || '')}">${esc(whoName(d.agentTitle, d.pane) || atitle(a, d.pane))}</b> · ${esc(d.pane || '')}`
       : d.group === 'closed' ? `<i style="background:var(--warn)"></i>closed tab ${esc(d.pane || '')} · still running` : '<i style="background:var(--fg3)"></i>not from an agent';
     const pills = [d.tag ? `<span class="lab${d.tag === 'training' ? ' tr' : ''}">${esc(d.tag)}</span>` : '', d.job ? `<span class="lab jb">job · ${esc(d.job.desc || d.job.id)}</span>` : '', d.detached ? '<span class="lab">detached</span>' : '',
       d.ended ? `<span class="lab endp">Ended ${esc(ago(d.ended))}</span>` : ''].join('');
@@ -524,7 +524,7 @@ export function processSheet(pid) {
         <div class="stat"><div class="cap">VRAM</div><div class="v">${d.gpuMem ? fb(d.gpuMem) : '—'}</div><div class="s2">${d.gpuMem ? `GPU ${pc(d.gpuUtil)}${gT ? ' · of ' + g1(gT) : ''}` : 'no GPU memory'}</div></div>
       </div>
       ${links.length ? `<div class="links n${links.length}">${links.join('')}</div>` : ''}
-      <div class="pacts">${gone ? '' : `<button class="btn${d.watched ? ' on' : ''}" data-a="watch">${R.bell}${d.watched ? 'Watching' : 'Watch this run'}</button>`}<button class="btn" data-a="ask" data-owner="${esc(owner || '')}">${R.ask}Ask ${live ? 'agent' : 'Master'}…</button></div>
+      <div class="pacts">${gone ? '' : `<button class="btn${d.watched ? ' on' : ''}" data-a="watch">${R.bell}${d.watched ? 'Watching' : 'Watch this run'}</button>`}<button class="btn" data-a="ask" data-owner="${esc(owner || '')}">${R.ask}Ask ${live ? 'agent' : HOME_NAME()}…</button></div>
       <h3>Command</h3>
       <div class="pcmd" data-a="copy">${esc(d.cmd || d.label)}</div>
       <div class="pkv">${d.cwd ? `cwd <b>${esc(shortPath(d.cwd))}</b> · ` : ''}pid <b>${d.pid}</b>${d.start ? ` · up <b>${dur((d.ended || Date.now()) - d.start)}</b>` : ''}<br>${d.io ? `wrote <b>${fbs(d.io.write)}</b>${d.io.wBps ? ' · ' + fbs(d.io.wBps).replace(' ', ' ') + '/s' : ''} · ` : ''}${d.threads ?? '?'} threads · state ${esc(d.state || '?')}</div>
@@ -696,12 +696,12 @@ class DiskView {
     const home = agentOf(G.st?.home), root = this.d?.root || '~';
     let to = home ? 'master' : 'new';
     const sh = sheet(`<h2>Ask an agent to clean up</h2>
-      <div class="tochips"><span class="dim">To:</span><button class="chip${to === 'master' ? ' on' : ''}" data-to="master"${home ? '' : ' disabled'}>Master</button><button class="chip${to === 'new' ? ' on' : ''}" data-to="new">New agent in ~</button></div>
+      <div class="tochips"><span class="dim">To:</span><button class="chip${to === 'master' ? ' on' : ''}" data-to="master"${home ? '' : ' disabled'}>${esc(HOME_NAME())}</button><button class="chip${to === 'new' ? ' on' : ''}" data-to="new">New agent in ~</button></div>
       <textarea class="cuta" rows="7">${esc(text)}</textarea>
       <div class="btns col"><button class="btn primary send1"></button><button class="btn edit1">Edit in chat</button><button class="btn sm cpl">Copy list</button></div>
       <p class="dim small">Nothing is deleted until you confirm in the chat.</p>`, 'tall');
     const ta = $('.cuta', sh), send = $('.send1', sh);
-    const upd = () => { send.textContent = to === 'master' ? 'Send to Master' : 'Start agent in ~'; sh.querySelectorAll('[data-to]').forEach(b => b.classList.toggle('on', b.dataset.to === to)); };
+    const upd = () => { send.textContent = to === 'master' ? 'Send to ' + HOME_NAME() : 'Start agent in ~'; sh.querySelectorAll('[data-to]').forEach(b => b.classList.toggle('on', b.dataset.to === to)); };
     upd();
     sh.addEventListener('click', async e => {
       const c = e.target.closest('[data-to]'); if (c && !c.disabled) { to = c.dataset.to; upd(); return; }
@@ -714,7 +714,7 @@ class DiskView {
       if (e.target.closest('.send1')) {
         send.disabled = true;
         try {
-          if (to === 'master') { await post(`a/${enc(home.pane)}/prompt`, { text: ta.value, nonce: Math.random().toString(36).slice(2) + Date.now().toString(36) }); sh.close(); toast('Sent to Master', 'ok'); location.hash = '#/'; }
+          if (to === 'master') { await post(`a/${enc(home.pane)}/prompt`, { text: ta.value, nonce: Math.random().toString(36).slice(2) + Date.now().toString(36) }); sh.close(); toast('Sent to ' + esc(HOME_NAME()), 'ok'); location.hash = '#/'; }
           else { const r = await post('new', { cwd: root, prompt: ta.value, label: 'cleanup' }); G.starting.set(r.pane, Date.now()); sh.close(); location.hash = '#/a/' + enc(r.pane); }
           this.selMode = false; this.sel.clear(); this.render();
         } catch (x) { send.disabled = false; toast('Not sent: ' + esc(x.message), 'err'); }

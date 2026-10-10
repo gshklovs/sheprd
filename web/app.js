@@ -1,5 +1,5 @@
 // sheprd — iPhone client for herdr-managed Claude agents.
-import { codeHTML, md, mdx, esc, textx, linkify, thumbs, L, fixUrl, fileUrl, IMG_EXT, pathLink, isMedia } from './md.js';
+import { codeHTML, md, mdx, esc, textx, linkify, thumbs, L, fixUrl, fileUrl, IMG_EXT, BIN_EXT, pathLink, isMedia } from './md.js';
 import { ansi, stripAnsi } from './ansi.js';
 
 const VERSION = 'v2';
@@ -109,6 +109,8 @@ function schedIconSheet(key, cur, by, done) {
 }
 
 // ---------- global state ----------
+// The home agent's display name (SHEPRD_HOME_NAME on the server, default "Master"); herdr still calls it `master`.
+const HOME_NAME = () => G.st?.homeName || 'Master';
 const G = {
   st: ls.get('state', null), conn: 'off', seen: ls.get('seen', null), view: null, route: null,
   tc: new Map(), starting: new Map(), skew: 0, dismissed: new Set(Object.keys(ls.get('sfDismiss', {}))),
@@ -131,7 +133,11 @@ function markSeen(a) {
   G.seen[a.pane] = a.completionSeq; ls.set('seen', G.seen);
 }
 L.isPane = p => /^w\d+:p\d+$/.test(p) || !!G.st?.agents.some(a => a.pane === p);
-L.paneLabel = p => { const a = G.st?.agents.find(a => a.pane === p); return a ? (a.home ? 'Master' : a.title || a.name || p) : p; };
+// The home agent's display name is HOME_NAME(). Its herdr agent/tab stays `master*` and API fields (agentTitle, title,
+// from) keep it: every agent name the user reads goes through whoName.
+const isMasterName = n => /^master(?:-[0-9a-z]+)?$/i.test(String(n || '').trim());
+const whoName = (name, pane) => (pane && pane === G.st?.home) || isMasterName(name) ? HOME_NAME() : name;
+L.paneLabel = p => { const a = G.st?.agents.find(a => a.pane === p); return a ? (a.home ? HOME_NAME() : whoName(a.title || a.name || p, p)) : p; };
 const goBack = fb => { if (G.navs > 1) history.back(); else location.hash = fb; };
 const agentHref = a => (a.home && a.pane === G.st?.home ? '#/' : '#/a/' + enc(a.pane));
 const sortAgents = list => list.map(a => [a, dispStatus(a)])
@@ -170,7 +176,7 @@ function switcher(filter) {
   const list = sortAgents((G.st?.agents || []).filter(a => !filter || dispStatus(a) === filter));
   const sh = sheet(`<h2>${filter ? LABEL[filter] : 'Switch agent'}</h2><div class="swl">${list.map(a => {
     const s = dispStatus(a);
-    return `<a class="swrow${colCls(a.color)}" href="${agentHref(a)}"><span class="pill s-${s}"><i></i>${LABEL[s]}</span><span class="sb"><b>${cdot(a.color)}${a.home ? 'Master' : esc(a.title || a.name || a.pane)}</b>${doingOf(a) ? nowSmall(a) : `<small>${esc(shortPath(a.cwd))} · ${esc(a.wsLabel || a.ws)}${a.tabLabel ? ' / ' + esc(a.tabLabel) : ''}</small>`}</span>${G.art?.mini(a) || ''}<span class="since" data-since="${a.since}"></span></a>`;
+    return `<a class="swrow${colCls(a.color)}" href="${agentHref(a)}"><span class="pill s-${s}"><i></i>${LABEL[s]}</span><span class="sb"><b>${cdot(a.color)}${a.home ? HOME_NAME() : esc(a.title || a.name || a.pane)}</b>${doingOf(a) ? nowSmall(a) : `<small>${esc(shortPath(a.cwd))} · ${esc(a.wsLabel || a.ws)}${a.tabLabel ? ' / ' + esc(whoName(a.tabLabel)) : ''}</small>`}</span>${G.art?.mini(a) || ''}<span class="since" data-since="${a.since}"></span></a>`;
   }).join('') || '<p class="dim">No agents.</p>'}</div><a class="btn swall" href="#/agents">${I.grid} Workspace</a>`);
   tick(sh);
   sh.addEventListener('click', e => { if (e.target.closest('a')) sh.close(); });
@@ -184,7 +190,7 @@ function nextUp(pane) {
     .filter(([a, s]) => a.pane !== pane && s in NEXT_RANK && (!a.muted || s === 'blocked'))
     .sort((x, y) => NEXT_RANK[x[1]] - NEXT_RANK[y[1]] || (x[0].since || 0) - (y[0].since || 0))[0]?.[0] || null;
 }
-const nextName = a => a.home ? 'Master' : a.title || a.name || a.pane;
+const nextName = a => a.home ? HOME_NAME() : a.title || a.name || a.pane;
 // pane chips in chats: live status dot, color, doing label (F6)
 function updPchips(root) {
   const chips = root.querySelectorAll('.pchip'); if (!chips.length) return;
@@ -271,7 +277,7 @@ function renameSheet(a) {
 function cardAct(a, act) {
   if (act === 'pin') setMeta(a, { pinned: !a.pinned }).then(ok => ok && toast(a.pinned ? 'Pinned' : 'Unpinned', '', null, 1400));
   else if (act === 'mute') setMeta(a, { muted: !a.muted }).then(ok => ok && toast(a.muted ? 'Muted — no done pushes' : 'Unmuted', '', null, 1600));
-  else if (act === 'stop') sendKeys(a.pane, ['esc']).then(() => toast('Sent Esc to ' + esc(a.title || a.pane), '', null, 1600));
+  else if (act === 'stop') sendKeys(a.pane, ['esc']).then(() => toast('Sent Esc to ' + esc(whoName(a.title || a.pane, a.pane)), '', null, 1600));
   else if (act === 'close') confirmClose(a);
   else if (act === 'term') location.hash = '#/s/' + enc(a.pane);
   else if (act === 'copy') copyText(a.pane);
@@ -282,7 +288,7 @@ function cardAct(a, act) {
   else if (act === 'ctx') lazy('mb').then(m => m.ctxSheet(a));
 }
 function confirmClose(a) {
-  const sh = sheet(`<h2>Close this tab?</h2><p class="dim">${esc(a.title || a.pane)} — the session can be resumed.</p><div class="btns col"><button class="btn danger go">Close tab</button><button class="btn no">Cancel</button></div>`, 'compact');
+  const sh = sheet(`<h2>Close this tab?</h2><p class="dim">${esc(whoName(a.title || a.pane, a.pane))} — the session can be resumed.</p><div class="btns col"><button class="btn danger go">Close tab</button><button class="btn no">Cancel</button></div>`, 'compact');
   $('.no', sh).onclick = () => sh.close();
   $('.go', sh).onclick = async () => {
     sh.close(); haptic();
@@ -321,6 +327,7 @@ setInterval(() => { if (!document.hidden) { tick(app); staleBanner(); } }, 1000)
 let staleEl;
 function staleBanner() {
   const on = G.conn !== 'on' && G.downAt && Date.now() - G.downAt > 10000;
+  document.documentElement.toggleAttribute('data-offline', !!on);
   if (!on) { if (staleEl) staleEl.hidden = true; return; }
   staleEl ||= document.body.appendChild(h('<div class="stalebar" hidden></div>'));
   const t = `Offline · ${G.lastUpd ? 'updated ' + rel(G.lastUpd + G.skew) + ' ago' : 'connecting…'}`;
@@ -563,12 +570,17 @@ function surfaceToast(s) {
   if (s.links?.some(l => l.url && l.url === location.hash)) return; // already looking at it
   if (G.st && !G.st.surfaces?.some(x => x.id === s.id)) { G.st.surfaces = [s, ...(G.st.surfaces || [])]; G.view?.onState?.(G.st); }
   const k = surfKey(s);
-  toast(`<b>${esc(s.title)}</b>${s.agentTitle ? `<span>${esc(s.agentTitle)}</span>` : ''}${s.images?.length ? thumbs(s.images.map(asImg)) : ''}${s.replies?.length && !REPLIED[k] && !REPLIED['s:' + s.id] ? `<div class="sf-rep" data-sfkey="${esc(k)}" data-id="${esc(s.id)}" data-pane="${esc(s.pane || '')}">${s.replies.map(r => `<button class="btn sm${DONE_REP.test(r.trim()) ? ' did' : ''}" data-reply="${esc(r)}">${esc(repLabel(r))}</button>`).join('')}</div>` : ''}`,
+  toast(`<b>${esc(s.title)}</b>${s.agentTitle ? `<span>${esc(whoName(s.agentTitle, s.pane))}</span>` : ''}${s.images?.length ? thumbs(s.images.map(asImg)) : ''}${s.replies?.length && !REPLIED[k] && !REPLIED['s:' + s.id] ? `<div class="sf-rep" data-sfkey="${esc(k)}" data-id="${esc(s.id)}" data-pane="${esc(s.pane || '')}">${s.replies.map(r => `<button class="btn sm${DONE_REP.test(r.trim()) ? ' did' : ''}" data-reply="${esc(r)}">${esc(repLabel(r))}</button>`).join('')}</div>` : ''}`,
     'l-' + s.level, () => openSurface(s), s.replies?.length ? 9000 : 5000);
 }
 
 // ---------- messages other agents sent with /steer {from} (transcript kind "steer") ----------
 // the sender: its live pane, or (escalations sent before `from` existed) the live agent with that name
+// find.js `senderHead` for a live sender (sync: the card draws before find.js loads); same markup
+const findHead = (p, what, it) => MODS.find ? MODS.find.senderHead({ ...p, name: p.short || p.title, sid: p.session, asleep: false }, what, p.pane, it.from)
+  : `<a class="am-h fx" href="#/a/${enc(p.pane)}"><span class="am-av fav${p.home ? ' xed' : ''}">${p.home || isMasterName(p.short || p.title) ? esc(HOME_NAME().slice(0, 2).toUpperCase()) : esc((p.short || p.title || '?').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1).toUpperCase())}</span>`
+  + `<span class="am-w"><span class="snd">${esc(p.home ? HOME_NAME() : whoName(p.short || p.title || p.pane, p.pane))}<svg class="chev-i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span><small>${p.status === 'working' ? '<span class="wkt">Working</span>' : esc(LABEL[dispStatus(p)] || '')} · ${esc(what)}</small></span>`
+  + '<span class="opn">Open<svg class="chev-i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span></a>';
 const steerAgent = it => G.st?.agents.find(x => x.pane === it.agentId)
   || (!it.agentId && it.from ? G.st?.agents.find(x => [x.title, x.name].some(n => n && n.toLowerCase() === it.from.toLowerCase())) : null);
 // ---------- surface cards: workspace, inline in chats, toasts (F7) ----------
@@ -633,7 +645,7 @@ function surfHTML(s, { inline, pane } = {}) {
   return `<div class="surf l-${esc(s.level || 'info')}${inline ? ' inl' : ''}"${s.id != null ? ` data-id="${esc(s.id)}"` : ''}${inline ? ` data-i="${s.i}"` : ''} data-sfkey="${esc(k)}" data-pane="${esc(pane || s.pane || '')}">
       ${inline ? '' : `<button class="x" data-dismiss="${esc(s.id)}" aria-label="Dismiss">${I.x}</button>`}
       <div class="sf-t">${esc(s.title)}</div>
-      ${inline ? '' : `<div class="sf-m">${esc(s.agentTitle || '')}${s.agentTitle ? ' · ' : ''}<span data-since="${s.ts}"></span></div>`}
+      ${inline ? '' : `<div class="sf-m">${esc(whoName(s.agentTitle, s.pane) || '')}${s.agentTitle ? ' · ' : ''}<span data-since="${s.ts}"></span></div>`}
       ${s.body ? `<div class="sf-b md${s.body.length > 220 || s.body.split('\n').length > 4 ? ' long' : ''}${SF_OPEN.has(k) ? ' open' : ''}">${md(s.body, null)}</div>${s.body.length > 220 || s.body.split('\n').length > 4 ? `<button class="sf-more" data-sfmore="${esc(k)}">${SF_OPEN.has(k) ? 'Show less' : 'Show more'}</button>` : ''}` : ''}
       ${thumbs((s.images || []).map(asImg))}
       ${links.length ? `<div class="chips">${links.map(l => `<a class="chip" href="${esc(fixUrl(l.url))}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a>`).join('')}</div>` : ''}
@@ -828,14 +840,20 @@ function mediaViewer(u) {
   return ov;
 }
 // The app's own files never take the installed app out of itself: a raw /api/file tab opens outside the PWA and
-// coming back cold-loads it (4 times on 2026-10-06). Pictures and documents go to the share sheet instead (Save
-// Image, Save to Files, a PDF's preview); video and audio open the in-app player (below).
+// coming back cold-loads it (4 times on 2026-10-06). Where each one goes instead (video and audio: the in-app
+// player, below):
+//   a picture → the lightbox (the lightbox's own Open → the share sheet: Save Image)
+//   a binary (pdf, zip, office…) → the share sheet (Save to Files, a PDF's preview), "Preparing…" while it loads
+//   anything else (html, md, text, code) → the doc viewer, which shows an .html file as the page
 document.addEventListener('click', e => {
   if (e.defaultPrevented || !(navigator.standalone || matchMedia('(display-mode: standalone)').matches)) return;
-  const a = e.target.closest('a[href][target="_blank"]'); // the lightbox's Open carries an absolute URL
+  const a = e.target.closest('a[href][target="_blank"]'); // an agent's link or the lightbox's Open: an absolute URL
   if (!a || a.origin !== location.origin || a.pathname !== '/api/file' || isMedia(a.href)) return;
+  const path = new URLSearchParams(a.search).get('path') || '';
   e.preventDefault(); e.stopPropagation();
-  saveMedia(a.pathname + a.search);
+  if (IMG_EXT.test(path) && !a.closest('.lb')) { lightbox(a.pathname + a.search); return; }
+  if (BIN_EXT.test(path) || a.closest('.lb')) { toast('Preparing ' + esc(mediaName(a.search)) + '…', 'info', null, 1600); saveMedia(a.pathname + a.search); return; }
+  location.hash = '#/f?path=' + enc(path);
 }, true);
 document.addEventListener('click', e => {
   const t = e.target.closest('a.pvid, button.vopen'); if (!t) return;
@@ -952,6 +970,12 @@ function getAgentsView() {
     </div></div>`);
   const sc = $('.scroll', el), cardsEl = $('.cards', el), cbox = $('.cbox', el), quietEl = $('.quiet', el), cards = new Map(), groups = new Map();
   let surfOpen = false, scrollY = 0;
+  // a push-opened panel (#/see/<id>): its top right under the bar until the user scrolls
+  const seePin = () => {
+    const bar = $('.bar', el).getBoundingClientRect().bottom, top = $('.surfs', el).getBoundingClientRect().top;
+    if (Math.abs(top - bar - 6) > 1) sc.scrollTop += top - bar - 6;
+  };
+  ['touchstart', 'wheel'].forEach(t => sc.addEventListener(t, () => { if (G.see) G.see.moved = true; }, { passive: true }));
   wirePlus($('.plus', el));
   $('.back', el).onclick = () => { location.hash = '#/'; };
   wirePlus($('.empty .btn', el));
@@ -969,6 +993,7 @@ function getAgentsView() {
   };
   lazy('fleet').then(() => render(G.st), () => { }); // fleet: agent order
   Promise.all([lazy('queue'), lazy('home')]).then(() => render(G.st), () => { }); // the briefing (home.js) and its queue
+  lazy('find').then(() => render(G.st), () => { }); // find.js: Asleep agents, find field
   const surfsEl = $('.surfs', el);
   surfsEl.addEventListener('click', e => {
     const x = e.target.closest('[data-dismiss]');
@@ -991,7 +1016,7 @@ function getAgentsView() {
   const fromHTML = a => {
     const pp = a.parent?.pane; if (!pp) return '';
     const p = G.st?.agents.find(x => x.pane === pp);
-    return `<span class="c-from" data-go="#/a/${enc(pp)}" title="${FROM[a.parent.via] || 'from'}">↳ <b>${esc(p?.home ? 'Master' : p?.title || pp)}</b></span>`;
+    return `<span class="c-from" data-go="#/a/${enc(pp)}" title="${FROM[a.parent.via] || 'from'}">↳ <b>${esc(p?.home ? HOME_NAME() : p?.title || pp)}</b></span>`;
   };
   // Sheprd-style row: context ring (spins while working) · title + age · one meta row · one outcome line · image thumbnail
   const ringHTML = (a, s) => {
@@ -1009,19 +1034,19 @@ function getAgentsView() {
   };
   const cardHTML = a => {
     const s = dispStatus(a), sub = a.subagents?.running, sep = '<i class="msep">·</i>';
-    const meta = [(s === 'blocked' || s === 'done') && `<b class="t-${s}">${LABEL[s]}</b>`, a.service && `<b class="t-blocked">${esc(a.service.name)}</b>`, esc(a.wsLabel || a.ws) + (a.tabLabel ? ' · ' + esc(a.tabLabel) : ''),
+    const meta = [(s === 'blocked' || s === 'done') && `<b class="t-${s}">${LABEL[s]}</b>`, a.service && `<b class="t-blocked">${esc(a.service.name)}</b>`, !a.job && esc(a.wsLabel || a.ws) + (a.tabLabel ? ' · ' + esc(whoName(a.tabLabel)) : ''), // find.js: the job line says more
       fromHTML(a), sub && `<span class="subb">${I.fork}${sub}</span>`, G.res?.cardLine(a)].filter(Boolean).join(sep);
     const thumb = G.art?.chip(a, 'thumb') || '', inl = thumb ? '' : G.art?.chip(a, 'inline') || '', out = outcomeHTML(a, s);
     return `<a class="card s-${s}${a.home ? ' home' : colCls(a.color)}" href="${agentHref(a)}">${ringHTML(a, s)}<div class="cbody">
-      <div class="c-title"><span class="tt">${esc(a.title || a.name || a.kind || a.pane)}</span>${a.home ? '<span class="htag">Master</span>' : ''}${a.pinned ? `<span class="cflag">${I.pin}</span>` : ''}${a.muted ? `<span class="cflag">${I.bellx}</span>` : ''}<span class="since" data-since="${a.since}"></span></div>
-      <div class="c-meta">${meta}</div>
+      <div class="c-title"><span class="tt">${esc(a.home ? HOME_NAME() : whoName(a.short || a.title || a.name || a.kind || a.pane, a.pane))}</span>${a.pinned ? `<span class="cflag">${I.pin}</span>` : ''}${a.muted ? `<span class="cflag">${I.bellx}</span>` : ''}<span class="since" data-since="${a.since}"></span></div>
+      ${a.job ? `<div class="c-job">${esc(a.job)}</div>` : ''}${meta ? `<div class="c-meta">${meta}</div>` : ''}
       ${out || inl ? `<div class="c-last${out?.[0] ? ' ' + out[0] : ''}">${inl}${out ? `<span class="lt">${out[1]}</span>` : ''}</div>` : ''}
     </div>${thumb}</a>`;
   };
   // Briefing on top (home.js: sentence, hero, In-flight tiles); rows below: Ready (finished, not yet seen) and Everyone
   // (Master first). Working agents are tiles and the hero's agent is the hero, so neither repeats as a row; quiet
   // agents fold away at the bottom. Without home.js (still loading) every agent is a row.
-  const GRP = [['ready', 'Ready'], ['all', 'Everyone']];
+  const GRP = [['ready', 'Ready'], ['all', 'Awake']]; // find.js adds Asleep (closed panes) after these
   // Pinned agents (long-press → Pin to top) lead Everyone, right under Master, whatever their status: never a tile,
   // never in Ready, never in Quiet. A blocked one can also be the hero card.
   const groupOf = (a, s) => s === 'done' && !a.home ? 'ready' : 'all';
@@ -1042,20 +1067,37 @@ function getAgentsView() {
     if (!st) { w.hidden = false; w.textContent = 'Connecting…'; return; }
     w.hidden = st.herdr !== false; w.textContent = 'herdr is not reachable on the host.';
     const list = sortAgents(st.agents);
-    // surfaces
+    // surfaces: the "You should see this" panel. A tapped push (#/see/<id>, G.see) puts its card first and lights it
+    // up, also when the hero has it; a card that is gone by then leaves a note, the panel shows anyway.
+    const see = G.see, seeOn = !!see && !see.gone && !G.dismissed.has(see.id);
     const inQ = new Set(MODS.queue?.items(st).filter(x => x.kind === 'surf').map(x => String(x.s.id))); // the hero has those
-    const surfs = (st.surfaces || []).filter(s => !G.dismissed.has(String(s.id)) && !inQ.has(String(s.id)));
-    const shown = surfOpen ? surfs : surfs.slice(0, 2);
-    if (patchHTML(surfsEl, shown.map(surfHTML).join('') + (surfs.length > 1 ? `<div class="sf-foot">${surfs.length > 2 ? `<button class="more">${surfOpen ? 'Show less' : `Show ${surfs.length - 2} more`}</button>` : ''}`
+    const surfs = (st.surfaces || []).filter(s => { const id = String(s.id); return !G.dismissed.has(id) && (!inQ.has(id) || (seeOn && id === see.id)); });
+    if (seeOn) {
+      const k = surfs.findIndex(s => String(s.id) === see.id), c = see.card || (see.hint && { id: see.id, ts: see.t, level: 'attention', title: see.hint.title, body: see.hint.body });
+      if (k > 0) surfs.unshift(...surfs.splice(k, 1)); else if (k < 0 && c) surfs.unshift(c);
+    }
+    const shown = surfOpen ? surfs : surfs.slice(0, 2), hasSee = seeOn && String(shown[0]?.id) === see.id;
+    const seeCard = s => { // first in the panel, lit for 2 s, its chat one tap away
+      const go = s.tid || G.st?.agents.some(a => a.pane === s.pane) ? itemHref(s.tid, s.i, s.pane) : '';
+      return surfHTML(s).replace('<div class="surf ', `<div class="surf see${Date.now() - see.t < 2200 ? ' hl' : ''} `)
+        .replace(/<\/div>\s*$/, (go ? `<div class="chips sf-src"><a class="chip" href="${esc(go)}">Open chat ›</a></div>` : '') + '</div>');
+    };
+    const sfHead = surfs.length || see ? `<div class="gh sf-h"><span class="gt">You should see this</span>${surfs.length ? `<span class="gn">${surfs.length}</span>` : ''}</div>` : '';
+    const sfNote = !see ? '' : see.gone ? `<div class="sf-gone">That one’s gone${see.gone === 'expired' ? ' (expired)' : ''}.${surfs.length ? '' : ' Nothing else to see right now.'}</div>`
+      : seeOn && !hasSee ? '<div class="sf-gone">Loading…</div>' : '';
+    if (patchHTML(surfsEl, sfHead + sfNote + shown.map((s, i) => i === 0 && hasSee ? seeCard(s) : surfHTML(s)).join('') + (surfs.length > 1 ? `<div class="sf-foot">${surfs.length > 2 ? `<button class="more">${surfOpen ? 'Show less' : `Show ${surfs.length - 2} more`}</button>` : ''}`
       + `<button class="sf-clr" data-n="${surfs.length}" data-ids="${esc(surfs.map(s => s.id).join(' '))}">Clear all</button></div>` : ''))) tick(surfsEl);
+    if (see && !see.moved && Date.now() - see.t < 4000) seePin(); // the briefing above it loads late: keep the panel up top
     // cards (keyed), placed into their group or the Quiet folder
     const live = new Set(), byG = new Map(), quiet = [], pinned = [];
     const vis = list.filter(a => !(a.service && !svcNeeds(a)) && !isQuiet(a));
     const hb = MODS.home && MODS.queue ? MODS.home.draw(el, st, { list: vis, jobs, failing: list.filter(a => svcIssue(a)) }) : null;
+    const inRecent = MODS.find?.recentSids(st);
     for (const a of MODS.fleet ? MODS.fleet.order(list) : list) {
       if (a.service && !svcNeeds(a)) continue; // in the Scheduled strip
       const pin = a.pinned && !a.home;
       if (!pin && hb && (hb.tiles.has(a.pane) || a.pane === hb.hero)) continue; // a tile / the hero
+      if (inRecent?.has(a.session) && groupOf(a, dispStatus(a)) !== 'ready') continue; // find.js: on the Recent grid already
       live.add(a.pane);
       const html = cardHTML(a); let c = cards.get(a.pane);
       if (!c) { c = { el: h(`<div class="cwrap" data-pane="${esc(a.pane)}"><div class="cact l"></div><div class="cact r"></div></div>`) }; cards.set(a.pane, c); }
@@ -1085,6 +1127,7 @@ function getAgentsView() {
       place($('.gl', g), els);
     }
     place(cardsEl, secs);
+    MODS.find?.drawAgents(el, st); // find.js: the find field, Asleep agents with Continue
     drawBgs();
     $('.empty', el).hidden = list.length > 0;
     const shells = st.shells || [], tests = list.filter(isTest).length;
@@ -1181,7 +1224,7 @@ function getAgentsView() {
   let jobsOpen = false;
   const jobRow = j => `<button class="job j-${esc(j.status)}" data-id="${esc(j.id)}">
         <span class="jst">${j.status === 'running' ? '<span class="spin"></span>' : j.status === 'completed' ? '✓' : j.status === 'unknown' ? '?' : '✗'}</span>
-        <span class="sb"><b>${esc(j.desc || j.cmd)}</b><small>${j.status === 'running' ? `running <span data-since="${j.started}"></span>` : `${esc(j.status)} after ${durs(j.ended - j.started)} · <span data-since="${j.ended}" data-ago></span>`}${j.agentTitle ? ' · ' + esc(j.agentTitle) : ''}</small>${G.res?.jobLine(j) || ''}</span><span class="go">›</span></button>`;
+        <span class="sb"><b>${esc(j.desc || j.cmd)}</b><small>${j.status === 'running' ? `running <span data-since="${j.started}"></span>` : `${esc(j.status)} after ${durs(j.ended - j.started)} · <span data-since="${j.ended}" data-ago></span>`}${j.agentTitle ? ' · ' + esc(whoName(j.agentTitle, j.pane)) : ''}</small>${G.res?.jobLine(j) || ''}</span><span class="go">›</span></button>`;
   const drawJobs = () => {
     const cleared = ls.get('jobsCleared', 0);
     const run = []; // running jobs are In-flight tiles (home.js)
@@ -1265,6 +1308,22 @@ function getAgentsView() {
     destroy() { scrollY = sc.scrollTop; },
     keep: true, suspend() { scrollY = sc.scrollTop; }, resume() { render(G.st); sc.scrollTop = scrollY; jobsSig = null; jobsCheck(G.st); loadSched(); },
     onState: st => { render(st); jobsCheck(st); },
+    see(id) { // #/see/<id>: render the panel with that card first and lit, scrolled up under the bar
+      const hint = G.seeHint?.id === id ? G.seeHint : null; G.seeHint = null;
+      const s = G.see = { id, t: Date.now(), hint, card: null, gone: G.dismissed.has(id) && 'dismissed', moved: false };
+      surfOpen = false; render(G.st); seePin();
+      for (const ms of [100, 300, 700, 1500, 3000]) setTimeout(() => { if (G.see === s && !s.moved && G.view === agentsView) seePin(); }, ms);
+      setTimeout(() => { if (G.see === s && G.view === agentsView) render(G.st); }, 2300); // the light goes off
+      // not in this state (stale while the app slept, or older than the newest 50): ask the server for that card
+      if (!s.gone && !G.st?.surfaces?.some(x => String(x.id) === id)) api('surface/' + enc(id)).then(r => {
+        if (G.see !== s) return;
+        if (r?.gone || !r?.surface) s.gone = 'dismissed'; else s.card = r.surface;
+        if (G.view === agentsView) render(G.st);
+      }, e => {
+        if (G.see !== s || e.status !== 404) return; // offline: keep the notification's text
+        s.gone = 'expired'; if (G.view === agentsView) render(G.st);
+      });
+    },
     resRedraw() { render(G.st); drawJobs(); }, // phase 2: res.js glance tick
   };
 }
@@ -1287,7 +1346,7 @@ const tabLast = {};
 function tabBar(key, v) {
   const t = TABS.find(t => t[3](key));
   if (!t) { tabEl?.remove(); return; }
-  tabLast[t[0]] = location.hash;
+  tabLast[t[0]] = location.hash.startsWith('#/see/') ? '#/agents' : location.hash;
   if (!tabEl) {
     tabEl = h(`<nav class="tabbar">${TABS.map(([k, l, href, , svg]) => `<a href="${href}" data-tab="${k}">${svg}<i class="tdot"></i><span>${l}</span></a>`).join('')}</nav>`);
     tabEl.addEventListener('click', e => {
@@ -1348,9 +1407,28 @@ class Screen {
     };
     this.ro = new ResizeObserver(() => this.layout());
   }
-  start() { this.on = true; this.ro.observe(this.wrap); if (G.noLive && Date.now() - G.noLive < 6e4) this.poll(); else lazy('fleet').then(m => this.on && m.liveScreen(this), () => this.poll()); } // fleet: SSE stream, else polling
-  stop() { this.on = false; clearTimeout(this.t); this.ro.disconnect(); this.es?.close(); this.es = null; }
-  soon() { if (this.es) return; clearTimeout(this.t); this.t = setTimeout(() => this.poll(), 120); }
+  // The live stream (fleet.js liveScreen) is trusted but checked: it can go quiet while the terminal changes
+  // (the view then never updated until you backed out and went back in).
+  // So every key / typed text is followed by two direct reads, and a stream quiet for 4 s gets a read every 2 s;
+  // one that missed a change is reconnected.
+  start() { this.on = true; this.ro.observe(this.wrap); clearInterval(this.wd); this.wd = setInterval(() => this.watch(), 2000); this.live(); }
+  live() { if (G.noLive && Date.now() - G.noLive < 6e4) this.poll(); else lazy('fleet').then(m => this.on && m.liveScreen(this), () => this.poll()); } // fleet: SSE stream, else polling
+  stop() { this.on = false; clearTimeout(this.t); clearTimeout(this.t2); clearInterval(this.wd); this.ro.disconnect(); this.es?.close(); this.es = null; }
+  soon() {
+    clearTimeout(this.t);
+    if (!this.es) { this.t = setTimeout(() => this.poll(), 120); return; }
+    this.t = setTimeout(() => this.check(), 150); clearTimeout(this.t2); this.t2 = setTimeout(() => this.check(), 700);
+  }
+  watch() { if (this.on && this.es && !document.hidden && Date.now() - (this.lastEv || 0) > 4000) this.check(true); }
+  // one direct read while streaming; `stalled`: a change the stream didn't deliver means it is stuck → reconnect
+  async check(stalled) {
+    if (!this.on || document.hidden) return;
+    try {
+      const r = await api(`a/${enc(this.pane)}/screen?ansi=1`), missed = r.revision != null && r.revision !== this.rev;
+      this.draw(r); this.el.classList.remove('stale');
+      if (stalled && missed && this.es) { this.es.close(); this.es = null; this.lastEv = Date.now(); this.live(); }
+    } catch { }
+  }
   async poll() {
     clearTimeout(this.t);
     if (!this.on || document.hidden) return;
@@ -1391,6 +1469,8 @@ const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
 const INTR = /^\[Request interrupted/;
 
+// The home agent's header wordmark: its display name; tap = the chat menu (⌄ hints at it).
+const WORDMARK = () => `<button class="wmk" aria-label="${esc(HOME_NAME())}: chat menu" aria-haspopup="menu"><span class="ew">${esc(HOME_NAME().toUpperCase())}</span><svg class="ech" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></button>`;
 class ChatView {
   constructor({ pane, tid, home }) {
     this.pane = pane || null; this.fixedTid = tid || null; this.tid = null; this.ro = !pane;
@@ -1400,14 +1480,14 @@ class ChatView {
     this.first = 0; this.next = 0; this.stick = true; this.subs = [];
     this.el = h(`<div class="view chat${this.ro ? ' ro' : ''}${this.home ? ' home' : ''}${this.pane ? ' live' : ''}">
       <header class="bar"><div class="bar-in">
-        ${this.home ? `<div class="brand"><span class="conn" data-conn="${G.conn}"></span><span class="t1">Master</span></div><span class="pill" hidden></span><button class="ovb" hidden aria-label="Context and Claude usage"></button><span class="sp"></span><button class="ib newchat" aria-label="New master chat">${I.compose}</button>`
+        ${this.home ? `<div class="brand"><span class="conn" data-conn="${G.conn}"></span></div><span class="pill" hidden></span>${WORDMARK()}<span class="sp"></span><button class="ovb" hidden aria-label="Context and Claude usage"></button>`
         : `<button class="ib back" aria-label="Back">${I.back}</button>
         <button class="ttl" aria-label="Rename"><div class="t1w"><span class="cdot"></span><div class="t1"></div></div><div class="t2"></div></button>
         <button class="ib swb" aria-label="Switch agent">${I.down}</button>
         <span class="pill" hidden></span><button class="ctxb" hidden aria-label="Context"></button>
         <button class="ib subs" hidden aria-label="Subagents">${I.fork}<span class="n"></span></button>
         <button class="ib files" hidden aria-label="Files touched">${I.files}<span class="n"></span></button>`}
-        <button class="ib more3" aria-label="More"${this.pane ? '' : ' hidden'}><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></button>
+        ${this.home ? '' : `<button class="ib more3" aria-label="More"${this.pane ? '' : ' hidden'}><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></button>`}
         <button class="ib scr" aria-label="Terminal"${this.pane ? '' : ' hidden'}>${I.term}</button>
       </div></header>
       <div class="crumb" hidden></div>
@@ -1448,7 +1528,10 @@ class ChatView {
   mount() {
     const q = s => $(s, this.el);
     if (this.home) {
-      q('.newchat').onclick = newMasterChat; // (the status strip is gone from Master's header: Home's briefing has the counts)
+      // the home agent's header is its name alone (no title, status dot, new chat, ⋯ or terminal button):
+      // tapping the name opens the chat menu, which carries New chat and Terminal too
+      q('.wmk').onclick = () => lazy('v3').then(m => m.chatMenu(this));
+      this.newChat = newMasterChat;
     } else {
       q('.back').onclick = () => goBack(this.parentHash());
       q('.ttl').onclick = () => this.agent && !this.agent.home ? renameSheet(this.agent) : switcher();
@@ -1490,7 +1573,7 @@ class ChatView {
     q('.scr').onclick = () => this.toggleScreen();
     if (this.home) q('.ovb').onclick = () => this.agent && lazy('git').then(m => m.overviewSheet(this.agent)); // git.js: one overview sheet
     else q('.ctxb').onclick = () => this.agent && lazy('mb').then(m => m.ctxSheet(this.agent));
-    q('.more3').onclick = () => lazy('v3').then(m => m.chatMenu(this)); // v3: desk, watches, review, fork
+    if (!this.home) q('.more3').onclick = () => lazy('v3').then(m => m.chatMenu(this)); // v3: desk, watches, review, fork
     q('.open-scr').onclick = () => this.toggleScreen(true);
     q('.qpills').onclick = e => { const b = e.target.closest('.qx'); if (b) lazy('talk').then(m => m.unsend(this, this.agent?.queued?.[+b.dataset.q])); }; // talk.js
     q('.why').onclick = () => lazy('fleet').then(m => m.whySheet(this.pane)); // fleet: herdr agent.explain
@@ -1505,9 +1588,9 @@ class ChatView {
     }, { passive: true });
     new ResizeObserver(() => { if (this.stick) this.toBottom(); }).observe(this.list);
     this.list.addEventListener('click', e => this.onListClick(e));
-    longPress(this.list, '.msg.user .bub, .msg.asst', (el, e) => {
+    longPress(this.list, '.msg.user .bub, .msg.asst, .amsg', (el, e) => { // .amsg: another agent's message card
       if (e?.target?.closest?.('.cb, pre')) return false; // code stays natively selectable
-      const m = el.closest('.msg'), it = this.items.find(x => x.i === +m.dataset.i);
+      const m = el.closest('.msg, .amsg'), it = this.items.find(x => x.i === +m.dataset.i);
       if (!it) return false;
       lazy('sheets').then(x => x.msgSheet(this, it, m));
     });
@@ -1659,7 +1742,7 @@ class ChatView {
         const sig = pp ? `${pp}|${par?.title}|${a.parent.via}` : '';
         if (sig !== this.parSig) {
           this.parSig = sig; const c = q('.crumb');
-          if (pp) { c.hidden = false; c.innerHTML = `<a href="#/a/${enc(pp)}">${I.back}${esc(par?.home ? 'Master' : par?.title || pp)}</a><span>${{ spawn: 'started this agent', review: 'is being reviewed by this agent', fork: 'was forked into this agent', drive: 'is driving this agent', split: 'split off this agent' }[a.parent.via] || 'is this agent’s parent'}</span>`; }
+          if (pp) { c.hidden = false; c.innerHTML = `<a href="#/a/${enc(pp)}">${I.back}${esc(par?.home ? HOME_NAME() : par?.title || pp)}</a><span>${{ spawn: 'started this agent', review: 'is being reviewed by this agent', fork: 'was forked into this agent', drive: 'is driving this agent', split: 'split off this agent' }[a.parent.via] || 'is this agent’s parent'}</span>`; }
           else c.hidden = true;
         }
       }
@@ -1696,7 +1779,7 @@ class ChatView {
       if (MODS.talk) MODS.talk.chatState(this, a); else lazy('talk').then(m => m.chatState(this, this.agent)); // TL;DR, catch-up, denials
     } else {
       if (!this.tid) this.load(this.fixedTid);
-      if (!this.fixedTid.includes('~')) lazy('fleet').then(m => m.roChat(this, G.st), () => { }); // fleet: Resume / Open live
+      if (!this.fixedTid.includes('~')) lazy('find').then(m => m.asleepChat(this, G.st), () => { }); // find.js: asleep chat + Continue
       this.setVia(st);
       this.crumb();
     }
@@ -1741,7 +1824,7 @@ class ChatView {
     this.el.classList.toggle('ro', !this.target);
     this.el.classList.toggle('via', !!this.target);
     if (!pa) return;
-    this.viaTitle = pa.home ? 'Master' : pa.title || pa.pane;
+    this.viaTitle = pa.home ? HOME_NAME() : pa.title || pa.pane;
     const v = $('.vial', this.el); v.hidden = false; v.textContent = 'Message via ' + this.viaTitle;
     this.updPh();
   }
@@ -1750,7 +1833,7 @@ class ChatView {
     if (!ag) { c.hidden = true; return; }
     const a = G.st?.agents.find(a => a.tid === p);
     c.hidden = false;
-    c.innerHTML = `<a href="${this.parentHash()}">${I.back}${esc(a?.title || this.parentTitle || 'Parent session')}</a><span>/ subagent${this.target ? '' : ' · read-only'}</span>`;
+    c.innerHTML = `<a href="${this.parentHash()}">${I.back}${esc(a?.home ? HOME_NAME() : whoName(a?.title || this.parentTitle) || 'Parent session')}</a><span>/ subagent${this.target ? '' : ' · read-only'}</span>`;
   }
   status(html) { this.stl.innerHTML = html || ''; }
   // files-touched count in the header (F8); hidden when 0 or unsupported
@@ -1846,9 +1929,9 @@ class ChatView {
   meta(r) {
     if (r.surfaces) { this.sfx ||= new Map(); for (const s of r.surfaces) this.sfx.set(String(s.id), s); }
     if (r.subagents) { this.subs = r.subagents; this.subCount(this.subs.filter(s => s.running).length, this.subs.length); this.updateAgentRows(); }
-    if (this.ro && 'tid' in r) {
+    if (this.ro && 'tid' in r && !this.zz) { // this.zz: find.js draws an asleep agent's header
       const t1 = $('.t1', this.el);
-      t1.textContent = r.agentId ? (this.subTitle() || 'Subagent') : (r.title || 'Transcript');
+      t1.textContent = r.agentId ? (this.subTitle() || 'Subagent') : (whoName(r.title) || 'Transcript');
       $('.t2', this.el).textContent = shortPath(r.cwd);
       if (r.agentId) {
         this.crumb();
@@ -2021,15 +2104,16 @@ class ChatView {
       who = s?.desc || 'Subagent'; what = 'subagent report'; av = I.fork;
       if (s?.tid) href = '#/t/' + enc(s.tid);
     } else if (it.kind === 'steer') {
-      const p = steerAgent(it), pane = p?.pane || it.agentId;
-      who = p ? (p.home ? 'Master' : p.title || pane) : it.from || 'Another agent';
-      what = this.home ? 'sent this to Master' : 'sent this to the agent'; av = esc(who.slice(0, 1).toUpperCase());
-      if (pane) href = '#/a/' + enc(pane);
-      if (colCls(p?.color)) cls = colCls(p.color);
+      // find.js: the sender's name opens its chat, awake or asleep (a closed pane is looked up: asleep → Continue)
+      const p = steerAgent(it), w = this.home ? 'sent this to ' + HOME_NAME() : 'sent this to the agent';
+      const head = p ? findHead(p, w, it) : `<a class="am-h fx" href="#" data-unres="1" data-sp="${esc(it.agentId || '')}" data-sn="${esc(it.from || '')}" data-what="${esc(w)}"><span class="am-av fav">${esc((whoName(it.from) || '?').slice(0, 1).toUpperCase())}</span>`
+        + `<span class="am-w"><span class="snd">${esc(whoName(it.from) || 'Another agent')}</span><small>${esc(w)}</small></span></a>`;
+      queueMicrotask(() => lazy('find').then(m => m.fixSenders(this.list), () => { })); // its CSS too
+      return h(`<div class="amsg${colCls(p?.color) || ' am-nc'}" data-i="${it.i}">${head}<div class="am-b md${it.text.length > 700 || it.text.split('\n').length > 12 ? ' long' : ''}">${mdx(it.text, this.home)}</div></div>`);
     } else {
       const a = G.st?.agents.find(x => x.pane === this.pane), pp = a?.parent?.pane;
       const p = pp && /spawn|drive/.test(a.parent.via) ? G.st.agents.find(x => x.pane === pp) : null;
-      who = p ? (p.home ? 'Master' : p.title || pp) : 'Pasted message';
+      who = p ? (p.home ? HOME_NAME() : p.title || pp) : 'Pasted message';
       what = p ? 'sent this to the agent' : 'not typed in this app';
       av = esc((p ? who : '⎘').slice(0, 1).toUpperCase());
       if (p) { href = '#/a/' + enc(pp); if (colCls(p.color)) cls = colCls(p.color); }
@@ -2324,7 +2408,7 @@ class ChatView {
   }
   recipName() {
     if (this.target !== this.pane) return this.viaTitle || '';
-    return this.home ? 'Master' : this.agent?.title || this.agent?.name || '';
+    return this.home ? HOME_NAME() : this.agent?.title || this.agent?.name || '';
   }
   updPh() {
     const n = this.recipName(), via = this.target !== this.pane;
@@ -2788,7 +2872,7 @@ async function settingsSheet() {
 
 // Fresh master session; the previous one keeps running as an ordinary agent.
 async function newMasterChat() {
-  if (!confirm('Start a new master chat?\n\nThe current one keeps running as a normal agent in the Workspace.')) return;
+  if (!confirm(`Start a new chat with ${HOME_NAME()}?\n\nThe current one keeps running as a normal agent in the Workspace.`)) return;
   try {
     const r = await post('home/new');
     G.homePending = r.pane; G.starting.set(r.pane, Date.now());
@@ -2802,14 +2886,14 @@ class HomeEmpty {
     this.pane = null;
     this.el = h(`<div class="view homeempty">
       <header class="bar"><div class="bar-in">
-        <div class="brand"><span class="conn" data-conn="${G.conn}"></span><span class="t1">Master</span></div>
+        <div class="brand"><span class="conn" data-conn="${G.conn}"></span></div>${WORDMARK()}
         <span class="sp"></span><div class="stripbox"></div>
       </div></header>
       <div class="scroll"><div class="he">
         <div class="he-ic">${I.chat}</div>
-        <h2>No master agent</h2>
-        <p class="dim">Master is a long-running Claude session that dispatches subagents and spawns tabs for you. Optional: every agent you run in herdr is under Agents either way.</p>
-        <button class="btn primary start" hidden>Start master</button>
+        <h2>${esc(HOME_NAME())} isn’t running</h2>
+        <p class="dim">${esc(HOME_NAME())} is your home agent: a long-running Claude session that dispatches subagents and spawns tabs for you. Optional: every agent you run in herdr is under Agents either way.</p>
+        <button class="btn primary start" hidden>Start ${esc(HOME_NAME())}</button>
         <a class="btn" href="#/agents" style="margin-top:10px">See your agents</a>
         <p class="dim small st"></p>
       </div></div></div>`);
@@ -2823,7 +2907,7 @@ class HomeEmpty {
         const r = await post('home/ensure');
         G.homePending = r.pane; G.starting.set(r.pane, Date.now());
         G.route = null; route();
-      } catch (e) { b.disabled = false; b.textContent = 'Start master'; toast('Failed: ' + esc(e.message), 'err'); }
+      } catch (e) { b.disabled = false; b.textContent = 'Start ' + HOME_NAME(); toast('Failed: ' + esc(e.message), 'err'); }
     };
     this.onState(G.st);
   }
@@ -2876,12 +2960,24 @@ class DocView {
         body.innerHTML = `<div class="stline">No preview for ${esc(ct || 'this file')} (${(buf.byteLength / 1024).toFixed(0)} KB).<br><br><a class="btn" href="${esc(fileUrl(p))}" target="_blank" rel="noopener">Open raw</a></div>`; return;
       }
       let text = new TextDecoder().decode(buf.byteLength > 2e6 ? buf.slice(0, 2e6) : buf);
+      if (/\.html?$/i.test(p)) return this.page_(body, text);
       if (/\.(md|markdown|mdx)$/i.test(p)) {
         L.base = this.dir;
         try { body.innerHTML = `<div class="md docmd">${mdx(text)}</div>`; } finally { L.base = null; }
       } else body.innerHTML = `<pre class="doctext">${linkify(text)}</pre>`;
       if (buf.byteLength > 2e6) body.insertAdjacentHTML('beforeend', '<div class="stline">Truncated at 2 MB.</div>');
     } catch (e) { body.innerHTML = `<div class="stline">Couldn’t open: ${esc(e.message)}</div>`; }
+  }
+  // An .html file shows as the page: an opaque sandbox (no same-origin, so it can't reach the app or its API) with
+  // a no-network CSP; links open outside. Relative assets don't
+  // load, so a page that isn't self-contained looks bare: "Source" shows the text.
+  page_(body, text) {
+    const head = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-src 'none'"><base target="_blank">`;
+    const html = /<head[^>]*>/i.test(text) ? text.replace(/<head[^>]*>/i, m => m + head) : head + text;
+    body.classList.add('docpage');
+    body.innerHTML = `<div class="docpg-bar"><button class="btn sm docpg-src">Source</button></div><iframe class="docpg" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="${esc(this.path.split('/').pop())}"></iframe><pre class="doctext" hidden>${linkify(text)}</pre>`;
+    $('.docpg', body).srcdoc = html;
+    $('.docpg-src', body).onclick = e => { const pre = $('pre', body), f = $('.docpg', body); pre.hidden = !pre.hidden; f.hidden = !pre.hidden; e.target.textContent = pre.hidden ? 'Source' : 'Page'; };
   }
   dir_(body, entries) {
     const items = entries.map(e => typeof e === 'string' ? { name: e } : { name: e.name ?? e.path ?? String(e), dir: e.dir ?? e.isDir ?? e.is_dir ?? (e.type === 'dir' || e.kind === 'dir'), size: e.size })
@@ -2908,17 +3004,21 @@ const LAZY = {};
 const lazy = n => MODS[n] ? Promise.resolve(MODS[n])
   : (LAZY[n] ??= import(`./${n}.js`).then(m => (MODS[n] = m), e => { delete LAZY[n]; throw e; }));
 function route() {
-  const raw = location.hash.slice(1) || '/';
+  const raw = location.hash.slice(1) || '/', instant = G.instant; G.instant = false; // a tapped push: no slide
   // item routes: #/?i=N, #/a/<pane>?i=N, #/t/<tid>?i=N
-  let hs = raw, wantI = null, rfocus = null;
+  let hs = raw, wantI = null, rfocus = null, seeId = null;
   const mq = raw.match(/^(\/|\/[at]\/[^?]+)\?(.*)$/);
   if (mq) { hs = mq[1]; const v = new URLSearchParams(mq[2]).get('i'); if (v != null && /^\d+$/.test(v)) wantI = +v; }
+  // #/see/<id> (a surface push, sw.js): the agents view, its "You should see this" panel in view, that card lit
+  const sm = hs.match(/^\/see\/([^/?]+)/);
+  if (sm) { try { seeId = decodeURIComponent(sm[1]); } catch { seeId = sm[1]; } hs = '/agents'; }
   // the master's own pane is the Home view (push links name the pane)
   const hp = hs.match(/^\/a\/(.+)$/), redir = !!hp && !!G.st?.home && decodeURIComponent(hp[1]) === G.st.home;
   if (redir) hs = '/';
   const focus = () => {
-    if (mq || redir) history.replaceState(history.state, '', '#' + hs);
+    if (mq || redir || seeId != null) history.replaceState(history.state, '', '#' + hs);
     if (wantI != null) G.view?.focusItem?.(wantI);
+    if (seeId != null) G.view?.see?.(seeId);
     rfocus?.();
   };
   const m = hs.match(/^\/(a|t|s)\/(.+)$/);
@@ -2959,6 +3059,7 @@ function route() {
     key = home ? 'home/' + home : 'home-empty';
     make = () => home ? new ChatView({ pane: home, home: true }) : new HomeEmpty();
   }
+  if (key !== 'agents') G.see = null; // the push's card stays first and lit only until you leave
   if (G.route === key) { focus(); return; }
   const fromDepth = G.route == null ? null : depth(G.route);
   G.route = key; G.navs = (G.navs || 0) + 1;
@@ -2979,7 +3080,7 @@ function route() {
   G.view = v;
   v.el.hidden = false;
   tabBar(key, v);
-  if (fromDepth != null && fromDepth !== depth(key)) {
+  if (fromDepth != null && fromDepth !== depth(key) && !instant) {
     v.el.classList.remove('in-r', 'in-l'); void v.el.offsetWidth;
     v.el.classList.add(depth(key) > fromDepth ? 'in-r' : 'in-l');
   }
@@ -3082,7 +3183,7 @@ const ss = {
   set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { } },
 };
 const tel = (n, p) => { try { window.__mmTel?.ev(n, p); } catch { } };
-let srvBuild = '', updT = 0, lastAct = 0, visAt = 0, stuck = false;
+let srvBuild = '', updT = 0, lastAct = 0, visAt = 0, pushAt = 0, stuck = false;
 ['input', 'keydown', 'pointerdown', 'touchstart'].forEach(t => addEventListener(t, () => { lastAct = Date.now(); }, { capture: true, passive: true }));
 const chatViews = () => [...new Set([G.view, ...cache.values()])].filter(v => v?.ta && v.dkey);
 function unsavedText() {
@@ -3110,7 +3211,9 @@ function checkUpdate(why) {
     if (!stuck) { stuck = true; tel('app.updatestuck', { from: BOOT_BUILD, to: srvBuild }); }
     return;
   }
-  const front = !document.hidden && Date.now() - visAt > 4000; // just came back to the front counts as "visible"
+  // just came back to the front counts as "visible" (reload at once), unless a tapped push brought it there: then
+  // it waits like in the front (idle 20 s, or the next time the app is hidden) so the reload never hides the card
+  const front = !document.hidden && (Date.now() - visAt > 4000 || Date.now() - pushAt < 60000);
   why = document.hidden ? 'hidden' : front ? 'idle' : 'visible';
   if (updBlock(front)) { updT = setTimeout(() => checkUpdate(), 5000); return; }
   for (const v of chatViews()) { ls.set('draft.' + v.dkey, v.ta.value || null); v.saveAtts?.(); }
@@ -3118,6 +3221,7 @@ function checkUpdate(why) {
   ss.set('mm.ar.' + srvBuild, '1');
   ss.set('mm.updated', JSON.stringify({ from: BOOT_BUILD, to: srvBuild, why, t: Date.now() }));
   try { window.__mmTel?.flush?.(true); } catch { }
+  if (G.see && G.view === agentsView) history.replaceState(history.state, '', '#/see/' + enc(G.see.id)); // lands on the panel again
   location.reload();
 }
 function gotBuild(b) {
@@ -3146,7 +3250,16 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));
   // a new worker took over (skipWaiting + clients.claim): ask the server which build is current
   navigator.serviceWorker.addEventListener('controllerchange', fetchBuild);
-  navigator.serviceWorker.addEventListener('message', e => { if (e.data?.nav) nav(e.data.nav.replace(/^\/?#?/, '#')); });
+  // a tapped notification (sw.js): straight there, no slide; it holds a pending self-update (see checkUpdate).
+  // `see` = the notification's title/body, drawn as the card until the state has it (a warm app's state is stale).
+  navigator.serviceWorker.addEventListener('message', e => {
+    const d = e.data; if (!d?.nav) return;
+    const hash = d.nav.replace(/^\/?#?/, '#'), sm = hash.match(/^#\/see\/([^/?]+)/);
+    if (d.push) { pushAt = lastAct = Date.now(); G.instant = true; }
+    if (sm && d.see) { try { G.seeHint = { id: decodeURIComponent(sm[1]), title: String(d.see.title || ''), body: String(d.see.body || '') }; } catch { } }
+    if (location.hash !== hash) location.hash = hash;
+    route(); // now, not on hashchange: the first frame after the app wakes is already the target
+  });
 }
 
 if (G.st) { L.ts = G.st.tsName; L.home = homeOf(G.st); }
@@ -3158,11 +3271,12 @@ setTimeout(() => (window.requestIdleCallback || setTimeout)(() => { lazy('search
 
 // shared with the lazily loaded feature modules (search.js, files.js, sheets.js)
 export { morph, patchHTML, cardAct, copyText, G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, agentHref, itemHref, nav, getPrefs, DEF_SNIPS, insertAt, longPress, linkify, md, fileUrl, debounce, closeSheets, goBack, cdot, dispStatus, markSeen, LABEL, setMeta, renameSheet, sendKeys, switcher, newAgentSheet, wirePlus, quickNew };
-export { surfHTML, MODS, lazy, DONE_REP, repLabel }; // v3.js, queue.js
+export { surfHTML, MODS, lazy, DONE_REP, repLabel, HOME_NAME }; // v3.js, queue.js, …
 export { dismissSurfs }; // queue.js
 export { takeMods, modSuffix, PMODS, asksYou }; // queue.js hero reply
 export { settingsSheet, openSearch }; // res.js (Machine gear), fleet.js (History)
 export { lightbox, mediaViewer }; // fleet.js, art.js
 export { SICON, sicon, schedIconSheet }; // fleet.js
 export { popMenu, dropEmpty, hasContent }; // art.js
-export { sortAgents }; // sheets.js
+export { sortAgents, steerAgent }; // sheets.js
+export { whoName, isMasterName }; // find.js, home.js, fleet.js, search.js, queue.js, sheets.js, res.js

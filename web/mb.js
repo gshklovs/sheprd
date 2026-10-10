@@ -1,5 +1,5 @@
 // Lazily loaded: what the Claude mod reports (modbridge) — ask_phone question card, context gauge sheet, Compact now.
-import { $, esc, post, toast, haptic, sheet } from './app.js';
+import { $, esc, post, toast, haptic, sheet, HOME_NAME } from './app.js';
 
 const enc = encodeURIComponent;
 
@@ -55,7 +55,7 @@ export function ctxSheet(a) {
   const est = c.est ? ' · estimated from transcript' : '';
   const rows = [bar(c.pct, 'Context', c.compacting ? 'Compacting…' : c.pct == null ? 'Measured after the next response' : `${kfmt(c.tokens)} of ${kfmt(c.window)} tokens${est}`)]
     .concat((c.rateLimits || []).map(r => bar(r.pct, RL[r.kind] || r.kind.replace(/_/g, ' '), r.resetsAt && inMs(r.resetsAt) ? 'resets in ' + inMs(r.resetsAt) : '')));
-  const sh = sheet(`<h2>${esc(a.home ? 'Master' : a.title || a.pane)}</h2>
+  const sh = sheet(`<h2>${esc(a.home ? HOME_NAME() : a.title || a.pane)}</h2>
     ${c.costUsd != null ? `<p class="dim small">Session cost so far: <b>$${c.costUsd.toFixed(2)}</b>${c.est ? ' (main conversation, API prices; estimated from transcript)' : ''}</p>` : ''}
     <div class="cxl-list">${rows.join('')}</div>
     ${a.mod || a.status === 'idle' || a.status === 'done' ? `<textarea class="cxi" rows="2" placeholder="Optional: what the summary should keep"></textarea>

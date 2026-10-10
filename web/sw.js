@@ -37,18 +37,26 @@ self.addEventListener('push', e => {
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  // always the app (the sending agent's chat, at its item), never an external link
-  let url = new URL(e.notification.data?.url || '/', self.location.origin);
+  e.waitUntil(openFromPush(e.notification.data?.url, e.notification));
+});
+// always the app, never an external link: a surface → Home's "You should see this" panel at its card (`/#/see/<id>`),
+// others → their own screen (a chat at its item)
+async function openFromPush(to, n = {}) {
+  let url = new URL(to || '/', self.location.origin);
   if (url.origin !== self.location.origin) url = new URL('/#/', self.location.origin);
-  e.waitUntil((async () => {
-    const cs = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const c of cs) {
-      if (new URL(c.url).origin === url.origin) {
-        await c.focus();
-        c.postMessage({ nav: url.hash || '#/' });
-        return;
-      }
-    }
-    await self.clients.openWindow(url.href);
-  })());
+  const nav = url.hash || '#/', see = /^#\/see\//.test(nav) ? { title: n.title || '', body: n.body || '' } : undefined;
+  const cs = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).filter(c => new URL(c.url).origin === url.origin);
+  const c = cs.find(c => c.focused) || cs.find(c => c.visibilityState === 'visible') || cs[0];
+  if (c) {
+    // the message first: the app handles it as it wakes, so the first frame it shows is the target, not the screen
+    // it was left on (then a hop); a reload is never needed (no navigate())
+    c.postMessage({ nav, push: 1, see });
+    try { await c.focus(); } catch { }
+    return 'message';
+  }
+  await self.clients.openWindow(url.href); // cold start: the page boots straight into that route
+  return 'open';
+}
+self.addEventListener('message', e => { // tests: the click path without a real notification
+  if (e.data?.testPushOpen && e.source) e.waitUntil(openFromPush(e.data.testPushOpen, e.data.n).then(r => e.source.postMessage({ testPushOpened: r })));
 });

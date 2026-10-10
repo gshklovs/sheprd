@@ -4,7 +4,7 @@
 // Preview is the default; production asks again. No token: the sheet shows the one-line command, nothing runs.
 // API.md "Repos". GitHub repo and PR pages open the GitHub app (github.com's apple-app-site-association covers
 // /<o>/<r> and /pull/N; /tree/<branch> stays in the browser).
-import { G, I, $, h, esc, api, post, sheet, toast, haptic, tick, shortPath, goBack, copyText, agentHref } from './app.js';
+import { G, I, $, h, esc, api, post, sheet, toast, haptic, tick, shortPath, goBack, copyText, agentHref, HOME_NAME } from './app.js';
 
 await new Promise(r => {
   if (document.querySelector('link[data-repos]')) return r();
@@ -33,11 +33,11 @@ const agentOf = pane => G.st?.agents.find(a => a.pane === pane);
 const COLS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink'];
 // an agent's pastel avatar disc (identity, never status): its initial in the agent's /color
 function disc(x) {
-  const a = agentOf(x.pane) || x, home = a.home, t = home ? 'Master' : a.title || x.title || a.pane || '?';
+  const a = agentOf(x.pane) || x, home = a.home, t = home ? HOME_NAME() : a.title || x.title || a.pane || '?';
   const c = COLS.includes(a.color) ? ' col-' + a.color : '';
   return `<i class="rp-av${c}${home ? ' home' : ''}" title="${esc(t)}">${esc((t.match(/[A-Za-z0-9]/) || ['•'])[0].toUpperCase())}</i>`;
 }
-const nameOf = x => { const a = agentOf(x.pane) || x; return a.home ? 'Master' : a.title || a.pane; };
+const nameOf = x => { const a = agentOf(x.pane) || x; return a.home ? HOME_NAME() : a.title || a.pane; };
 
 function badges(r) {
   let s = '';

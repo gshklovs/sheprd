@@ -55,6 +55,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .conn { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); display: inline-block; flex: none; }
 .conn[data-conn=on] { background: var(--done); box-shadow: 0 0 6px var(--done); }
 .conn[data-conn=retry] { background: var(--warn); animation: blink 1s infinite; }
+/* header dot: hidden while connected or briefly reconnecting; red once offline (same 10 s as the stale bar) */
+.brand .conn { display: none; }
+html[data-offline] .brand .conn { display: inline-block; background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
 @keyframes blink { 50% { opacity: .3; } }
 .ttl { flex: 1; min-width: 0; padding: 0 4px; }
 .t1 { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -162,6 +165,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .tabbar .tdot { display: none; position: absolute; top: 5px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--bg2); }
 .tabbar a.hot .tdot { display: block; background: var(--warn); } .tabbar a.alert .tdot { display: block; background: var(--red); }
 .agents .brand { min-width: 0; } .agents .brand .host { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the host name in the home agent's wordmark type (Michroma, uppercase, wide tracking), smaller to fit the bar */
+.agents .brand .host { font: 400 13px/1 "sheprd wordmark", "Eurostile", "Avenir Next", "Helvetica Neue", system-ui, sans-serif; letter-spacing: .16em;
+  text-transform: uppercase; -webkit-text-stroke: .3px currentColor; padding-top: 1px; color: var(--fg); }
 .empty { text-align: center; color: var(--fg2); padding: 40px 0; }
 .shell { display: flex; flex-direction: column; padding: 9px 14px; border-top: .5px solid var(--sep); color: var(--fg); min-height: 44px; }
 .shell small { color: var(--fg2); font: 12px var(--mono); }
@@ -186,6 +192,12 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .sf-foot { display: flex; align-items: center; }
 .sf-clr { margin-left: auto; color: var(--fg2); font-size: 13px; padding: 6px 4px; }
 .sf-clr.arm { color: var(--red); font-weight: 600; }
+/* "You should see this": the panel's heading; a push-opened card (#/see/<id>) is lit for 2 s, or a note if it's gone */
+.surfs > .sf-h { padding: 4px 6px 0 16px; min-height: 0; }
+.surf.hl { animation: sf-hl 2s ease-out; }
+@keyframes sf-hl { 0%, 40% { box-shadow: 0 0 0 2px var(--accent), var(--card-sh, none); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); } 100% { box-shadow: var(--card-sh, none); background: var(--bg2); } }
+.sf-src { margin-top: 6px; }
+.sf-gone { color: var(--fg2); font-size: 14px; padding: 2px 16px 4px; }
 
 /* thumbs / lightbox */
 .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
@@ -469,6 +481,11 @@ body.kb .sh-body { padding-bottom: 12px; }
 .swrow .since { font-size: 12px; color: var(--fg3); flex: none; }
 .swall { margin-top: 14px; width: 100%; }
 .swall svg { width: 18px; height: 18px; }
+/* Send to agent (sheets.js forwardSheet): optional note, then one tap on an agent sends */
+.fw-note { width: 100%; box-sizing: border-box; margin: 2px 0 10px; padding: 10px 12px; border: 1px solid var(--sep); border-radius: 10px; background: var(--bg2); color: var(--fg); font: inherit; font-size: 16px; }
+.fw-alt { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.fw-alt svg { width: 16px; height: 16px; }
+.fw-edit.on { background: var(--accent-fill); color: #fff; }
 
 /* attachments + via */
 .atts { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 6px; scrollbar-width: none; }
@@ -489,6 +506,8 @@ body.kb .sh-body { padding-bottom: 12px; }
 .docb { padding: 14px calc(16px + var(--sar)) calc(24px + var(--sab)) calc(16px + var(--sal)); }
 .docmd pre.code { white-space: pre; }
 .doctext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
+.docpg-bar { display: flex; justify-content: flex-end; padding: 0 0 8px; }
+.docpg { display: block; width: 100%; height: calc(100dvh - 190px); min-height: 360px; border: 0; border-radius: 12px; background: #fff; } /* an .html file as the page (DocView.page_) */
 .vthumb { position: relative; display: inline-block; max-width: 100%; }
 .vthumb video { display: block; width: 280px; max-width: 100%; max-height: 220px; border-radius: 10px; background: #000; }
 .vthumb.aud audio { display: block; width: 280px; max-width: 100%; }
@@ -507,8 +526,6 @@ body.kb .sh-body { padding-bottom: 12px; }
 .docimg { display: flex; justify-content: center; } .docimg .thumb { height: auto; max-width: 100%; max-height: 80vh; }
 .dirl { display: flex; flex-direction: column; }
 .dirl a { padding: 11px 4px; border-bottom: .5px solid var(--sep); font: 14px var(--mono); }
-.chat.home .bar .pill { font-size: 0; gap: 0; padding: 5px; }
-.chat.home .bar .pill i { width: 8px; height: 8px; }
 .stripbox { flex: 0 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .stripbox::-webkit-scrollbar { display: none; }
 .stripbox .strip { flex: none; }
@@ -518,7 +535,28 @@ body.kb .sh-body { padding-bottom: 12px; }
 .chat.live:not(.home) .bar .pill { font-size: 0; gap: 0; padding: 5px; }
 .chat.live:not(.home) .bar .pill i { width: 8px; height: 8px; }
 .chat.live .bar .ib.subs, .chat.live .bar .ib.files { display: none !important; }
-.chat.home .bar-in .scr { margin-left: -4px; }
+/* The home agent's header: live dot · its NAME centred (wordmark type) · context + usage. No title text, status dot, ⋯, new-chat or
+   terminal button: tap the name for the menu (New chat, Terminal, …); the terminal toggle shows only to get back. */
+/* "sheprd wordmark" = Michroma (Google Fonts, OFL; fonts/OFL-michroma.txt), subset to A-Z 0-9 - . _ : (6.5 KB; the
+   Agents header's host name uses it too, uppercased: no lowercase in this subset): wide, machined capitals.
+   Swap for Big Shoulders Display / Orbitron by replacing the file. */
+@font-face { font-family: "sheprd wordmark"; src: url(fonts/wordmark.woff2) format("woff2"); font-display: swap; }
+.chat.home .bar-in, .homeempty .bar-in { position: relative; }
+.chat.home .bar .pill { display: none; }
+.chat.home:not(.scr-on) .bar .scr { display: none; }
+.wmk { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 1px;
+  height: 40px; padding: 0 24px; border-radius: 10px; color: var(--fg); background: none; border: 0; -webkit-tap-highlight-color: transparent; }
+.wmk:active { background: var(--bg3); }
+.homeempty .wmk { display: none; } /* no home agent yet: the page itself says so (and a long name would crowd the pills) */
+.wmk .ew { position: relative; font: 400 18px/1 "sheprd wordmark", "Eurostile", "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+  letter-spacing: .2em; margin-right: -.2em; padding-top: 1px; text-transform: uppercase; -webkit-text-stroke: .35px currentColor; }
+.wmk .ech { position: absolute; right: 5px; top: 13px; width: 14px; height: 14px; fill: none; stroke: var(--fg3); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.wmk.on::after { content: ""; position: absolute; top: 8px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--work); }
+/* working: a thin bar scans under the name (the status dot it replaces) */
+.chat.home.wk .wmk .ew::after { content: ""; position: absolute; left: 0; right: .2em; bottom: -6px; height: 2px; border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--work) 40%, var(--work) 60%, transparent) 0 0 / 40% 100% no-repeat; animation: edscan 1.4s ease-in-out infinite alternate; }
+@keyframes edscan { from { background-position: 0 0; } to { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .chat.home.wk .wmk .ew::after { animation: none; background: var(--work); opacity: .6; } }
 
 /* blocked menu: one big button per choice */
 .bl-opts { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; }

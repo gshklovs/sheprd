@@ -232,8 +232,14 @@ fn watching(app: &App, pane: &str) -> bool {
     matches!(&inner.viewing, Some((Some(p), true, t)) if p == pane && now_ms() - t < 45_000)
 }
 
-fn title_of(app: &App, pane: &str) -> String {
+/// The herdr title, for text agents read (the steer header names the sender as herdr does).
+fn raw_title(app: &App, pane: &str) -> String {
     app.inner.lock().unwrap().pane_titles.get(pane).cloned().unwrap_or_else(|| "agent".into())
+}
+
+/// The agent's name as the user sees it in a push (`home_name()` for the home agent).
+fn title_of(app: &App, pane: &str) -> String {
+    app.inner.lock().unwrap().shown_title(pane).unwrap_or_else(|| "agent".into())
 }
 
 fn is_home(app: &App, pane: &str) -> bool {
@@ -766,7 +772,7 @@ async fn api_steer_http(State(app): State<Shared>, AxPath(pane): AxPath<String>,
 
 /// Steer a running turn: through the mod (`$.session.append`, read at the turn's
 /// next step) when the agent is working and its mod is connected, else typed in
-/// via herdr like `/prompt`.
+/// via herdr like `/prompt`; held (inputbox.rs) while the input box holds the user's draft.
 async fn api_steer(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json(b): Json<SteerBody>) -> Response {
     let mut text = b.text.trim().to_string();
     if text.is_empty() {
@@ -776,7 +782,7 @@ async fn api_steer(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json
         if !crate::transcript::is_pane(from) || from == pane {
             return json_err(StatusCode::BAD_REQUEST, "from must be another agent's pane id");
         }
-        text = format!("{}\n{text}", crate::transcript::steer_header(&title_of(&app, from), from));
+        text = format!("{}\n{text}", crate::transcript::steer_header(&raw_title(&app, from), from));
     }
     if seen_nonce(&app, b.nonce.as_deref()) {
         return Json(json!({"ok": true, "dup": true})).into_response();
@@ -784,6 +790,11 @@ async fn api_steer(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json
     // One message at a time per agent, in arrival order.
     let lock = app.bridge.pane_lock(&pane);
     let _turn = lock.lock().await;
+    // Behind a message held for the user's draft (inputbox.rs) everything waits, in order.
+    if crate::inputbox::must_wait(&pane) {
+        app.refresh.notify_one();
+        return Json(crate::inputbox::held_reply(&pane, &text, "input_draft")).into_response();
+    }
     let working = app.inner.lock().unwrap().status.get(&pane).is_some_and(|s| s.0 == "working");
     if !working {
         app.bridge.typed_this_turn.lock().unwrap().remove(&pane);
@@ -816,6 +827,11 @@ async fn api_steer(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json
             }
             app.refresh.notify_one();
             Json(json!({"ok": true, "via": "herdr"})).into_response()
+        }
+        // the user's unsent draft (or a menu) in the input box: held, typed once the box is empty
+        Err(e) if crate::inputbox::is_busy(&e.code) => {
+            app.refresh.notify_one();
+            Json(crate::inputbox::held_reply(&pane, &text, &e.code)).into_response()
         }
         Err(e) => {
             if let Some(n) = b.nonce.as_deref() {

@@ -1,7 +1,7 @@
 // Lazy: branch vs main (#/g/<pane>), per-file git diff (#/gd/<pane>?scope=&path=), CI/PR watch with Fix,
 // usage rings (the Master header's context + usage button, the overview sheet, Settings part). API.md "Git, CI and usage".
 // Commit / Push / Open PR / Fix send the agent a prompt; the server never writes to a repo.
-import { G, I, $, h, esc, api, post, sheet, toast, haptic, tick, shortPath, goBack, ls, nav, copyText } from './app.js';
+import { G, I, $, h, esc, api, post, sheet, toast, haptic, tick, shortPath, goBack, ls, nav, copyText, HOME_NAME } from './app.js';
 import { bar, compactNow } from './mb.js';
 
 await new Promise(r => {
@@ -13,7 +13,7 @@ await new Promise(r => {
 const enc = encodeURIComponent;
 const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const agentOf = pane => G.st?.agents.find(a => a.pane === pane);
-const nameOf = (a, pane) => a ? (a.home ? 'Master' : a.title || a.pane) : pane;
+const nameOf = (a, pane) => a ? (a.home ? HOME_NAME() : a.title || a.pane) : pane;
 const usd = c => c == null ? '—' : c >= 100 ? '$' + Math.round(c) : '$' + c.toFixed(2);
 const kn = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n | 0);
 const inMs = t => {

@@ -13,7 +13,7 @@ export const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i;
 export const VID_EXT = /\.(mp4|m4v|mov|webm)$/i;
 export const AUD_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac)$/i;
 export const isMedia = u => { let p = String(u || ''); const q = p.match(/[?&]path=([^&#]+)/); if (q) try { p = decodeURIComponent(q[1]); } catch { } return VID_EXT.test(p.split(/[?#]/)[0]) ? 'video' : AUD_EXT.test(p.split(/[?#]/)[0]) ? 'audio' : null; };
-const BIN_EXT = /\.(pdf|zip|gz|tgz|xz|bz2|zst|7z|tar|mkv|bin|so|o|a|exe|whl|pt|pth|onnx|npz|npy|pkl|db|sqlite|ttf|otf|woff2?|ico|xlsx?|docx?|pptx?)$/i;
+export const BIN_EXT = /\.(pdf|zip|gz|tgz|xz|bz2|zst|7z|tar|mkv|bin|so|o|a|exe|whl|pt|pth|onnx|npz|npy|pkl|db|sqlite|ttf|otf|woff2?|ico|xlsx?|docx?|pptx?)$/i;
 const absPath = p => p.replace(/^~(?=\/|$)/, L.home);
 export const fileUrl = p => '/api/file?path=' + encodeURIComponent(absPath(p));
 export const docUrl = p => '#/f?path=' + encodeURIComponent(absPath(p));

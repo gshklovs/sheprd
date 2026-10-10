@@ -1,7 +1,7 @@
 // Fleet (lazy): Sessions (+ Resume), Schedules (recurring agents), Cloud routines, Screen (desktop
 // screenshots), the parent/child agent tree in the workspace, "Why is it blocked?" and the live
 // terminal stream. Routes: #/fleet, #/fleet/sched, #/fleet/cloud, #/fleet/desk. API.md "Fleet".
-import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, goBack, debounce, closeSheets, lightbox, dispStatus, LABEL, lazy, sicon, schedIconSheet, longPress } from './app.js';
+import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, goBack, debounce, closeSheets, lightbox, dispStatus, LABEL, lazy, sicon, schedIconSheet, longPress, whoName, HOME_NAME } from './app.js';
 
 await new Promise(r => {
   if (document.querySelector('link[data-fleet]')) return r();
@@ -81,7 +81,7 @@ export function roChat(view, st) {
   view.flSig = sig;
   let bar = $('.fl-rbar', view.el);
   if (!bar) { bar = h('<div class="fl-rbar"></div>'); view.el.insertBefore(bar, $('.composer', view.el)); }
-  bar.innerHTML = a ? `<span>Live in ${esc(a.tabLabel || a.pane)}</span><a class="btn sm primary" href="#/a/${enc(a.pane)}">Open live chat</a>`
+  bar.innerHTML = a ? `<span>Live in ${esc(a.home ? HOME_NAME() : whoName(a.tabLabel || a.pane, a.pane))}</span><a class="btn sm primary" href="#/a/${enc(a.pane)}">Open live chat</a>`
     : `<span>Past session · read-only</span><button class="btn sm primary">Resume</button>`;
   const b = $('button', bar); if (b) b.onclick = () => resume(sid, b);
 }
@@ -124,7 +124,7 @@ class SessionsView {
       const a = live.get(s.sid), st = a ? dispStatus(a) : null;
       const href = a ? '#/a/' + enc(a.pane) : '#/t/' + enc(s.sid);
       return `<div class="srow${a ? ' live' : ''}"><a class="sb" href="${href}">
-          <div class="st1">${a ? `<span class="pill s-${st}"><i></i>${LABEL[st]}</span>` : ''}${s.headless ? '<i class="tag">-p</i>' : ''}<b>${esc(s.title || 'Untitled session')}</b></div>
+          <div class="st1">${a ? `<span class="pill s-${st}"><i></i>${LABEL[st]}</span>` : ''}${s.headless ? '<i class="tag">-p</i>' : ''}<b>${esc(a?.home ? HOME_NAME() : whoName(s.title) || 'Untitled session')}</b></div>
           <div class="st2">${esc(shortPath(s.cwd))}${s.branch ? ` · ${esc(s.branch)}` : ''} · ${ago(s.ts)} · ${s.prompts} prompt${s.prompts === 1 ? '' : 's'} · ${kb(s.size)}</div>
           ${s.last ? `<div class="st3">${esc(s.last)}</div>` : ''}</a>
         ${a ? `<a class="btn sm" href="${href}">Open</a>` : s.cwdOk ? `<button class="btn sm primary" data-res="${esc(s.sid)}">Resume</button>` : '<span class="dim small gone">folder gone</span>'}</div>`;
@@ -242,13 +242,13 @@ class SchedView {
     const byName = new Map((G.st?.agents || []).filter(a => a.name).map(a => [a.name, a]));
     return `<h3 class="schh">System timers</h3>` + ts.map(t => {
       const a = t.agentPane && (by.get(t.agentPane) || byName.get(t.agentPane));
-      const title = t.agentPane ? (a ? (a.title || a.name || a.pane) : `agent ${t.agentPane}`) : t.name;
+      const title = t.agentPane ? (a ? (a.home ? HOME_NAME() : whoName(a.title || a.name || a.pane, a.pane)) : `agent ${t.agentPane}`) : t.name;
       const st = t.next ? `<span class="nx">${inT(t.next)}</span>` : '<span class="pill">Idle</span>';
       return `<div class="schc tmr${t.next ? '' : ' paused'}" data-key="t:${esc(t.name)}" data-icon="${esc(t.icon || 'clock')}" data-by="${esc(t.iconBy || '')}">
         <div class="sh1"><span class="sic">${sicon(t.icon)}</span><b>${esc(title)}</b><span class="sp"></span>${st}</div>
         <div class="sh2">${t.next ? 'next ' + esc(when(t.next)) : 'no next run'}${t.last ? ` · last ${esc(when(t.last))}` : ''}</div>
         <div class="sh3">${esc(t.unit)}${t.transient ? ' · transient' : ''}${t.spec ? ' · ' + esc(t.spec) : ''}</div>
-        ${t.agentPane ? `<div class="sh4">Prompts ${a ? `<a href="#/a/${enc(a.pane)}">${esc(a.title || a.pane)}</a>` : esc(t.agentPane) + ' (not running)'}: ${esc(t.agentPrompt || '')}</div>` : ''}
+        ${t.agentPane ? `<div class="sh4">Prompts ${a ? `<a href="#/a/${enc(a.pane)}">${esc(title)}</a>` : esc(t.agentPane) + ' (not running)'}: ${esc(t.agentPrompt || '')}</div>` : ''}
         <div class="sh4"><code>${esc(t.command)}</code></div>
       </div>`;
     }).join('');
@@ -439,7 +439,8 @@ export function liveScreen(s) {
   let got = false;
   const es = s.es = new EventSource(`/api/a/${enc(s.pane)}/live`);
   const back = () => { es.close(); if (s.es === es) s.es = null; if (s.on) s.poll(); };
-  es.addEventListener('screen', e => { got = true; try { s.draw(JSON.parse(e.data)); s.el.classList.remove('stale'); s.el.classList.add('streaming'); } catch { } });
+  s.lastEv = Date.now();
+  es.addEventListener('screen', e => { got = true; s.lastEv = Date.now(); try { s.draw(JSON.parse(e.data)); s.el.classList.remove('stale'); s.el.classList.add('streaming'); } catch { } });
   es.addEventListener('fallback', () => { G.noLive = Date.now(); back(); });
   es.addEventListener('gone', back);
   es.onerror = () => { if (!got) { G.noLive = Date.now(); back(); } else s.el.classList.add('stale'); };

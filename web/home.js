@@ -16,14 +16,14 @@
 //    the server never kills processes). No proxy for local-only apps (its JS would
 //    run on sheprd's origin).
 // app.js keeps the rows (Ready, Everyone, Quiet), swipes, long-press and the keyed morph.
-import { G, $, h, esc, morph, patchHTML, tick, agentHref, dispStatus, longPress, lazy, MODS, nav, sheet, post, toast, haptic, copyText } from './app.js';
+import { G, $, h, esc, morph, patchHTML, tick, agentHref, dispStatus, longPress, lazy, MODS, nav, sheet, post, toast, haptic, copyText, whoName, HOME_NAME } from './app.js';
 import { thumbs, fileUrl } from './md.js';
 
 (() => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'home.css'; document.head.append(l); })();
 
 const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink'];
 const colCls = c => COLORS.includes(c) ? ' col-' + c : '';
-const nm = a => a.home ? 'Master' : a.title || a.name || a.pane;
+const nm = a => a.home ? HOME_NAME() : whoName(a.title || a.name || a.pane, a.pane);
 const one = s => String(s || '').replace(/\*\*|__|`+|^#+\s*/gm, '').replace(/\s+/g, ' ').trim();
 const hm = ms => {
   const d = new Date(ms), t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -141,7 +141,7 @@ function heroHTML(it, n, idx) {
   const dots = n > 1 ? `<span class="hpg" aria-label="${idx + 1} of ${n}">${n <= 5 ? Array.from({ length: n }, (_, k) => `<i${k === idx ? ' class="on"' : ''}></i>`).join('') : `<span>${idx + 1}/${n}</span>`}</span>` : '';
   const rep = it.kind === 'phone' || it.kind === 'surf';
   return `<div class="h-top"><span class="cring s-${dispStatus(a)}" style="--p:${p ?? 0}">${p ?? ''}</span>
-      <a class="h-tt" href="${MODS.queue.hrefOf(it)}"><b class="tt">${esc(it.nm)}</b><small><b>${esc(sp.pill)}</b> · <span data-since="${it.ts || a.since}"></span>${par ? ` · ↳ ${esc(par.home ? 'Master' : nm(par))}` : ''}</small></a>${dots}</div>
+      <a class="h-tt" href="${MODS.queue.hrefOf(it)}"><b class="tt">${esc(it.nm)}</b><small><b>${esc(sp.pill)}</b> · <span data-since="${it.ts || a.since}"></span>${par ? ` · ↳ ${esc(par.home ? HOME_NAME() : nm(par))}` : ''}</small></a>${dots}</div>
     ${sp.ctx ? `<div class="h-q">${sp.ctx}</div>` : ''}
     ${md ? `<div class="h-md">${esc(md.slice(0, 400))}</div>` : ''}
     ${sp.imgs?.length ? thumbs(sp.imgs.map(asImg)) : ''}
@@ -153,17 +153,34 @@ function calmHTML(st, working) {
   const sn = MODS.queue?.snoozed() || 0;
   return `<div class="hcalm"><span class="ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><b>All clear</b><span>· ${working ? `${working} working` : 'nothing running'}</span><span class="sp"></span>${sn ? `<button class="hsn">${sn} snoozed</button>` : ''}</div>`;
 }
+// "All clear" shows for CALM_MS of on-screen time, then folds away (home.css .hcalmw.gone). Once gone it stays gone across
+// state ticks until something needs the user again (a hero item), then the next all-clear shows again. In memory only.
+// With snoozed items it stays: its "N snoozed" button is the way back to them.
+const CALM = { gone: false, t: 0, seen: 0 }, CALM_MS = 3500;
+function calmArm(c) {
+  if (CALM.t) return;
+  CALM.t = setInterval(() => {
+    if (!c.isConnected) { clearInterval(CALM.t); CALM.t = 0; CALM.seen = 0; return; }
+    if (document.hidden || !c.offsetParent || c.querySelector('.hsn')) { CALM.seen = 0; return; } // other tab / app hidden
+    if ((CALM.seen += 250) < CALM_MS) return;
+    clearInterval(CALM.t); CALM.t = 0; CALM.gone = true; c.classList.add('gone');
+  }, 250);
+}
 function drawHero(box, items, working) {
   const it = items[0] || null; HERO.it = it; HERO.n = items.length;
   const cur = box.querySelector(':scope > .hcard:not(.out)');
   if (!it) {
-    const html = calmHTML(G.st, working);
+    const html = `<div class="hcalmi">${calmHTML(G.st, working)}</div>`;
     if (cur) { cur.classList.add('out', 'go-l'); setTimeout(() => cur.remove(), 320); }
     let c = box.querySelector(':scope > .hcalmw');
-    if (!c) { c = h('<div class="hcalmw"></div>'); box.append(c); }
+    if (!c) { c = h(`<div class="hcalmw${CALM.gone ? ' gone' : ''}"></div>`); box.append(c); }
     patchHTML(c, html);
+    const sn = !!c.querySelector('.hsn');
+    if (sn && CALM.gone) { CALM.gone = false; c.classList.remove('gone'); }
+    if (!CALM.gone) calmArm(c);
     return;
   }
+  CALM.gone = false; CALM.seen = 0; clearInterval(CALM.t); CALM.t = 0;
   box.querySelector(':scope > .hcalmw')?.remove();
   const html = heroHTML(it, items.length, 0);
   if (cur && cur.dataset.key === it.key) {
@@ -295,7 +312,7 @@ export function groupApps(jobs) {
   for (const j of jobs) {
     if (j.status !== 'running' || !j.app) continue;
     const k = (j.pane || j.tid || '') + ':' + (j.app.port ?? j.id);
-    const g = G2.get(k) || { key: k, name: appName(j.desc, j.cmd), port: j.app.port, url: null, via: 'local', started: j.started, pane: j.pane, owner: j.agentTitle, jobs: [] };
+    const g = G2.get(k) || { key: k, name: appName(j.desc, j.cmd), port: j.app.port, url: null, via: 'local', started: j.started, pane: j.pane, owner: whoName(j.agentTitle, j.pane), jobs: [] };
     g.jobs.push(j); g.started = Math.min(g.started, j.started);
     if (j.app.url && !g.url) { g.url = j.app.url; g.via = j.app.via; }
     G2.set(k, g);
@@ -306,7 +323,7 @@ let APPS = [];
 function appsHTML(apps, byPane) {
   return `<span class="bg-lbl"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9h17M10 12.5v4l3.5-2z"/></svg>Running apps</span>${apps.map(x => {
     const a = x.pane && byPane.get(x.pane), ic = x.via === 'tailscale' ? AICON.lock : x.url ? AICON.globe : AICON.lap;
-    const who = a ? (a.home ? 'Master' : nm(a)) : x.owner || '';
+    const who = a ? (a.home ? HOME_NAME() : nm(a)) : x.owner || '';
     return `<div class="ra-it${x.url ? '' : ' loc'}" data-app="${esc(x.key)}"><span class="ra-fav${colCls(a?.color)}">${esc((x.name[0] || '?').toUpperCase())}<i class="ra-live"></i></span>`
       + `<span class="ra-tx"><span class="ra-l1"><b>${esc(x.name)}</b>${x.port ? `<span class="ra-port">:${x.port}</span>` : ''}</span>`
       + `<small>${ic}${esc(REACH[x.via])}${who ? ` · ${a ? `<a class="ra-own${colCls(a.color)}" href="${agentHref(a)}">↳ ${esc(who)}</a>` : `↳ ${esc(who)}`}` : ''} · ${ageS(x.started)}</small></span>`
@@ -319,7 +336,7 @@ const logOf = x => lazy('sheets').then(m => m.jobSheet(x.jobs[0]));
 const ABOUT = new Map(); // app key → sentence
 function appSheet(x) {
   const a = x.pane && G.st?.agents.find(y => y.pane === x.pane);
-  const who = a ? (a.home ? 'Master' : nm(a)) : x.owner || 'its agent';
+  const who = a ? (a.home ? HOME_NAME() : nm(a)) : x.owner || 'its agent';
   const ids = x.jobs.map(j => j.id).join(', ');
   const desc = one(x.jobs[0]?.desc || '') || cmdName(x.jobs[0]?.cmd || '');
   const known = ABOUT.get(x.key);

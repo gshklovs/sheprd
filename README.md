@@ -129,6 +129,7 @@ Configuration (environment, captured into the service by `setup`):
 | `SHEPRD_PORT` | `7878` | local port |
 | `SHEPRD_STATE_DIR` | `~/.local/state/sheprd` | prefs, push keys and subscriptions, schedules |
 | `SHEPRD_WORK_DIR` | `~/Work` if it exists, else `~` | where new agents start |
+| `SHEPRD_HOME_NAME` | `Master` | the home agent's display name (header wordmark, pushes, cards) |
 | `SHEPRD_LISTEN` | (none) | extra bind addresses, comma-separated |
 | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | herdr's API socket |
 | `SHEPRD_NO_PUSH` | (unset) | `1` = log pushes instead of sending (test instances) |

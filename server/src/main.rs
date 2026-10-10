@@ -13,11 +13,13 @@ mod cli;
 mod cloud;
 mod desk;
 mod disk;
+mod find;
 mod fleet;
 mod follow;
 mod git;
 mod gpu;
 mod herdr;
+mod inputbox;
 mod keep;
 mod live;
 mod modbridge;
@@ -67,6 +69,12 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into())
+}
+
+/// The home agent's display name in the app and in pushes (`SHEPRD_HOME_NAME`, default "Master"). Display only:
+/// herdr's agent/tab name stays `master`.
+pub fn home_name() -> String {
+    std::env::var("SHEPRD_HOME_NAME").ok().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Master".into())
 }
 
 /// Where new agents start and the folder picker looks first: `SHEPRD_WORK_DIR`, else ~/Work when it
@@ -124,6 +132,17 @@ struct App {
     follow: follow::Follow,
     /// Background services the mods reported (services.rs).
     services: services::Services,
+}
+
+
+impl Inner {
+    fn is_home_pane(&self, pane: &str) -> bool {
+        self.home.as_ref().and_then(|h| h["pane"].as_str()) == Some(pane)
+    }
+    /// What the user sees an agent called: `home_name()` for the home agent, else its herdr title.
+    fn shown_title(&self, pane: &str) -> Option<String> {
+        if self.is_home_pane(pane) { Some(home_name()) } else { self.pane_titles.get(pane).cloned() }
+    }
 }
 
 #[derive(Default)]
@@ -232,10 +251,12 @@ async fn main() {
     });
 
     tokio::spawn(refresh_loop(app.clone()));
+    tokio::spawn(inputbox::run(app.clone()));
     tokio::spawn(v3::run(app.clone()));
     tokio::spawn(sched::run(app.clone()));
     tokio::spawn(asks::run(app.clone()));
     tokio::spawn(git::run(app.clone()));
+    tokio::spawn(find::run(app.clone()));
     tokio::spawn(artifacts::run(app.clone()));
     tokio::spawn(subscription_loop(app.clone(), panes_rx));
     alerts::init(&app, &state_dir());
@@ -280,10 +301,12 @@ async fn main() {
         .route("/api/t/{tid}/files", get(api_files))
         .route("/api/t/{tid}/files/diff", get(api_files_diff))
         .route("/api/prefs", get(api_prefs_get).post(api_prefs_post))
+        .route("/api/surface/{id}", get(api_surface_get))
         .route("/api/surface/{id}/dismiss", post(api_surface_dismiss))
         .route("/api/surfaces/dismiss", post(api_surfaces_dismiss))
         .merge(v3::routes())
         .merge(fleet::routes())
+        .merge(find::routes())
         .merge(sched::routes())
         .merge(cloud::routes())
         .merge(desk::routes())
@@ -609,14 +632,10 @@ fn done_url(pane: &str, answer_i: Option<usize>, is_home: bool) -> String {
     }
 }
 
-/// Deep link for a surface push: its card in the agent's chat.
-fn surface_url(pane: Option<&str>, tid: Option<&str>, i: Option<usize>) -> String {
-    let q = i.map(|i| format!("?i={i}")).unwrap_or_default();
-    match (pane, tid) {
-        (Some(p), _) => format!("/#/a/{p}{q}"),
-        (None, Some(t)) => format!("/#/t/{t}{q}"),
-        _ => "/#/".into(),
-    }
+/// Deep link for a surface push: Home's "You should see this" panel with that card in view and highlighted
+/// (web/app.js `#/see/<id>`; the card's own tap opens the agent's chat at the item).
+fn see_url(id: &str) -> String {
+    format!("/#/see/{}", urlencode(id))
 }
 
 /// Newest `mcp__sheprd__surface` tool row titled `title` that no earlier surface already points at.
@@ -862,6 +881,8 @@ async fn refresh(app: &Shared) {
                 None => if last_ts > 0 && status != "working" { last_ts } else { now },
             };
             let is_home = home_pane.as_deref() == Some(pane.as_str());
+            // Pushes call the home agent by its display name (herdr agent/tab stays `master`).
+            let ptitle = if is_home { home_name() } else { title.clone() };
             // Push triggers (never on the first observation).
             if let Some((pstatus, psince, pseq)) = &prev {
                 let watching = matches!(&viewing, Some((Some(p), true, t)) if *p == pane && now - t < 45_000);
@@ -869,14 +890,14 @@ async fn refresh(app: &Shared) {
                     // Muted agents never push, "Needs you" included.
                     if status == "blocked" && pstatus != "blocked" && !muted {
                         let question = ask["questions"][0]["question"].clone();
-                        pushes.push((json!({"kind":"blocked","pane":pane,"title":title,"question":question}), true));
+                        pushes.push((json!({"kind":"blocked","pane":pane,"title":ptitle,"question":question}), true));
                     } else if cseq > *pseq && status != "working" && status != "blocked"
                         && !last["text"].as_str().is_some_and(|t| t.starts_with("[Request interrupted"))
                     {
                         let turn_ms = if pstatus == "working" { now - psince } else { i64::MAX };
                         if !suppress_done(muted, turn_ms, now - inner.last_visible) {
                             pushes.push((
-                                json!({"kind":"done","pane":pane,"title":title,"body":last.get("text").cloned().unwrap_or(Value::Null),
+                                json!({"kind":"done","pane":pane,"title":ptitle,"body":last.get("text").cloned().unwrap_or(Value::Null),
                                        "url": done_url(&pane, info.answer_i, is_home)}),
                                 false,
                             ));
@@ -950,6 +971,7 @@ async fn refresh(app: &Shared) {
     artifacts::decorate(app, &mut out_agents);
     newagent::decorate(app, &mut out_agents, auto_cands);
     activity::decorate(app, &mut out_agents, act_cands);
+    find::decorate(app, &mut out_agents); // after services
     publish_state(app, json!(out_agents), json!(shells), json!(workspaces), true);
     for (pane, m) in apply_meta {
         tokio::spawn(async move { apply_meta_req(&pane, &m).await });
@@ -994,7 +1016,7 @@ fn publish_state(app: &App, agents: Value, shells: Value, workspaces: Value, her
     let home = if inner.home_live { inner.home.as_ref().map(|h| h["pane"].clone()).unwrap_or(Value::Null) } else { Value::Null };
     let mut v = json!({
         "home": home,
-        "host": app.host, "workDir": work_dir(), "tsName": app.ts_name, "tsIp": app.ts_ip, "herdr": herdr_ok,
+        "host": app.host, "workDir": work_dir(), "homeName": home_name(), "tsName": app.ts_name, "tsIp": app.ts_ip, "herdr": herdr_ok,
         "agents": agents, "shells": shells, "workspaces": workspaces, "surfaces": surfaces,
     });
     v["services"] = services::standalone(app, &v["agents"], herdr_ok);
@@ -1416,13 +1438,26 @@ async fn api_prompt(State(app): State<Shared>, AxPath(pane): AxPath<String>, hea
     // Same per-agent ordering as /steer.
     let lock = app.bridge.pane_lock(&pane);
     let _turn = lock.lock().await;
-    match herdr::quick("agent.prompt", json!({"target": pane, "text": text})).await {
+    // Never over the user's unsent draft (inputbox.rs): held, typed once the box is empty.
+    let sent = if inputbox::must_wait(&pane) {
+        Err(herdr::HerdrError { code: "input_draft".into(), message: String::new() })
+    } else {
+        herdr::quick("agent.prompt", json!({"target": pane, "text": text})).await
+    };
+    match sent {
         Ok(_) => {
             if let Some(t) = &phone_ask {
                 asks::record(&app, &headers, &pane, t, "prompt");
             }
             app.refresh.notify_one();
             Json(json!({"ok": true})).into_response()
+        }
+        Err(e) if inputbox::is_busy(&e.code) => {
+            if let Some(t) = &phone_ask {
+                asks::record(&app, &headers, &pane, t, "prompt");
+            }
+            app.refresh.notify_one();
+            Json(inputbox::held_reply(&pane, &text, &e.code)).into_response()
         }
         Err(e) => {
             // Not sent: a retry with the same nonce must go through.
@@ -1503,6 +1538,8 @@ async fn api_interrupt(State(app): State<Shared>, AxPath(pane): AxPath<String>, 
         forget_nonce(&app, b.nonce.as_deref());
         return json_err(StatusCode::CONFLICT, "agent_blocked");
     }
+    // the user's unsent draft in the box: the Esc still stops the turn, but nothing below empties the box.
+    let draft = matches!(inputbox::read(&pane).await, Some(inputbox::Input::Draft(_)));
     if status == "working" {
         // Remember where the transcript ends, to see the interrupt land in it.
         let tx = pane_session(&app, &pane).and_then(|sid| transcript(&app, &sid));
@@ -1536,7 +1573,7 @@ async fn api_interrupt(State(app): State<Shared>, AxPath(pane): AxPath<String>, 
     // Text that survives a ctrl+u is a placeholder hint, not input.
     let mut cleared = false;
     let mut prev: Option<String> = None;
-    for _ in 0..8 {
+    for _ in 0..if draft { 0 } else { 8 } {
         let now_text = input_box(&read_screen(&pane).await);
         if prev.is_some() && now_text != prev {
             cleared = true; // the last ctrl+u removed something
@@ -1552,14 +1589,19 @@ async fn api_interrupt(State(app): State<Shared>, AxPath(pane): AxPath<String>, 
             _ => break,
         }
     }
+    let mut held = Value::Null;
     if let Some(text) = b.text.filter(|t| !t.trim().is_empty()) {
-        if let Err(e) = herdr::quick("agent.prompt", json!({"target": pane, "text": text})).await {
-            forget_nonce(&app, b.nonce.as_deref());
-            return herdr_err(e);
+        match herdr::quick("agent.prompt", json!({"target": pane, "text": text})).await {
+            Err(e) if inputbox::is_busy(&e.code) => held = inputbox::held_reply(&pane, &text, &e.code)["id"].clone(),
+            Err(e) => {
+                forget_nonce(&app, b.nonce.as_deref());
+                return herdr_err(e);
+            }
+            Ok(_) => {}
         }
     }
     app.refresh.notify_one();
-    Json(json!({"ok": true, "status": status, "cleared": cleared})).into_response()
+    Json(json!({"ok": true, "status": status, "cleared": cleared, "draft": draft, "held": held})).into_response()
 }
 
 #[derive(Deserialize)]
@@ -2387,6 +2429,16 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
     if title.is_empty() {
         return json_err(StatusCode::BAD_REQUEST, "title required");
     }
+    // The mod's automatic "Dev server :<port>" card (any localhost URL a command printed) only when the phone can
+    // open that port, linked to the address it can reach: a loopback-only or stopped server gave a blank page
+    // (2026-10-10). Those still show in Home's Running apps, with why the phone can't open them.
+    if let Some(port) = title.strip_prefix("Dev server :").and_then(|p| p.parse::<u16>().ok()) {
+        let ts_ip = app.ts_ip.clone();
+        match tokio::task::spawn_blocking(move || apps::phone_url(port, &ts_ip)).await.ok().flatten() {
+            Some(url) => b["links"] = json!([{"url": url, "label": format!(":{port}")}]),
+            None => return Json(json!({"ok": true, "skipped": "the phone can't reach that port"})).into_response(),
+        }
+    }
     let level = match b["level"].as_str() {
         Some("attention") => "attention",
         Some("done") => "done",
@@ -2395,6 +2447,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
     let mut session = b["session"].as_str().map(str::to_string);
     let mut pane = b["pane"].as_str().map(str::to_string);
     let agent_title;
+    let shown_who; // the push says the home agent's display name; the card's agentTitle stays the herdr title
     {
         let inner = app.inner.lock().unwrap();
         if pane.is_none() {
@@ -2408,6 +2461,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
             }
         }
         agent_title = pane.as_ref().and_then(|p| inner.pane_titles.get(p).cloned());
+        shown_who = pane.as_ref().and_then(|p| inner.shown_title(p));
     }
     let raw_images: Vec<String> = b["images"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
     // keep a copy so the card's picture outlives the agent's temp file (keep.rs); same roots as /api/file
@@ -2513,9 +2567,9 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
         }
         republish(&app2);
         if level != "info" && !v3::at_desk(&app2, pane.as_deref().unwrap_or("")).await {
-            let who = agent_title.unwrap_or_else(|| "agent".into());
-            // `pushUrl`: a deep link of the server's own
-            let url = push_url.unwrap_or_else(|| surface_url(pane.as_deref(), session.as_deref(), at));
+            let who = shown_who.unwrap_or_else(|| "agent".into());
+            // `pushUrl`: a deep link of the server's own, else Home's "You should see this" panel at this card
+            let url = push_url.unwrap_or_else(|| see_url(&id2));
             let body = v3::surface_body(body.as_deref(), item["command"].as_str(), &who);
             let payload = json!({"title": shown, "body": transcript::cut(&body, 300).0, "url": url, "tag": id2});
             send_push(&app2, &payload, level == "attention").await;
@@ -2901,6 +2955,16 @@ fn dismiss_surfaces(app: &App, pick: impl Fn(&Value) -> bool) -> usize {
     n
 }
 
+/// One card by id (a push-opened `#/see/<id>`), dismissed ones included: `{surface, gone}`; 404 `{gone:true}`
+/// when the server no longer has it.
+async fn api_surface_get(State(app): State<Shared>, AxPath(id): AxPath<String>) -> Response {
+    let inner = app.inner.lock().unwrap();
+    match inner.surfaces.iter().find(|s| s["id"].as_str() == Some(id.as_str())) {
+        Some(s) => Json(json!({"surface": s, "gone": s["dismissed"].as_bool().unwrap_or(false)})).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(json!({"gone": true}))).into_response(),
+    }
+}
+
 async fn api_surface_dismiss(State(app): State<Shared>, AxPath(id): AxPath<String>) -> Response {
     let n = dismiss_surfaces(&app, |s| s["id"].as_str() == Some(id.as_str()));
     Json(json!({"ok": true, "found": n > 0})).into_response()
@@ -3053,16 +3117,15 @@ mod git_tests {
 
 #[cfg(test)]
 mod push_tests {
-    use super::{chat_surfaces, done_url, fallback_title, suppress_done, surface_row, surface_url, transcript};
+    use super::{chat_surfaces, done_url, fallback_title, see_url, suppress_done, surface_row, transcript};
     use serde_json::json;
     #[test]
     fn urls() {
         assert_eq!(done_url("w6:p3", Some(803), false), "/#/a/w6:p3?i=803");
         assert_eq!(done_url("w6:p1", Some(12), true), "/#/?i=12");
         assert_eq!(done_url("w6:p3", None, false), "/#/a/w6:p3");
-        assert_eq!(surface_url(Some("w6:p3"), Some("abc"), Some(7)), "/#/a/w6:p3?i=7");
-        assert_eq!(surface_url(None, Some("abc"), Some(7)), "/#/t/abc?i=7");
-        assert_eq!(surface_url(None, None, None), "/#/");
+        assert_eq!(see_url("s19a2b3c4d5e"), "/#/see/s19a2b3c4d5e");
+        assert_eq!(see_url("a b"), "/#/see/a%20b");
     }
     #[test]
     fn fallback_title_prefers_specific_names() {

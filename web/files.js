@@ -1,5 +1,5 @@
 // F8 files touched: sheet per session + diff page #/d/<tid>?path= (lazy).
-import { G, I, $, h, esc, api, sheet, tick, shortPath, itemHref, goBack, fileUrl, ls, toast, haptic, nav } from './app.js';
+import { G, I, $, h, esc, api, sheet, tick, shortPath, itemHref, goBack, fileUrl, ls, toast, haptic, nav, HOME_NAME } from './app.js';
 
 const enc = encodeURIComponent;
 const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -98,7 +98,7 @@ export class DiffView {
     document.querySelectorAll('.diff .cm-on').forEach(x => x.classList.remove('cm-on'));
     lineEl.classList.add('cm-on');
     const f = h(`<form class="cmf"><div class="cm-w"><b>${esc(where)}</b>${del ? ' (removed line)' : ''}<code>${esc(code.slice(0, 120))}</code></div>
-      <textarea rows="2" placeholder="Comment for ${esc(a.home ? 'Master' : a.title || a.pane)}"></textarea>
+      <textarea rows="2" placeholder="Comment for ${esc(a.home ? HOME_NAME() : a.title || a.pane)}"></textarea>
       <div class="btns"><button class="btn primary sm">Add to draft</button><button type="button" class="btn sm no">Cancel</button></div></form>`);
     hunk.append(f);
     const ta = $('textarea', f); ta.focus();
@@ -116,7 +116,7 @@ export class DiffView {
   bar(a) {
     let b = $('.cmbar', this.el);
     if (!b) { b = h('<div class="cmbar"><span></span><button class="btn primary sm">Send to agent</button></div>'); this.el.append(b); }
-    $('span', b).textContent = `${this.count} comment${this.count > 1 ? 's' : ''} in ${a.home ? 'Master' : a.title || a.pane}’s draft`;
+    $('span', b).textContent = `${this.count} comment${this.count > 1 ? 's' : ''} in ${a.home ? HOME_NAME() : a.title || a.pane}’s draft`;
     $('button', b).onclick = () => nav(a.home ? '#/' : '#/a/' + encodeURIComponent(a.pane));
   }
 }

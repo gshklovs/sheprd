@@ -1,5 +1,5 @@
 // Lazily loaded sheets: snippets + recent prompts (F13), jobs (F11), message + card actions (F9, F12).
-import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, getPrefs, DEF_SNIPS, insertAt, cardAct, cdot, itemHref, copyText, dispStatus, LABEL, shortPath, agentHref, newAgentSheet, sortAgents, lazy } from './app.js';
+import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, getPrefs, DEF_SNIPS, insertAt, cardAct, cdot, itemHref, copyText, dispStatus, LABEL, shortPath, agentHref, newAgentSheet, sortAgents, steerAgent, lazy, whoName, HOME_NAME } from './app.js';
 
 // ---------- snippets + recent prompts (F13) ----------
 export async function snippetSheet(ta, done) {
@@ -64,7 +64,7 @@ export function cardSheet(a) {
     (a.mod || a.status === 'idle' || a.status === 'done') && ['compact', 'Compact now'], ['term', 'Terminal'], ['desk', 'Open on desk'], ['mode', 'Mode (plan/auto) · ⇧Tab'], ['stop', 'Stop (Esc)'], ['copy', 'Copy pane id'], !a.home && ['close', 'Close tab']].filter(Boolean);
   // the raw tool call behind the activity phrase (server/src/activity.rs)
   const raw = a.status === 'working' && a.doing?.label ? `<p class="rawdo"${a.activity?.phrase ? ` title="${esc(a.activity.id)}"` : ''}>${a.activity?.phrase ? `${esc(a.activity.icon || '')} ${esc(a.activity.phrase)} · ` : ''}<code>${esc(a.doing.label)}</code></p>` : '';
-  const sh = sheet(`<h2>${cdotT(a)}${esc(a.home ? 'Master' : a.title || a.pane)}</h2>${raw}<div class="acts">${rows.map(([k, l]) => `<button class="act${k === 'close' ? ' danger' : ''}" data-a="${k}">${esc(l)}</button>`).join('')}</div>`);
+  const sh = sheet(`<h2>${cdotT(a)}${esc(a.home ? HOME_NAME() : a.title || a.pane)}</h2>${raw}<div class="acts">${rows.map(([k, l]) => `<button class="act${k === 'close' ? ' danger' : ''}" data-a="${k}">${esc(l)}</button>`).join('')}</div>`);
   sh.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (!b) return; sh.close(); setTimeout(() => cardAct(a, b.dataset.a), b.dataset.a === 'rename' ? 0 : 120); });
 }
 const cdotT = a => cdot(a.color);
@@ -78,7 +78,7 @@ export function jobSheet(j) {
     <pre class="jout"><span class="spin"></span></pre>
     <div class="btns"><a class="btn sm" href="${itemHref(j.tid, j.i, j.pane)}">↗ in chat</a>${j.out ? `<a class="btn sm" href="#/f?path=${encodeURIComponent(j.out)}">Open full log</a>` : ''}</div>`, 'tall');
   const out = $('.jout', sh);
-  $('.jm', sh).innerHTML = `${esc(j.status)} · ${esc(j.agentTitle || '')} · started <span data-since="${j.started}" data-ago></span>`;
+  $('.jm', sh).innerHTML = `${esc(j.status)} · ${esc(whoName(j.agentTitle, j.pane) || '')} · started <span data-since="${j.started}" data-ago></span>`;
   tick(sh);
   let t = 0, alive = true;
   const poll = async () => {
@@ -99,7 +99,8 @@ export function jobSheet(j) {
 
 // ---------- message long-press actions (F12) ----------
 export function msgSheet(view, it, el) {
-  const user = it.k === 'user', text = it.text || '';
+  const card = el.classList.contains('amsg'); // another agent's message (a steer with `from`, a report, a paste)
+  const user = it.k === 'user' && !card, text = it.text || '';
   const plain = user ? text : (el.innerText || text).trim();
   const canCompose = !!view.target && !view.el.classList.contains('ro');
   const rows = [['copy', 'Copy'], !user && ['md', 'Copy as Markdown'], navigator.share && ['share', 'Share…'],
@@ -109,7 +110,7 @@ export function msgSheet(view, it, el) {
   sh.addEventListener('click', e => {
     const b = e.target.closest('[data-a]'); if (!b) return;
     const a = b.dataset.a;
-    if (a === 'fwd') { forwardSheet(view, text, sh); return; }
+    if (a === 'fwd') { forwardSheet(view, text, sh, fwdSource(view, it, user, card)); return; }
     sh.close();
     if (a === 'copy') copyText(plain);
     else if (a === 'md') copyText(text);
@@ -119,23 +120,49 @@ export function msgSheet(view, it, el) {
     else if (a === 'edit') put(text + (ta.value ? '\n' + ta.value : ''));
   });
 }
-function forwardSheet(view, text, prev) {
-  const src = view.home ? 'Master' : view.agent?.title || view.agent?.name || 'transcript';
-  const body = `From ${src}:\n` + text.split('\n').map(l => '> ' + l).join('\n') + '\n\n';
-  const list = sortAgents((G.st?.agents || []).filter(a => a.pane !== view.pane));
-  const sh = sheet(`<h2>Send to agent</h2><div class="swl">${list.map(a => {
+// Who a forwarded message is from: `pane` (when it is a live agent) lets the receiver see it as that agent's card.
+function fwdSource(view, it, user, card) {
+  if (card) {
+    const p = it.kind === 'steer' ? steerAgent(it) : null, pane = p?.pane || (it.kind === 'steer' ? it.agentId : null) || null;
+    return { pane, name: p ? (p.home ? HOME_NAME() : whoName(p.title || p.name || p.pane, p.pane)) : whoName(it.from) || (it.kind === 'report' ? 'a subagent' : 'another agent') };
+  }
+  if (user) return { pane: null, name: 'me' };
+  const live = view.target && view.target === view.pane; // not a subagent's transcript
+  return { pane: live ? view.pane : null, name: view.home ? HOME_NAME() : view.agent?.title || view.agent?.name || 'an agent' };
+}
+// Send to agent: one tap sends it (POST /steer, so a busy agent gets it mid-turn and an idle one as a prompt). Without
+// a note it goes as the source agent's message (`from`: the receiver's chat shows that agent's card); with a note it
+// is your message quoting it. "Edit first" keeps the old way: a draft in the receiver's composer.
+function forwardSheet(view, text, prev, src) {
+  const quote = `Forwarded from ${src.name}:\n` + text.split('\n').map(l => '> ' + l).join('\n');
+  const list = sortAgents((G.st?.agents || []).filter(a => a.pane !== view.pane && a.pane !== src.pane && !a.service));
+  const sh = sheet(`<h2>Send to agent</h2><input class="fw-note" type="text" placeholder="Add a note (optional)" autocomplete="off" enterkeyhint="done">
+    <div class="swl">${list.map(a => {
     const s = dispStatus(a);
-    return `<button class="swrow${COLORS_CLS(a.color)}" data-p="${esc(a.pane)}"><span class="pill s-${s}"><i></i>${LABEL[s]}</span><span class="sb"><b>${cdot(a.color)}${a.home ? 'Master' : esc(a.title || a.name || a.pane)}</b><small>${esc(shortPath(a.cwd))}</small></span></button>`;
-  }).join('')}</div><button class="btn swall newag">${I.plus} New agent</button>`);
+    return `<button class="swrow${COLORS_CLS(a.color)}" data-p="${esc(a.pane)}"><span class="pill s-${s}"><i></i>${LABEL[s]}</span><span class="sb"><b>${cdot(a.color)}${a.home ? HOME_NAME() : esc(a.title || a.name || a.pane)}</b><small>${esc(shortPath(a.cwd))}</small></span></button>`;
+  }).join('')}</div><div class="fw-alt"><button class="btn sm fw-edit">Edit first…</button><button class="btn sm newag">${I.plus} New agent</button></div>`);
   prev.close();
-  sh.addEventListener('click', e => {
-    if (e.target.closest('.newag')) { sh.close(); newAgentSheet(body); return; }
+  const note = sh.querySelector('.fw-note');
+  let editing = false;
+  sh.addEventListener('click', async e => {
+    if (e.target.closest('.fw-edit')) { editing = !editing; e.target.closest('.fw-edit').classList.toggle('on', editing); toast(editing ? 'Pick the agent: it opens with a draft to edit' : 'Pick the agent to send', '', null, 1600); return; }
+    if (e.target.closest('.newag')) { sh.close(); newAgentSheet((note.value.trim() ? note.value.trim() + '\n\n' : '') + quote + '\n\n'); return; }
     const r = e.target.closest('[data-p]'); if (!r) return;
-    const a = list.find(x => x.pane === r.dataset.p);
-    const cur = ls.get('draft.' + a.pane, '');
-    ls.set('draft.' + a.pane, body + (cur ? cur : ''));
+    const a = list.find(x => x.pane === r.dataset.p), who = a.home ? HOME_NAME() : a.title || a.name || a.pane, n = note.value.trim();
     sh.close(); haptic();
-    location.hash = agentHref(a);
-    toast('Draft ready — review and send', 'ok', null, 2200);
+    if (editing) {
+      const cur = ls.get('draft.' + a.pane, '');
+      ls.set('draft.' + a.pane, (n ? n + '\n\n' : '') + quote + '\n\n' + (cur || ''));
+      location.hash = agentHref(a);
+      toast('Draft ready — review and send', 'ok', null, 2200);
+      return;
+    }
+    const body = !n && src.pane ? { text, from: src.pane } : { text: (n ? n + '\n\n' : '') + quote };
+    try {
+      await post(`a/${encodeURIComponent(a.pane)}/steer`, { ...body, nonce: Math.random().toString(36).slice(2) });
+      toast(`Sent to ${esc(who)} · tap to open`, 'ok', () => { location.hash = agentHref(a); }, 2600);
+    } catch (err) {
+      toast(err.status === 409 ? `${esc(who)} is waiting on a question — answer it first` : 'Not sent: ' + esc(err.message), 'err');
+    }
   });
 }

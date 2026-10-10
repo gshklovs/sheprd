@@ -110,7 +110,8 @@ immediately if there are already items >= N.
 
 ## Acting on agents (`:pane` = herdr pane id like `w6:p1`, URL-encoded)
 - `POST /api/a/:pane/prompt` `{text}` → `{ok:true}` — submits a prompt (herdr `agent.prompt`; text + Enter).
-  If the agent is blocked, returns 409 `{error:"agent_blocked"}`.
+  If the agent is blocked, returns 409 `{error:"agent_blocked"}`. Never typed over the user's unsent draft or into an
+  open menu: then `{ok:true, via:"held", how:"draft"|"menu", id:"h<n>"}` (see "Steer → Draft in the input box").
 - `POST /api/a/:pane/keys` `{keys:["esc"]}` — herdr key names: `enter esc tab shift+tab up down left right
   backspace space ctrl+c ctrl+d 1 2 3 y n` etc.
 - `POST /api/a/:pane/text` `{text}` — raw literal text, no Enter.
@@ -159,9 +160,11 @@ immediately if there are already items >= N.
   octet-stream are never gzipped. The web plays .mp4/.m4v/.mov/.webm (and audio) inline (`md.js mediaEl`), path
   links open the in-app player (`app.js mediaViewer`) whose Save shares the file (`navigator.share({files})`, iOS →
   Save Video) or falls back to the download.
-  In the installed app, every other `target=_blank` link to `/api/file` (PDFs and other binaries, the image
-  lightbox's Open) goes to the same share sheet instead of a raw tab: a raw tab opens outside the PWA and coming
-  back cold-loads it. Links to other sites open as before.
+  In the installed app, no `target=_blank` link to the app's own `/api/file` opens a raw tab (that leaves the PWA
+  and coming back cold-loads it). Instead: a picture → the lightbox (the lightbox's Open → the share sheet); a binary (pdf, zip,
+  office… `md.js BIN_EXT`) → the share sheet after a "Preparing <name>…" toast; anything else → the doc viewer
+  `#/f?path=`, which shows an `.html` file as the page (opaque sandbox, no-network CSP, "Source" toggle). Links to
+  other sites open as before.
   Directories → `{ entries: [...] }` JSON.
 
 ## Push (Web Push, needs HTTPS PWA install)
@@ -198,6 +201,8 @@ where `images` are `/api/file?path=...` URLs, `i` = the transcript item it belon
 `row: true` = `i` is its own `mcp__sheprd__surface` tool row. Every surface shows in its agent's chat: from the tool
 row, or (no row: curl, the mod's own notes) inline after item `i` with the same card and reply buttons. The images show
 as a sideways strip (tap = gallery) on Home cards, the hero and in chats; a toast shows a small preview.
+`GET /api/surface/:id` → `{surface, gone}` (dismissed ones included, `gone: true`); 404 `{gone: true}` when the server no
+longer has it (the push-opened panel asks when its state lacks the card).
 `POST /api/surface/:id/dismiss` → marks it dismissed (removed from `surfaces` in state) along with any identical copy;
 `{found}` false for an unknown id. `POST /api/surfaces/dismiss {ids?}` dismisses those ids (all when omitted) → `{n}`
 (the phone's Clear all). Dismissals stick: the content fingerprint (agent session/pane + title + body, whitespace-
@@ -272,7 +277,8 @@ The client then streams with `after=<returned first+items.length>` as usual.
 - `POST /api/a/:pane/prompt` `{text, nonce?}` — **F14**: `nonce` (client random string). The server remembers the
   last 100 nonces for 10 min; a repeat returns `{ok:true, dup:true}` without sending again.
   `from` (another agent's pane id) works as on `/steer`: the same sender line, and the chat shows a card from that agent.
-- `POST /api/a/:pane/interrupt` `{text?, nonce?}` → `{ok:true, status, cleared}` — **F2**. If the agent is `working`,
+- `POST /api/a/:pane/interrupt` `{text?, nonce?}` → `{ok:true, status, cleared, draft, held}` — **F2**. `draft`: the
+  input box held the user's draft before the Esc, so the box is not emptied below and `text` is held (`held: "h<n>"`). If the agent is `working`,
   sends `esc` and waits (≤4 s, polling `agent.get` every 150 ms) until status is not `working`; if after 2.5 s it is
   still working, the transcript shows no `[Request interrupted…` item and the screen still shows "esc to interrupt",
   sends one more `esc` (never more: two Escs on an idle prompt open Claude's rewind menu). **Never sends `ctrl+c`**
@@ -331,7 +337,13 @@ session's transcript at receipt, else `total-1`, else null.
 `{ title, body, url, tag }` unchanged in shape; `url` now deep-links to an item:
 - done → `/#/a/<pane>?i=<answerI>` (master: `/#/?i=<answerI>`)
 - blocked → `/#/a/<pane>` (unchanged; the blocked panel is the target)
-- surface → `/#/a/<pane>?i=<surface.i>` (or `/#/t/<tid>?i=…` if the pane is gone)
+- surface → `/#/see/<id>` (since 2026-10-10): Home's "You should see this" panel, scrolled up under the bar, that
+  card first and lit for 2 s with an "Open chat ›" chip (its chat at `?i=<surface.i>`); a dismissed / unknown card →
+  the panel with "That one's gone". A surface's own `pushUrl` still wins. Was `/#/a/<pane>?i=<surface.i>`.
+- Tap (web/sw.js `openFromPush`): a running app gets `postMessage({nav, push:1, see:{title, body}})` **before**
+  `focus()` and routes at once (no slide, no reload; `see` draws the card from the notification until the state has
+  it); no window → `openWindow('/#/see/<id>')`, which boots straight into the panel. A push-opened screen holds a
+  pending self-update reload (it waits as in the front: idle 20 s or hidden) and the reload lands on the panel again.
 - `tag` = pane id for done/blocked (a newer push replaces the older one on the lock screen); surface id for surfaces.
 Push rules: no done push for `muted` agents; no done push if the turn lasted < 20 s **and** a client reported
 `visible:true` within the last 60 s. Blocked and attention pushes are never suppressed by these rules.
@@ -581,7 +593,8 @@ Transcripts: a user row with `isMeta` whose text starts with `[from phone] ` (an
 `{k:"user"}` item with the prefix removed.
 
 ### Steer
-`POST /api/a/:pane/steer` `{text, nonce?, from?}` → `{ok:true, via:"inbox", how}` | `{ok:true, via:"herdr"}` | `{ok:true, dup:true}`
+`POST /api/a/:pane/steer` `{text, nonce?, from?}` → `{ok:true, via:"inbox", how}` | `{ok:true, via:"herdr"}` |
+`{ok:true, via:"held", how:"draft"|"menu", id}` | `{ok:true, dup:true}`
 - `from` (another agent's pane id; 400 if malformed or the target itself): the text gets a first line
   `[Message from agent "<title>" (pane <from>) via sheprd]`, so the receiving agent knows the sender and its
   transcript item becomes `{k:"user", kind:"steer", agentId:<from>, from:<title>, text}` (header removed); the phone
@@ -594,6 +607,17 @@ Transcripts: a user row with `isMeta` whose text starts with `[from phone] ` (an
   time: assumed delivered, never sent twice).
 - Otherwise (idle, no mod, not picked up, or the mod reports failure): typed in like `/prompt` (herdr `agent.prompt`;
   Claude queues it for its next step). Same errors as `/prompt` (409 `agent_blocked`). `nonce` as for `/prompt`.
+- **Draft in the input box** (server/src/inputbox.rs): typing never touches what the user typed. Every server
+  `agent.prompt` (`herdr::quick`) first reads the pane (`pane.read`, format `ansi`); if the box holds a real draft
+  (non-faint text after `❯`: typed, multi-line, or a `[Pasted text …]` chip) or a menu / permission prompt is open,
+  nothing is typed (`input_draft` / `input_menu`). `/steer`, `/prompt` and `/interrupt`'s text then **hold** the
+  message: `{ok:true, via:"held", how:"draft"|"menu", id:"h<n>"}`. Faint (SGR 2) or placeholder-grey
+  (38;2;153;153;153) text is Claude's own suggestion, not a draft. Held messages are strict FIFO per pane (later
+  `/steer` / `/prompt` to that pane wait behind them) and go out oldest first, one per 1.5 s pass: typed once the box
+  is empty (draft sent or cleared), or appended through the mod while the agent works (an append never touches the
+  box). They show in state as `queued` `{text, ts, id:"h<n>", held:"draft"}` at any status; `/unsend {id:"h<n>"}`
+  takes one back (`how:"held"`). In memory only (lost on a server restart); dropped when the pane goes away.
+  Other server typists (scheduled runs, new-agent prompts, rename/colour) get the refusal and retry or skip.
 The web composer uses `/steer` for every message sent while the agent is working.
 
 ## v3 additions (server/src/v3.rs, web/v3.js)
@@ -616,6 +640,13 @@ The mod wraps `ExitPlanMode` like `AskUserQuestion`. The client maps the approva
 Approve = the `Yes…` option without auto (`Yes, manually approve edits`), Approve + auto-accept = `Yes, and use
 auto mode` / `…auto-accept edits`, Keep planning = `Tell Claude what to change` / `No, keep planning` (rejects the
 plan and leaves the agent in plan mode; an optional note is then sent with `/prompt`, retried while 409).
+
+### Automatic "Dev server" cards
+The mod posts `Dev server :<port>` (a localhost URL a foreground Bash command printed or started, once per port per
+session). The server keeps it only when the phone can open that port (`apps.rs phone_url`: a LISTEN socket on every
+interface, the tailnet address or a 100.x address) and links it there (`http://<tailnet ip>:<port>/`); a server that
+listens on loopback only, or no longer listens, gets no card (`{ok, skipped}`) and stays visible in Home's Running
+apps with why the phone can't open it. (2026-10-10: cards for loopback test servers opened a blank page.)
 
 ### Push bodies and suppression
 - Blocked push: title `Plan ready · <agent>` for a plan, else `Needs you · <agent>`; body = plan headline + first
@@ -860,9 +891,12 @@ Newest first. `q`: every whitespace token must appear (case-insensitive) in titl
 are left out unless `all=1` (or live). Index: every main transcript is read once, then only appended bytes (partial last
 lines are re-read next time); restat at most every 2 s; persisted in `<state>/sessions-index.json`.
 
-`POST /api/sessions/:sid/resume` `{ws?}` → `{pane, live:true}` when the session is already running in a pane (or a resume
-of it started < 90 s ago, `starting:true`); else `{pane, tab, ws, live:false}`: a new tab (label `re-<title>`) in the
-workspace matching the session cwd running `claude --resume <sid> --permission-mode auto` (trust prompt auto-accepted).
+`POST /api/sessions/:sid/resume` `{ws?, text?}` → `{pane, live:true}` when the session is already running in a pane (or a resume
+of it started < 90 s ago, `starting:true`; `text` then goes to the live pane at once); else `{pane, tab, ws, live:false}`: a
+new tab running `claude --resume <sid> --permission-mode auto` (trust prompt auto-accepted) in the session's folder, **back
+where it lived** (find.rs remembers each session's workspace and tab name, as `home.json` does for the home agent): its old workspace
+if it still exists, else the one matching its cwd; its old tab name, else `re-<title>`. `text` (Continue sends "continue")
+is typed in once the agent is up; a rename made while it slept follows as `/rename`.
 404 unknown session, 409 when its folder is gone. The web shows Resume on Sessions rows, search result groups and the
 bar under read-only (old) chats ("Open live chat" when it is live).
 
@@ -890,6 +924,18 @@ run → poll `/screen`) or `event: gone` (pane closed), then the stream ends. Wh
 one `herdr terminal session observe <pane>` child per pane (NDJSON `terminal.frame`s) and reads the screen on change;
 it is killed ≤ 2 s after the last viewer leaves. `GET /api/live/status` → `{observers:[{pane, viewers, frames, since}]}`.
 The terminal view (`Screen`) uses it and falls back to 500 ms polling for 60 s after a failure.
+The view doesn't trust a quiet stream (2026-10-10: the screen froze until you left and came back): every key or
+typed text is followed by two direct `/screen` reads (150 ms, 700 ms), and a stream with no `screen` event for 4 s gets
+a direct read every 2 s; a revision the stream didn't deliver means it is stuck, so it is reconnected.
+
+### Send to agent (web, `sheets.js forwardSheet`)
+Long-press a message, or another agent's card (`.amsg`: a steer with `from`, a report, a paste
+card) → **Send to agent…** → optional note → one tap on an agent sends it with `POST /api/a/:pane/steer` (mid-turn
+when it works, else a prompt; 409 → "waiting on a question"). Without a note it goes as the source agent's message
+(`from`: the source pane, or the card's original sender), so the receiver's chat shows that agent's card; with a note
+(or a source without a live pane) it is your message: the note, then `Forwarded from <name>:` and the text quoted.
+The source agent is never offered as a target. **Edit first…** keeps the old flow: a draft in the receiver's composer.
+
 
 ### Background services — `<state>/services.json`
 An agent that runs unattended (a poller, a watcher, a nightly job) opts in by reporting itself
@@ -1049,6 +1095,7 @@ main turn) neither end the turn nor post turn records. `/steer`'s "Claude queue 
 ### Unsend
 `POST /api/a/:pane/unsend` `{id?, text}` → `{ok, how: "mod" | "claude", text}`
 - `id: "m<seq>"`: inbox `{kind:"unsend", ref}`; the mod drops it if still held (≤ 4 s ack).
+- `id: "h<n>"`: a message the server holds for a draft in the input box (Steer → Draft in the input box).
 - else Claude's own queue (typed via herdr): with an empty input box (or Claude's "Press up to edit queued messages"
   hint) the server sends ↑ (Claude's `popAll` moves the whole queue into the box), empties the box (ctrl+u per line)
   and types the other messages back in, in order. The transcript's `popAll` rows are tracked.
@@ -1142,7 +1189,7 @@ gradient on the hero card and JetBrains Mono for code and the In-flight numbers.
 Settings → Look → **Palette** (for `ipal` and `desk`, localStorage `mm-pal`): `desktop` (default, follows
 omarchy-theme-set), `auto` (one theme by day, one by night with the iPhone's appearance: `mm-pal-day`/`mm-pal-night`,
 default flexoki-light / tokyo-night; in auto mode tapping a theme fills the slot of its mode) or a fixed theme name;
-named palettes are cached as `mm-pt:<name>`. Test: `web-dev/t-looks2.mjs <port> [look:palette,…]`.
+named palettes are cached as `mm-pt:<name>`.
 
 `GET /api/theme` → the active Omarchy theme (`~/.local/state/omarchy/current/theme`, or `SHEPRD_THEME_DIR`):
 `{name, mode: "dark"|"light", colors: {background, foreground, accent, red, orange, yellow, green, cyan, blue,
@@ -1163,7 +1210,7 @@ orange/yellow, done ← green, working ← blue/accent, error ← red; iOS hues 
 ≥4.5:1, `--on-accent`/`--on-blocked`/`--on-red` for text on fills, agent colours with text-safe `--ct-*` and on-colour
 `--co-*`, the terminal's 16 colours as `--ansi-N` (ansi.js), the border gradient as `--hb`; `theme-color` meta = bg.
 The omarchy.org look uses the site's own tokens (tokyo-night; flexoki-light when iOS is in light mode). Fonts are
-vendored (OFL): `web/fonts/` JetBrains Mono, Geist. Screenshots: `web-dev/t-theme.mjs <port> <tag> [looks]`
+vendored (OFL): `web/fonts/` JetBrains Mono, Geist, Michroma (the wordmark).
 (mock: `MOCK_P2=1`, `MOCK_THEME_DIR=<theme dir>`).
 
 ## Activity (`server/src/activity.rs`, taxonomy `server/data/activities.toml`)
@@ -1203,7 +1250,7 @@ over coding over reading/waiting; Haiku/todo phrases first), then a recent servi
 3 clauses + "+N more". In-flight tiles and agent rows show icon + phrase; the raw tool label stays in the tooltip, on
 long-press (card sheet) and in the chat header. Tests: `cargo test activity` (rules on recorded calls in
 `server/fixtures/activity/calls.jsonl`), coverage over real transcripts `ACT_CALLS=calls.jsonl cargo test coverage --
---ignored --nocapture`, UI `web-dev/t-activity.mjs <port> full|work` with the mock's `MOCK_ACT=full|work`.
+--ignored --nocapture`.
 
 ## Kept images (`server/src/keep.rs`)
 Agents' screenshots in /tmp or caches vanish. An image a surface references (at `POST /api/surface`), or one
@@ -1211,7 +1258,7 @@ Agents' screenshots in /tmp or caches vanish. An image a surface references (at 
 each; dir pruned oldest-first above 400 MB; `SHEPRD_KEEP_DIR` for tests). When the path no longer exists,
 `GET /api/file?path=` serves the kept copy for that exact path string; the root checks are unchanged (a copy
 only exists for a file that was allowed). A thumb that still fails shows an "Image expired" tile (`img.thumb.gone`,
-web/app.js) instead of disappearing. Test: `web-dev/t-keep.mjs`.
+web/app.js) instead of disappearing.
 
 ### Cards clear themselves (`surfaces::auto_clearable`, main.rs `auto_clear_surfaces`)
 Plain notes only (level info/done, no `replies`, no `command`, no `blocker`, no `pushUrl`, no `#/browser/` or
@@ -1305,3 +1352,67 @@ fetched once per chat; ranked name prefix → prefix after `plugin:` → name su
 Tap / Enter / Tab inserts `/name `; closes on space, Esc, a tap outside (both hold until the `/` is gone), or when the
 text no longer starts with `/`. Fixed-positioned (shares the composer rect frame when iOS scrolls the document under the keyboard), bottom 8 px above
 the composer.
+
+## Find and continue (`server/src/find.rs`, `web/find.js` + `find.css`)
+An agent is **awake** while a herdr pane hosts its session and
+**asleep** once the pane is closed; asleep agents continue in place with their whole conversation.
+
+Store `<state>/agents.json` (find.rs), per session: where it last lived (`pane, ws, label, cwd, at`: recorded on every
+state refresh), Haiku's short name (`nick`, set once) and job line (`job`, `job_by` haiku|user|default, `job_n` prompt count
+it was written at), the user's rename of an asleep agent (`name`, typed in as `/rename` when it is continued) and `hidden`
+(Hide from Recent). Pins are the per-session `pinned` pref (prefs.json, the swipe Pin): the home agent gets a default pin
+once (unless the user set that session's pin themselves); at most 5 from the phone.
+
+State: every live agent gains `job` (string | null) and `short` (Haiku's short name when the title is only Claude's
+ai-title / a fallback, else null).
+
+**Job lines.** Haiku (thinking off, no tools, `newagent::run_haiku`) writes `{name, job, changed}` from the title, folder,
+first and latest request and latest reply: only while the phone was in use in the last 15 min, ≤ 2 every 20 s, ≤ 60 a
+day; for live agents and asleep ones of the last 14 days. Asked again only after the prompt count doubled (≥ 6 more), with
+the current line: it keeps it (`changed:false`) unless the work clearly moved on. A line the user typed is never replaced.
+`SHEPRD_JOB_HAIKU=0` turns it off; `SHEPRD_FAKE_JOB="Name|Job line"` (tests) skips Haiku.
+
+`GET /api/agents?limit=40` →
+```jsonc
+{ "now": ms, "pins": 3, "maxPins": 5, "older": 27 /* asleep ones beyond limit */,
+  "agents": [{ "sid": "…", "name": "Nightly Backup" /* display name */, "title": "…", "job": "Runs the nightly backup and reports failures",
+               "jobBy": "haiku", "cwd": "…", "color": "orange", "pane": "w6:p3" | null, "status": "idle" | null, "since": ms,
+               "asleep": true, "home": false, "service": false, "ts": ms /* last activity */, "lu": ms /* the user's last prompt */,
+               "last": {"role", "text"}, "pinned": true, "hidden": false, "prompts": 12 }] }
+```
+Live agents first (state order), then asleep sessions newest first: main transcripts that are not headless, have a prompt,
+did not continue in another session (`continued-in`), were touched in the last 30 days, and whose folder exists and is not
+scratch (`/tmp` outside HOME, `…/scratchpad`, `~/.cache`, `~/Work/tries` itself, folders named like tests). Asleep display
+name: the user's rename > custom title > Haiku's short name > Claude's title > first prompt. From the session index (fleet.rs,
+now also keeping the last reply, `/color`, `continued-in` and the time of the user's last own prompt; old index entries are
+re-read once).
+`GET /api/agents/resolve?sid=|pane=&name=` → `{agent: <row>}` or 404: one session, or the sender of an agent-message card:
+the live pane, else the session that last lived in that pane, else a name match (live title / short name, then the newest
+session with that rename / custom title / short name / ai title).
+`POST /api/agents/:sid/meta {pinned?, hidden?, name?, job?}` → `{ok}`. `pinned` → 409 when 5 are pinned; `name` only while
+asleep (409 when awake: rename live agents with `/api/a/:pane/meta`); `job` "" gives the line back to Haiku.
+
+Web (`web/find.js`, lazy):
+- **Agent messages** (3a): a steer card's header is the sender: disc, "Nightly Backup ›", "Asleep 2h · sent this to Master" /
+  "Working · …", and Open › or Continue ›. A sender with no live pane is looked up (`resolve`): tap the name = its asleep
+  chat (`#/t/<sid>`), Continue = wake it now.
+- **Asleep chat** (3b, `#/t/<sid>` of a main session with no live pane; replaces the old "Past session · Resume" bar):
+  header "Asleep 2h · <job>" in the agent's tint, a "Fell asleep at …" line after the last message, and a wake card above
+  the (hidden) composer: Continue (resume + "continue", the live chat replaces this one in history) and Message… (a field;
+  sending wakes it with that text). Opening it while the agent is awake goes to its live chat.
+- **Agents tab** (1a): rows show the job line (the workspace · tab text goes when there is one) and the short name; a
+  "Find an agent: name, job, folder, chat" field on top (→ `#/search`); Everyone is now **Awake**, and an **Asleep** group
+  follows: the 5 most recent asleep agents (disc with a moon, name, age, job, last line, Continue) and "N older in History ›".
+- **Search** (1b, `#/search`, web/search.js): **Agents** first (every word of the query in name / title, job or folder,
+  from the cached `/api/agents`, at once; name hits first, then job, awake before asleep; Continue on asleep ones), then
+  **Messages** from `GET /api/search`: one row per conversation with its newest hit (You / Claude, highlighted), status
+  and folder, Continue when asleep.
+- **Recent on Home** (2a, grid variant): under the Briefing sentence, a 2 × 3 grid: pinned agents first (the home agent first),
+  then the agents the user last typed to (`lu`; services only when pinned), awake or asleep, minus hidden ones. A cell = disc,
+  name, "📌 3h ago" / "asleep · 2h" / "working" / "done · 25m"; tap = its chat (asleep → `#/t/<sid>`). Awake (Everyone)
+  and Asleep leave out whoever is on the grid (a pinned agent therefore sits in Recent, not at the top of Awake; Ready
+  keeps its rows). **Edit** = how Recent works + pinned chips + hidden agents to show again.
+- **Long-press a cell** (2b): disc, name, job, status · folder; Pin to Home / Unpin ("3 of 5 pinned", "unpin one first" at
+  5), Open chat, Rename and edit job line (asleep: stored, typed in as `/rename` on Continue; awake: `/api/a/:pane/meta`;
+  the home agent: job line only), Hide from Recent (also unpins); then the pinned chips.
+Tests: `cargo test find:: fleet::`.

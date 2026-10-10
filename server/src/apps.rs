@@ -256,6 +256,26 @@ fn listening(pids: &[u32]) -> Vec<(String, u16)> {
     out
 }
 
+/// Where the phone can open a port on this box: `Some(url)` when something listens on it on every interface or the
+/// tailnet address (the tailnet URL), `None` when nothing listens or only loopback does (the phone can't reach it).
+pub fn phone_url(port: u16, ts_ip: &str) -> Option<String> {
+    let mut rows = vec![];
+    for (f, v6) in [("/proc/net/tcp", false), ("/proc/net/tcp6", true)] {
+        if let Ok(s) = std::fs::read_to_string(f) {
+            rows.extend(parse_listen(&s, v6).into_iter().filter(|r| r.1 == port).map(|r| r.0));
+        }
+    }
+    reach_of(&rows, port, ts_ip)
+}
+
+fn reach_of(addrs: &[String], port: u16, ts_ip: &str) -> Option<String> {
+    if let Some(h) = addrs.iter().find(|h| h.starts_with("100.")) {
+        return Some(format!("http://{h}:{port}/"));
+    }
+    let open = addrs.iter().any(|h| h == "0.0.0.0" || h == "::" || (!ts_ip.is_empty() && h == ts_ip));
+    (open && !ts_ip.is_empty()).then(|| format!("http://{ts_ip}:{port}/"))
+}
+
 /// LISTEN rows of /proc/net/tcp{,6}: (address, port, inode).
 fn parse_listen(s: &str, v6: bool) -> Vec<(String, u16, String)> {
     let mut out = vec![];
@@ -495,6 +515,17 @@ mod tests {
         assert_eq!(from_cmd("npm run dev"), (None, None));
         let t = tailscale_serve("tailscale serve --bg --set-path art http://127.0.0.1:4180").unwrap();
         assert_eq!((t.port, t.path.as_str(), t.bg), (Some(4180), "/art", true));
+    }
+
+    #[test]
+    fn phone_reach() {
+        let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(reach_of(&v(&["127.0.0.1"]), 7896, "100.64.0.7"), None);
+        assert_eq!(reach_of(&v(&[]), 7896, "100.64.0.7"), None);
+        assert_eq!(reach_of(&v(&["0.0.0.0"]), 5173, "100.64.0.7").as_deref(), Some("http://100.64.0.7:5173/"));
+        assert_eq!(reach_of(&v(&["::1", "::"]), 5173, "100.64.0.7").as_deref(), Some("http://100.64.0.7:5173/"));
+        assert_eq!(reach_of(&v(&["100.64.0.7"]), 8790, "").as_deref(), Some("http://100.64.0.7:8790/"));
+        assert_eq!(reach_of(&v(&["0.0.0.0"]), 5173, ""), None);
     }
 
     #[test]

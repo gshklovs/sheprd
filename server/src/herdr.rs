@@ -61,6 +61,13 @@ pub async fn call(method: &str, params: Value, timeout: Duration) -> Result<Valu
 }
 
 pub async fn quick(method: &str, params: Value) -> Result<Value, HerdrError> {
+    // `agent.prompt` types text + Enter into whatever is in the input box: never over the user's unsent draft, never
+    // into an open menu (inputbox.rs). Refused with `input_draft` / `input_menu`; /steer and /prompt hold it then.
+    if method == "agent.prompt" {
+        if let Some(pane) = params["target"].as_str() {
+            crate::inputbox::guard(pane).await.map_err(|code| err(code, "the input box holds an unsent draft or a menu"))?;
+        }
+    }
     call(method, params, Duration::from_secs(5)).await
 }
 

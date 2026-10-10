@@ -1,6 +1,6 @@
 // v3 (lazy): plan card, chat "⋯" menu (open on desk, tell me when…, review, fork),
 // watches, review result cards in the reviewed chat, re-ping setting.
-import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, md, nav, surfHTML, agentHref, lazy } from './app.js';
+import { G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, md, nav, surfHTML, agentHref, lazy, HOME_NAME } from './app.js';
 
 const enc = encodeURIComponent;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -64,6 +64,7 @@ export function chatMenu(view) {
   const a = view.agent; if (!a) return;
   const n = a.watches?.length || 0;
   const rows = [
+    a.home && ['new', 'New chat'], // was the pencil in the home agent's header
     ['desk', 'Open on desk'],
     ['watch', 'Tell me when…' + (n ? ` (${n} set)` : '')],
     !a.home && ['review', 'Review this'],
@@ -76,7 +77,7 @@ export function chatMenu(view) {
     view.subs?.length && ['subs', `Subagents · ${view.subs.filter(s => s.running).length ? view.subs.filter(s => s.running).length + ' running of ' : ''}${view.subs.length}`],
     view.filesR?.files?.length && ['files', `Files touched · ${view.filesR.files.length}`],
   ].filter(Boolean);
-  const sh = sheet(`<h2>${esc(a.home ? 'Master' : a.title || a.pane)}</h2><div class="acts">${rows.map(([k, l]) => `<button class="act" data-a="${k}">${esc(l)}</button>`).join('')}</div>`);
+  const sh = sheet(`<h2>${esc(a.home ? HOME_NAME() : a.title || a.pane)}</h2><div class="acts">${rows.map(([k, l]) => `<button class="act" data-a="${k}">${esc(l)}</button>`).join('')}</div>`);
   sh.addEventListener('click', e => {
     const b = e.target.closest('[data-a]'); if (!b) return;
     const k = b.dataset.a;
@@ -89,6 +90,7 @@ export function chatMenu(view) {
     else if (k === 'catch') lazy('talk').then(m => m.catchUp(view));
     else if (k === 'git') location.hash = '#/g/' + enc(a.pane);
     else if (k === 'term') view.toggleScreen();
+    else if (k === 'new') view.newChat?.();
     else if (k === 'subs') view.subsSheet();
     else if (k === 'files') lazy('files').then(m => m.filesSheet(view.tid, view.filesR));
   });
@@ -116,7 +118,7 @@ async function review(a) {
 }
 
 async function fork(a) {
-  if (!confirm(`Fork ${a.title || a.pane}?\n\nA new tab resumes this conversation as a separate session (same folder).`)) return;
+  if (!confirm(`Fork ${a.home ? HOME_NAME() : a.title || a.pane}?\n\nA new tab resumes this conversation as a separate session (same folder).`)) return;
   haptic();
   try {
     const r = await post(`a/${enc(a.pane)}/fork`);
@@ -130,7 +132,7 @@ async function fork(a) {
 export async function watchSheet(a) {
   const sh = sheet(`<h2>Tell me when…</h2>
     <div class="acts">
-      <button class="act" data-w="done">${esc(a.home ? 'Master' : 'It')} is done</button>
+      <button class="act" data-w="done">${esc(a.home ? HOME_NAME() : 'It')} is done</button>
       <button class="act" data-w="blocked">It needs me</button>
       <button class="act" data-w="both">Done or needs me</button>
     </div>
@@ -181,7 +183,7 @@ export async function watchList(box, pane) {
 
 // ---------- per-chat state: watch dot, reviewer results ----------
 export function chatState(view, st) {
-  const a = view.agent, more = $('.more3', view.el);
+  const a = view.agent, more = $('.more3, .wmk', view.el); // home agent: the name carries the menu's dot
   if (more) more.classList.toggle('on', !!a?.watches?.length);
   if (!view.pane || view.dead) return;
   if (!view.loaded) { clearTimeout(view.rvT); view.rvT = setTimeout(() => chatState(view, G.st), 700); return; }

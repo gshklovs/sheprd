@@ -54,7 +54,19 @@ struct Entry {
     fu: Option<String>,
     headless: bool,
     branch: Option<String>,
+    /// last prompt the user typed (not another agent's message), ms
+    lu: i64,
+    /// last assistant text, ≤ 200 chars
+    la: Option<String>,
+    color: Option<String>,
+    /// the conversation went on in this session (Claude's `continued-in` record)
+    cont: Option<String>,
+    /// index format: entries older than `IDX_V` are read again from the start
+    v: u8,
 }
+
+/// Bump to re-read every transcript once (new fields in `Entry`).
+const IDX_V: u8 = 2;
 
 impl Entry {
     fn title(&self) -> Option<String> {
@@ -121,6 +133,10 @@ fn fold_line(e: &mut Entry, line: &[u8]) {
         || has(line, b"queued_command")
         || has(line, b"\"type\":\"ai-title\"")
         || has(line, b"\"type\":\"custom-title\"")
+        || has(line, b"\"type\":\"agent-color\"")
+        || has(line, b"\"type\":\"agent-name\"")
+        || has(line, b"\"type\":\"continued-in\"")
+        || (has(line, b"\"type\":\"assistant\"") && has(line, b"\"type\":\"text\"") && !has(line, b"\"isSidechain\":true"))
         || (e.cwd.is_none() && has(line, b"\"cwd\":\""))
         || (e.created == 0 && has(line, b"\"timestamp\":\""));
     if !interesting {
@@ -139,6 +155,18 @@ fn fold_line(e: &mut Entry, line: &[u8]) {
     match v.get("type").and_then(Value::as_str) {
         Some("ai-title") => e.ai = s("aiTitle").filter(|t| !t.is_empty()),
         Some("custom-title") => e.custom = s("customTitle").or_else(|| s("title")).filter(|t| !t.is_empty()),
+        Some("agent-name") if e.custom.is_none() => e.custom = s("agentName").filter(|t| !t.is_empty()),
+        Some("agent-color") => e.color = s("agentColor").filter(|c| !c.is_empty() && c != "default"),
+        Some("continued-in") => e.cont = s("continuedInSessionId"),
+        Some("assistant") => {
+            let t: Vec<&str> = v["message"]["content"].as_array().into_iter().flatten()
+                .filter(|b| b["type"] == "text").filter_map(|b| b["text"].as_str()).collect();
+            let t = t.join(" ");
+            if !t.trim().is_empty() {
+                e.la = Some(short_chars(&t, 200));
+                e.cont = None;
+            }
+        }
         Some("user") => {
             if e.fu.is_none() {
                 e.fu = s("uuid");
@@ -157,9 +185,20 @@ fn fold_line(e: &mut Entry, line: &[u8]) {
         if e.first.is_none() {
             e.first = Some(t.clone());
         }
+        if !from_agent(&text) {
+            let ts = v.get("timestamp").and_then(Value::as_str).map(crate::transcript::parse_ts).unwrap_or(0);
+            e.lu = e.lu.max(ts);
+        }
         e.last = Some(t);
         e.prompts += 1;
+        e.cont = None;
     }
+}
+
+/// A prompt another agent or a mod typed in (a steer with `from`), not the user.
+fn from_agent(text: &str) -> bool {
+    let t = text.trim_start();
+    ["[Message from agent", "[from the ", "Another Claude session"].iter().any(|p| t.starts_with(p))
 }
 
 /// Brings the index up to date (stat every main transcript, read appended bytes).
@@ -183,12 +222,12 @@ fn scan_index() {
         let Ok(meta) = std::fs::metadata(&p) else { continue };
         let size = meta.len();
         let sid = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let e = idx.by_path.entry(key).or_insert_with(|| Entry { sid: sid.clone(), ..Default::default() });
-        if e.size == size && e.mtime == mtime {
+        let e = idx.by_path.entry(key).or_insert_with(|| Entry { sid: sid.clone(), v: IDX_V, ..Default::default() });
+        if e.size == size && e.mtime == mtime && e.v >= IDX_V {
             continue;
         }
-        if size < e.off {
-            *e = Entry { sid, ..Default::default() }; // rewritten: start over
+        if size < e.off || e.v < IDX_V {
+            *e = Entry { sid, v: IDX_V, ..Default::default() }; // rewritten (or an older index format): start over
         }
         e.size = size;
         e.mtime = mtime;
@@ -217,6 +256,45 @@ async fn fresh_index() {
     if stale {
         let _ = tokio::task::spawn_blocking(scan_index).await;
     }
+}
+
+/// One past or live session, as find.rs (agent list, Recent, search) sees it.
+#[derive(Clone, Debug, Default)]
+pub struct Sess {
+    pub sid: String,
+    pub cwd: Option<String>,
+    /// custom title (`/rename`, Haiku's auto-name) or agent name
+    pub custom: Option<String>,
+    pub ai: Option<String>,
+    pub first: Option<String>,
+    pub last: Option<String>,
+    pub last_asst: Option<String>,
+    pub color: Option<String>,
+    pub mtime: i64,
+    pub created: i64,
+    pub last_user: i64,
+    pub prompts: u32,
+    pub headless: bool,
+    pub cont: Option<String>,
+}
+
+/// Every indexed main session (index brought up to date first, at most every 2 s).
+pub async fn sessions() -> Vec<Sess> {
+    fresh_index().await;
+    snapshot()
+}
+
+/// The index as it is (no rescan): for state decoration.
+pub fn snapshot() -> Vec<Sess> {
+    let idx = IDX.lock().unwrap();
+    idx.by_path
+        .values()
+        .map(|e| Sess {
+            sid: e.sid.clone(), cwd: e.cwd.clone(), custom: e.custom.clone(), ai: e.ai.clone(), first: e.first.clone(),
+            last: e.last.clone(), last_asst: e.la.clone(), color: e.color.clone(), mtime: e.mtime, created: e.created,
+            last_user: e.lu, prompts: e.prompts, headless: e.headless, cont: e.cont.clone(),
+        })
+        .collect()
 }
 
 fn entry_for(sid: &str) -> Option<Entry> {
@@ -372,13 +450,22 @@ static RESUMING: LazyLock<Mutex<HashMap<String, (String, i64)>>> = LazyLock::new
 #[derive(Deserialize, Default)]
 struct ResumeBody {
     ws: Option<String>,
+    /// sent once the agent is up (Continue sends "continue"); to the live pane at once when it is already running
+    text: Option<String>,
 }
 
 async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body: Option<Json<ResumeBody>>) -> Response {
     if !crate::valid_sid(&sid) {
         return json_err(StatusCode::BAD_REQUEST, "bad session id");
     }
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let text = body.text.as_deref().map(str::trim).filter(|t| !t.is_empty() && t.len() <= 20_000).map(str::to_string);
     if let Some(pane) = crate::pane_for_session(&app, &sid) {
+        if let Some(t) = &text {
+            if let Err(e) = herdr::quick("agent.prompt", json!({"target": pane, "text": t})).await {
+                return herdr_err(e);
+            }
+        }
         return Json(json!({"pane": pane, "live": true})).into_response();
     }
     {
@@ -396,20 +483,40 @@ async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body
         Some(c) => return json_err(StatusCode::CONFLICT, format!("folder no longer exists: {c}")),
         None => return json_err(StatusCode::CONFLICT, "session has no working directory"),
     };
-    let ws = body.and_then(|Json(b)| b.ws).filter(|w| !w.is_empty()).or_else(|| pick_ws(&app, &cwd));
-    let label = tab_label("re", &e.title().unwrap_or_default());
+    // back where it lived (find.rs remembers each session's workspace and tab name, as home.json does for the home agent),
+    // else the workspace that matches its folder
+    let (ws, label) = resume_place(body.ws, crate::find::place(&sid).as_ref(), &state_ws(&app), pick_ws(&app, &cwd), &e.title().unwrap_or_default());
     let (pane, tab, wsid) = match new_tab(ws.as_deref().filter(|w| *w != "new"), &cwd, &label).await {
         Ok(x) => x,
         Err(r) => return r,
     };
     RESUMING.lock().unwrap().insert(sid.clone(), (pane.clone(), now_ms()));
+    crate::find::resumed(&sid, &pane);
     let args = vec!["--resume".to_string(), sid.clone(), "--permission-mode".into(), "auto".into()];
-    let (app2, pane2) = (app.clone(), pane.clone());
+    let (app2, pane2, sid2) = (app.clone(), pane.clone(), sid.clone());
     tokio::spawn(async move {
-        start_and_prompt(&app2, &pane2, &label, args, None).await;
+        start_and_prompt(&app2, &pane2, &label, args, text).await;
+        crate::find::after_resume(&app2, &sid2, &pane2);
     });
     app.refresh.notify_one();
     Json(json!({"pane": pane, "tab": tab, "ws": wsid, "live": false})).into_response()
+}
+
+/// Where a resumed session opens: the workspace asked for, else the one it lived in (if it still exists), else the
+/// one matching its folder (`fallback`); in a tab named as before, else `re-<title>`.
+fn resume_place(asked: Option<String>, place: Option<&crate::find::Info>, live_ws: &[String], fallback: Option<String>, title: &str) -> (Option<String>, String) {
+    let ws = asked.filter(|w| !w.is_empty())
+        .or_else(|| place.and_then(|p| p.ws.clone()).filter(|w| live_ws.contains(w)))
+        .or(fallback);
+    let label = place.and_then(|p| p.label.clone()).filter(|l| !l.trim().is_empty()).unwrap_or_else(|| tab_label("re", title));
+    (ws, label)
+}
+
+/// Workspace ids in the current state.
+fn state_ws(app: &App) -> Vec<String> {
+    let s = app.inner.lock().unwrap().state.clone();
+    let st: Value = serde_json::from_str(&s).unwrap_or(Value::Null);
+    st["workspaces"].as_array().into_iter().flatten().filter_map(|w| w["ws"].as_str().map(str::to_string)).collect()
 }
 
 fn cwd_from_head(path: &Path) -> Option<String> {
@@ -759,6 +866,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn resume_goes_back_where_it_lived() {
+        let live = vec!["w6".to_string(), "wG".to_string()];
+        let p = crate::find::Info { ws: Some("wG".into()), label: Some("nightly-backup".into()), ..Default::default() };
+        assert_eq!(resume_place(None, Some(&p), &live, Some("w6".into()), "Nightly Backup"), (Some("wG".into()), "nightly-backup".into()));
+        // its workspace is gone: the folder's one, same tab name
+        let gone = crate::find::Info { ws: Some("wX".into()), ..p.clone() };
+        assert_eq!(resume_place(None, Some(&gone), &live, Some("w6".into()), "Nightly Backup"), (Some("w6".into()), "nightly-backup".into()));
+        // asked for a workspace: that one; never seen live: re-<title>
+        assert_eq!(resume_place(Some("new".into()), Some(&p), &live, None, "x").0.as_deref(), Some("new"));
+        assert_eq!(resume_place(None, None, &live, Some("w6".into()), "Backup Job build"), (Some("w6".into()), "re-backup-job-build".into()));
+    }
+
+    #[test]
+    fn index_keeps_last_reply_color_and_user_prompt_time() {
+        let mut e = Entry::default();
+        fn l(e: &mut Entry, s: &str) {
+            fold_line(e, s.as_bytes())
+        }
+        l(&mut e, r#"{"type":"user","message":{"role":"user","content":"run the backup"},"timestamp":"2026-10-10T06:00:00.000Z","cwd":"/home/user/Work/backup","uuid":"u1"}"#);
+        l(&mut e, r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Backup 12 is done."}]},"timestamp":"2026-10-10T06:04:00.000Z"}"#);
+        l(&mut e, r#"{"type":"user","message":{"role":"user","content":"[Message from agent "Master" (pane w6:pE) via sheprd]
+ping"},"timestamp":"2026-10-10T07:00:00.000Z"}"#);
+        l(&mut e, r#"{"type":"agent-color","agentColor":"orange","sessionId":"x"}"#);
+        l(&mut e, r#"{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"sub"}]}}"#);
+        assert_eq!(e.lu, crate::transcript::parse_ts("2026-10-10T06:00:00.000Z")); // the agent's message is not the user's
+        assert_eq!(e.la.as_deref(), Some("Backup 12 is done."));
+        assert_eq!(e.color.as_deref(), Some("orange"));
+        l(&mut e, r#"{"type":"continued-in","continuedInSessionId":"next"}"#);
+        assert_eq!(e.cont.as_deref(), Some("next"));
+        l(&mut e, r#"{"type":"assistant","message":{"content":[{"type":"text","text":"back here"}]}}"#);
+        assert_eq!(e.cont, None); // the conversation went on in this file after all
+    }
+
+    #[test]
     fn refs() {
         let (s, d, c) = command_refs("herdr agent start fl-a --kind claude --pane w6:p1A -- --permission-mode auto");
         assert_eq!(s, ["w6:p1A"]);
@@ -794,7 +935,6 @@ mod tests {
         }
         assert_eq!(e.first.as_deref(), Some("first prompt"));
         assert_eq!(e.last.as_deref(), Some("second"));
-        assert_eq!(e.prompts, 2);
         assert_eq!(e.fu.as_deref(), Some("u1"));
         assert_eq!(e.cwd.as_deref(), Some("/tmp"));
         assert_eq!(e.branch.as_deref(), Some("main"));

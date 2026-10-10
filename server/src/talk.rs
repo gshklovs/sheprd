@@ -40,7 +40,7 @@ const UNSEND_ACK_MS: u64 = 4_000;
 /// `/phone away` lasts at most this long.
 const AWAY_MAX_MS: i64 = 12 * 3600_000;
 /// Claude's input-box hint while messages are queued (not text the user typed).
-const QUEUE_HINT: &str = "Press up to edit queued messages";
+pub(crate) const QUEUE_HINT: &str = "Press up to edit queued messages";
 
 pub struct Talk {
     inner: Mutex<Inner>,
@@ -185,8 +185,9 @@ fn pane_of(app: &App, b: &Value) -> Option<String> {
     app.inner.lock().unwrap().pane_sessions.iter().find(|(_, v)| v.as_str() == s).map(|(p, _)| p.clone())
 }
 
+/// The agent's name as the user sees it in a push (`home_name()` for the home agent).
 fn title_of(app: &App, pane: &str) -> String {
-    app.inner.lock().unwrap().pane_titles.get(pane).cloned().unwrap_or_else(|| "agent".into())
+    app.inner.lock().unwrap().shown_title(pane).unwrap_or_else(|| "agent".into())
 }
 
 fn session_of(b: &Value) -> Option<String> {
@@ -243,6 +244,13 @@ pub fn decorate(app: &App, agents: &mut [Value]) {
                 }
                 a["queued"] = Value::Array(q);
             }
+        }
+        // messages held while the user's draft is in the input box (inputbox.rs), at any status
+        let waiting = crate::inputbox::held_for(&pane);
+        if !waiting.is_empty() {
+            let mut q = a["queued"].as_array().cloned().unwrap_or_default();
+            q.extend(waiting.iter().map(|h| json!({"text": h.text, "ts": h.ts, "id": format!("h{}", h.id), "held": "draft"})));
+            a["queued"] = Value::Array(q);
         }
         let mine = |p: &Perm| p.session == sid || (!pane.is_empty() && p.pane.as_deref() == Some(pane.as_str()));
         let card = |id: &str, p: &Perm| {
@@ -379,11 +387,22 @@ struct UnsendBody {
 
 /// Takes back a queued message before the agent reads it → `{ok, how:"mod"|"claude", text}`.
 /// - `id: "m<seq>"`: a steer the mod holds (inbox `unsend`).
+/// - `id: "h<n>"`: a message held while the desk's input box holds a draft (inputbox.rs).
 /// - else `text`: a message in Claude's own queue: ↑ pulls the queue into the input box,
 ///   which is emptied, then the other messages are typed back in.
 ///
 /// 409 `{error}`: `already_sent`, `desk_draft` (the desk's input box has text), `no_mod`.
 async fn api_unsend(State(app): State<Shared>, AxPath(pane): AxPath<String>, Json(b): Json<UnsendBody>) -> Response {
+    if let Some(id) = b.id.as_deref().and_then(|i| i.strip_prefix('h')).and_then(|s| s.parse::<u64>().ok()) {
+        // held for the user's draft (inputbox.rs): never typed yet
+        return match crate::inputbox::unhold(&pane, id) {
+            Some(text) => {
+                app.refresh.notify_one();
+                Json(json!({"ok": true, "how": "held", "text": text})).into_response()
+            }
+            None => json_err(StatusCode::CONFLICT, "already_sent"),
+        };
+    }
     if let Some(seq) = b.id.as_deref().and_then(|i| i.strip_prefix('m')).and_then(|s| s.parse::<u64>().ok()) {
         let bridge = &app.bridge;
         let Some(session) = bridge.session_for(&app, &pane).filter(|s| bridge.live(s)) else {
@@ -426,10 +445,13 @@ fn norm(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The input box's text, with Claude's hints counted as empty.
+/// The input box's text, with Claude's hints and faint placeholder counted as empty (inputbox.rs).
 async fn box_text(pane: &str) -> Option<String> {
-    let t = crate::input_box(&crate::read_screen(pane).await)?;
-    Some(if t.starts_with(QUEUE_HINT) { String::new() } else { t })
+    match crate::inputbox::read(pane).await? {
+        crate::inputbox::Input::Empty => Some(String::new()),
+        crate::inputbox::Input::Draft(t) => Some(t),
+        _ => None,
+    }
 }
 
 async fn keys(pane: &str, k: Value) {
@@ -921,22 +943,57 @@ async fn select_row(pane: &str, t: usize, ok: &(dyn Fn(&str) -> bool + Sync)) ->
         if cur == t {
             return Ok(row.label.clone());
         }
-        keys(pane, json!([if t > cur { "down" } else { "up" }])).await;
-        tokio::time::sleep(Duration::from_millis(160)).await;
+        // every arrow in one go, then the next round checks where the selection landed (and sends what is missing)
+        let arrow = if t > cur { "down" } else { "up" };
+        keys(pane, Value::Array(vec![json!(arrow); t.abs_diff(cur)])).await;
+        // any move (it settles first, so a burst of arrows is seen where it ended), or the menu went away
+        poll_screen(pane, SETTLE_MS, |s| {
+            let m = crate::parse_menu(s);
+            m.len() < 2 || m.iter().position(|o| o.selected).unwrap_or(0) != cur
+        })
+        .await;
     }
     Err("the menu did not respond".into())
 }
 
-/// Waits (≤ 3 s) until the screen no longer shows `prev`.
-async fn screen_moves(pane: &str, prev: &str) -> String {
-    for _ in 0..15 {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let s = crate::read_screen(pane).await;
-        if s != prev {
-            return s;
+/// How often the driver looks at the screen while it waits for the terminal (a read is ~3 ms, rarely ~100 ms).
+const POLL_MS: u64 = 30;
+/// The longest a single key is given to show on screen before the driver checks again anyway.
+const SETTLE_MS: u64 = 1500;
+
+/// Reads the screen every `POLL_MS` until `done` accepts it, then until it holds still for one more read (Claude's
+/// TUI draws a change in a few frames; a half-drawn screen must never be judged). Gives up after `ms` with the
+/// last screen read.
+async fn poll_screen(pane: &str, ms: u64, mut done: impl FnMut(&str) -> bool) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(ms);
+    let mut s = String::new();
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+        s = crate::read_screen(pane).await;
+        if done(&s) {
+            return settled(pane, s).await;
         }
     }
-    crate::read_screen(pane).await
+    s
+}
+
+/// The screen once two reads in a row agree (≤ ~0.5 s).
+async fn settled(pane: &str, mut s: String) -> String {
+    for _ in 0..16 {
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+        let n = crate::read_screen(pane).await;
+        if n == s {
+            return s;
+        }
+        s = n;
+    }
+    s
+}
+
+/// Waits (≤ 3 s) until the screen no longer shows `prev` and has settled.
+async fn screen_moves(pane: &str, prev: &str) -> String {
+    let s = poll_screen(pane, 3000, |s| s != prev).await;
+    if s.is_empty() { crate::read_screen(pane).await } else { s }
 }
 
 /// Brings the dialog to question `target` (`questions.len()` = the review step) with ← / →, wherever it is now:
@@ -969,10 +1026,12 @@ async fn goto_q(pane: &str, questions: &[Value], target: usize) -> Result<String
 /// Types `t` into the free-text field that is open now (the "Type something" row or the notes), replacing any
 /// text an earlier attempt left there.
 async fn type_text(pane: &str, t: &str) {
+    // the clear and the text go down the same input stream in order: no wait between them
     keys(pane, json!(["ctrl+u"])).await;
-    tokio::time::sleep(Duration::from_millis(120)).await;
     let _ = herdr::quick("pane.send_text", json!({"pane_id": pane, "text": t})).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // the field shows the text (its start: a long answer wraps)
+    let head: String = t.chars().take(16).collect();
+    poll_screen(pane, SETTLE_MS, |s| s.contains(head.as_str())).await;
 }
 
 /// Answers question `k` (the dialog is on it). Single-select: the option (or "Type something" + text) and Enter;
@@ -1015,8 +1074,9 @@ async fn answer_one(pane: &str, q: &Value, a: &AskAnswer, k: usize, preview: boo
             match text {
                 Some(t) => type_text(pane, t).await,
                 None => {
+                    let before = crate::read_screen(pane).await;
                     keys(pane, json!(["ctrl+u"])).await;
-                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    poll_screen(pane, 400, |s| s != before).await;
                 }
             }
         }
