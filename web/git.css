@@ -5,7 +5,7 @@
 .g-br { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .g-br svg { width: 16px; height: 16px; flex: none; }
 .g-br b { font: 600 15px var(--mono); overflow-wrap: anywhere; }
-.g-tag { font: 600 12.5px/1.2 var(--f-mid); padding: 1px 7px; border-radius: 99px; background: var(--bg3); color: var(--fg2); }
+.g-tag { font: 600 12.5px/1.2 var(--f-mid); padding: 1px 7px; border-radius: var(--r-ctl); background: var(--bg3); color: var(--fg2); }
 .g-vs { font: 500 14px/1.25 var(--f-mid); margin-top: 4px; color: var(--fg2); }
 .g-acts { display: flex; gap: 8px; margin: 0 0 12px; }
 .g-acts .btn { flex: 1; justify-content: center; }
@@ -13,7 +13,7 @@
 .g-add { color: var(--done); font: 12px var(--mono); }
 .g-del { color: var(--red); font: 12px var(--mono); margin-left: 4px; }
 .g-bin { font: 11px var(--mono); color: var(--fg3); }
-.g-st { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font: 700 11px var(--mono); background: var(--bg3); color: var(--fg2); }
+.g-st { flex: none; width: 20px; height: 20px; border-radius: var(--r-ctl); display: grid; place-items: center; font: 700 11px var(--mono); background: var(--bg3); color: var(--fg2); }
 .g-st-A, .g-st-U { color: var(--done); } .g-st-D { color: var(--red); } .g-st-M { color: var(--work); }
 .g-commits { background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); overflow: hidden; }
 .g-cm { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font-size: 14px; }
@@ -37,7 +37,7 @@
 .gitv .group { margin-bottom: 10px; }
 .g-hctx { font: 12px var(--mono); color: var(--fg3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .diffv pre.diff .g-ctx { color: var(--fg2); cursor: pointer; }
-.gp-t { width: 100%; box-sizing: border-box; background: var(--bg2); color: var(--fg); border: .5px solid var(--sep); border-radius: 10px; padding: 8px 10px; font: 13px var(--mono); resize: vertical; outline: none; max-height: 45vh; }
+.gp-t { width: 100%; box-sizing: border-box; background: var(--bg2); color: var(--fg); border: .5px solid var(--sep); border-radius: var(--r-ctl); padding: 8px 10px; font: 13px var(--mono); resize: vertical; outline: none; max-height: 45vh; }
 
 /* usage rings */
 .urings { flex: none; transform: rotate(-90deg); }

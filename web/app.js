@@ -1635,7 +1635,10 @@ class ChatView {
       if (e?.target?.closest?.('.cb, pre')) return false; // code stays natively selectable
       const m = el.closest('.msg, .amsg'), it = this.items.find(x => x.i === +m.dataset.i);
       if (!it) return false;
-      lazy('sheets').then(x => x.msgSheet(this, it, m));
+      // held on a link or an inline code span: the sheet leads with copying just that
+      const a = e?.target?.closest?.('a[href]'), c = !a && e?.target?.closest?.('code');
+      const pick = a ? { kind: 'link', text: a.href } : c ? { kind: 'code', text: c.textContent } : null;
+      lazy('sheets').then(x => x.msgSheet(this, it, m, pick));
     });
     // a menu tap: one /choose at a time; the buttons stay as drawn (busy) until it returns, then the next
     // screen frame redraws them from the terminal, so a multiSelect tick never flickers or toggles twice

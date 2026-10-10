@@ -55,14 +55,21 @@ Tidy/Catch-up groups, Decide, Undo). Caps are allowed **only** here. A header is
   countdowns, gauges, the usage tank, context rings) use system `tabular-nums`. That avoids jitter. Mono is never used
   for a number unless it is part of code.
 
-## Surfaces, rules, radius
+## Surfaces, frames, radius
 
-- Cards: `--bg2` with `--card-sh` in light (a very soft shadow) and surface colour alone in dark. **Never an outline, a
-  coloured edge, a dashed box or a tinted wash.** The Scheduled and Running apps strips are sections (header and
-  hairline rows), not dashed boxes.
-- Hairlines (`--sep`, 0.5 px) separate rows inside a card and run after headers. Prefer a hairline to a new box.
-- Radius: `--r-card` 14 (cards, lists, sheets' groups, hero), `--r-ctl` 10 (inputs, small buttons, chips that are
-  squares), `--r-btn` 12 (buttons), pills 99. Sheets 16 at the top. Real circles stay circles.
+Frames are low-key and HUD-like:
+- **Near-square corners**: `--r-card` 3, `--r-ctl` 3, `--r-btn` 2. Sheets keep 8 at the top (`--r-sheet`). Real
+  circles stay circles: avatars, rings, dots, the send button. Chat bubbles and the composer field keep their soft shape
+  because they are reading surfaces.
+- Cards: `--bg2` with `--card-sh` in light (a very soft shadow) and surface colour alone in dark. Never a coloured edge,
+  a dashed box or a tinted wash.
+- **Hero surfaces** get a square-cut panel with a **hairline frame** (`.hud-frame`, fg at 22%, replacing the shadow) and
+  **accent corner brackets** just outside it (`.hud-brackets`: 10 px arms, 1.5 px, 4 px out). There are only three: the
+  Agents grid, the Decide entry and the Home hero card. The brackets are the only accent on a surface. Everything else
+  stays calm, with its shadow or nothing.
+- **Primary buttons** have a clipped top-right corner (`.hud-cut`, `--r-cut` 7 px). Other buttons are square-ish.
+- Hairlines (`--sep`, 0.5 px) separate rows inside a card and run after headers. Prefer a hairline to a new box. The
+  Scheduled and Running apps strips are sections (header and hairline rows), not dashed boxes.
 - Marks are flat. The home agent is the accent diamond, usage is the tank. No glow, no glimmer, no scan effects beyond
   the one working bar under the wordmark.
 

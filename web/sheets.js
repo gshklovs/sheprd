@@ -98,15 +98,16 @@ export function jobSheet(j) {
 }
 
 // ---------- message long-press actions (F12) ----------
-export function msgSheet(view, it, el) {
+export function msgSheet(view, it, el, pick) {
   const card = el.classList.contains('amsg'); // another agent's message (a steer with `from`, a report, a paste)
   const user = it.k === 'user' && !card, text = it.text || '';
   const plain = user ? text : (el.innerText || text).trim();
   const canCompose = !!view.target && !view.el.classList.contains('ro');
-  const rows = [['copy', 'Copy'], !user && ['md', 'Copy as Markdown'], navigator.share && ['share', 'Share…'],
+  const rows = [pick?.kind === 'link' && ['plink', 'Copy link'], pick?.kind === 'link' && ['olink', 'Open link'], pick?.kind === 'code' && ['pcode', 'Copy “' + (pick.text.length > 28 ? pick.text.slice(0, 27) + '…' : pick.text) + '”'],
+    ['copy', pick ? 'Copy whole message' : 'Copy'], !user && ['md', 'Copy as Markdown'], navigator.share && ['share', 'Share…'],
     !user && ['say', 'Read aloud'], canCompose && ['quote', 'Quote in reply'], ['fwd', 'Send to agent…'], user && canCompose && ['edit', 'Edit & resend'],
     canBranch(view, it, card) && ['branch', 'Branch from here…'], user && undoable(view, it) && ['undo', 'Undo last turn…']].filter(Boolean);
-  const sh = sheet(`<div class="mprev">${esc(plain.slice(0, 220))}${plain.length > 220 ? '…' : ''}</div><div class="acts">${rows.map(([k, l]) => `<button class="act" data-a="${k}">${l}</button>`).join('')}</div>`);
+  const sh = sheet(`<div class="mprev">${pick ? esc(pick.text.slice(0, 300)) : `${esc(plain.slice(0, 220))}${plain.length > 220 ? '…' : ''}`}</div><div class="acts">${rows.map(([k, l]) => `<button class="act" data-a="${k}">${l}</button>`).join('')}</div>`);
   const ta = view.ta, put = v => { ta.value = v; ta.dispatchEvent(new Event('input')); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); };
   sh.addEventListener('click', e => {
     const b = e.target.closest('[data-a]'); if (!b) return;
@@ -115,7 +116,9 @@ export function msgSheet(view, it, el) {
     if (a === 'branch') { sh.close(); branchSheet(view, it, plain); return; }
     if (a === 'undo') { sh.close(); lazy('undo').then(m => m.undoSheet(view), e => toast('Load failed: ' + esc(e.message), 'err')); return; }
     sh.close();
-    if (a === 'copy') copyText(plain);
+    if (a === 'plink' || a === 'pcode') copyText(pick.text);
+    else if (a === 'olink') window.open(pick.text, '_blank', 'noopener');
+    else if (a === 'copy') copyText(plain);
     else if (a === 'md') copyText(text);
     else if (a === 'say') lazy('talk').then(m => m.speak(plain, 'Message'));
     else if (a === 'share') navigator.share({ text }).catch(() => { });

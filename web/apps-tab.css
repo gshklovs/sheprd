@@ -26,11 +26,11 @@
 .ap-hint.small { font-size: 13px; margin-top: 12px; }
 .ap-hint code, .ap-cmd { font-family: var(--mono); font-size: 12.5px; }
 .ap-hint code { background: var(--bg3); padding: 1px 4px; border-radius: 5px; color: var(--fg); }
-.ap-cmd { text-align: left; background: var(--code); color: var(--fg); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; white-space: pre-wrap; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.ap-cmd { text-align: left; background: var(--code); color: var(--fg); border-radius: var(--r-ctl); padding: 10px 12px; margin: 0 0 10px; white-space: pre-wrap; word-break: break-all; user-select: all; -webkit-user-select: all; }
 .ap-empty .ap-cp, .apsh .ap-cp { display: block; width: 100%; }
 /* the long-press sheet */
 .aps-top { display: flex; align-items: center; gap: 12px; padding: 6px 2px 12px; }
-.ap-th.sm { width: 96px; flex: none; border-radius: 10px; }
+.ap-th.sm { width: 96px; flex: none; border-radius: var(--r-ctl); }
 .aps-top .tb { min-width: 0; flex: 1; }
 .aps-top .tb b { font: var(--t-title); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aps-top .tb span { font: 500 15px/1.25 var(--f-mid); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--fg2); margin-top: 2px; }

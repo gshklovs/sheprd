@@ -4,7 +4,7 @@
 .ud-q { margin-bottom: 6px; }
 .ud-also { font: 500 14px/1.25 var(--f-mid); margin: 0 0 10px; color: var(--fg2); }
 .ud-t { margin: 14px 0 6px; }
-.ud-fl { border-radius: 10px; background: var(--bg3); }
+.ud-fl { border-radius: var(--r-ctl); background: var(--bg3); }
 .ud-f { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 12px; font-size: 14px; }
 .ud-f + .ud-f { border-top: 1px solid var(--sep); }
 .ud-f code { font-size: 13px; overflow-wrap: anywhere; min-width: 0; }

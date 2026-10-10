@@ -92,13 +92,14 @@ export function saidHTML(s, { row = false } = {}) {
   const lab = s.then ? 'Last from you' : 'You said', when = s.ts ? ` · ${ago(Date.now() - s.ts)} ago` : '';
   const then = s.then ? `<div class="cs-then">then <b>${esc(whoName(s.then.from) || s.then.from)}</b> sent… <span>“${esc(clip(s.then.text, row ? 60 : 110))}”</span></div>` : '';
   if (row) return `<span class="cs-row">${s.text ? `<button type="button" class="cu-said cs-r" aria-expanded="false"><span class="cs-t"><em>${lab}:</em> ${esc(s.text.trim())}</span></button>` : ''}${then}</span>`;
-  return `<div class="cs"><h4>${lab}<span class="cs-ago">${when}</span></h4>`
-    + (s.text ? `<button type="button" class="cu-said" aria-expanded="false"><span class="cs-t">${esc(s.text.trim())}</span></button>` : '') + then + '</div>';
+  return `<div class="cs">`
+    + (s.text ? `<button type="button" class="cu-said" aria-expanded="false"><span class="cs-t"><em>${lab}<i>${when}</i></em> ${esc(s.text.trim())}</span></button>` : `<div class="cu-said"><em>${lab}</em></div>`) + then + '</div>';
 }
-export const waitHTML = w => w ? `<div class="cu-wait"><b>Waiting on you for:</b> ${esc(w)}</div>` : '';
-// tap a clamped "You said" to read all of it (capture: inside a row link it must not open the chat)
+export const waitHTML = w => w ? `<button type="button" class="cu-wait" aria-expanded="false"><span><b>Waiting on you for:</b> ${esc(w)}</span></button>` : '';
+// tap a clamped "You said", the wait line or the question to read all of it (capture: inside a row link it must not
+// open the chat; a link inside the question still works)
 document.addEventListener('click', e => {
-  const b = e.target.closest('.cu-said'); if (!b) return;
+  const b = e.target.closest('.cu-said, .cu-wait, .cu-q'), l = e.target.closest('a'); if (!b || (l && b.contains(l))) return;
   e.preventDefault(); e.stopPropagation();
   const o = b.classList.toggle('open'); b.setAttribute('aria-expanded', o);
 }, true);
@@ -337,23 +338,31 @@ function fixHTML(r, home) {
   const fixes = home ? [] : r.reasons.filter(x => x.fix && x.kind !== 'q');
   let out = '';
   if (q) {
-    out += q.fix?.reply ? `<h4>Suggested reply</h4><button class="cu-sug">${esc(q.fix.reply)}</button>` : '';
+    out += q.fix?.reply ? `<button class="cu-sug" aria-label="Suggested reply">${esc(q.fix.reply)}</button>` : '';
     out += `<form class="cu-ans"><input type="text" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" placeholder="${home ? 'Answer…' : 'Answer, then it sleeps…'}"><button class="btn primary" type="submit">Send</button></form>`;
   }
   if (fixes.length) out += `<div class="cu-fixes">${fixes.map(x => `<button class="btn cu-fix" data-k="${esc(x.fix.kind)}" data-text="${esc(x.fix.text || '')}">${esc(x.fix.label || x.fix.kind)}</button>`).join('')}</div>`;
-  if (home && q) out += '<p class="cu-why">Goes to it as your message (held while you have a draft there). It stays awake.</p>';
-  else if (q || fixes.length) out += '<p class="cu-why">Sent with a promise to sleep: once it’s done and asks nothing new, its pane closes.</p>';
   return out;
 }
+/** What used to fill the card (context gauge, folder, how sending works): behind a small More. */
+function moreHTML(r, home) {
+  const q = r.reasons.some(x => x.kind === 'q'), pct = r.ctx?.pct != null ? Math.round(r.ctx.pct) : null;
+  const why = home ? (q ? 'Answer goes to it as your message (held while you have a draft there). It stays awake.' : '')
+    : (q || r.reasons.some(x => x.fix) ? 'Sent with a promise to sleep: once it’s done and asks nothing new, its pane closes.' : '');
+  return `<details class="cu-more"><summary>More</summary><div class="mi"><span>${esc(shortPath(r.cwd || ''))}${tabOf(r) ? ' · tab ' + esc(tabOf(r)) : ''}</span>`
+    + (pct != null ? `<span>Context <span class="tn">${pct}%${r.ctx.tokens ? ' · ' + kTok(r.ctx.tokens) : ''}</span></span>` : '')
+    + (why ? `<span class="cu-why">${why}</span>` : '') + '</div></details>';
+}
+/** The compact card : face, name + job, time · Waiting on you for (1 line) · You said (2 lines)
+ *  · its question (4 lines, tap = all) · reply chip · composer · fixes · More (folder, context, how it's sent). */
 function cardHTML(r, home = false) {
   const q = r.reasons.some(x => x.kind === 'q'), full = r.full || r.last || '';
-  const pct = r.ctx?.pct != null ? Math.round(r.ctx.pct) : null;
-  return `<div class="cu-card${colCls(r.color)}" data-pane="${esc(r.pane)}"><div class="cu-h">${face(r, 46)}<div><b class="nm">${esc(r.name)}</b><small>${esc(shortPath(r.cwd || ''))} · last spoke ${ago(r.idleMs)} ago</small></div></div>`
-    + (pct != null ? `<div class="cu-ctx"><span>Context</span><i class="bar"><b style="width:${Math.min(100, pct)}%"></b></i><span>${pct}%${r.ctx.tokens ? ' · ' + kTok(r.ctx.tokens) : ''}</span></div>` : '')
-    + (q ? waitHTML(r.wait) : '') + saidHTML(r.said)
-    + (full ? `<h4>${q ? 'It asked you' : 'Its last message'}</h4><div class="cu-msg${q ? ' ask' : ''}">${md(full)}</div>` : '')
+  const said = saidHTML(r.said), wait = q ? waitHTML(r.wait) : '';
+  return `<div class="cu-card${colCls(r.color)}" data-pane="${esc(r.pane)}"><div class="cu-h">${face(r, 36)}<div><div class="h1"><b class="nm">${esc(r.name)}</b><span class="tm">${ago(r.idleMs)}</span></div><small>${esc(r.job || shortPath(r.cwd || ''))}</small></div></div>`
+    + wait + (said ? `<div class="cu-sec">${said}</div>` : '')
+    + (full ? `<div class="cu-sec"><div class="cu-q" role="button" aria-expanded="false" aria-label="${q ? 'It asked you' : 'Its last message'}">${md(full)}</div></div>` : '')
     + `<div class="cu-chips">${r.reasons.filter(x => x.kind !== 'q').map(chipHTML).join('')}</div>`
-    + fixHTML(r, home) + '</div>';
+    + fixHTML(r, home) + moreHTML(r, home) + '</div>';
 }
 let FLOW = null;
 /** The catch-up flow. `home`: opened from Home's "Catch up on N" (catch-up rows, not Tidy's): Answer goes to the agent
@@ -364,8 +373,8 @@ export function catchUp(list, start = 0, { home = false } = {}) {
   const tiles = home
     ? `<button data-t="cont">${IC.go}<b>Continue</b><small>it carries on</small></button><button data-t="sleep">${MOON}<b>Sleep</b><small>close its tab</small></button><button data-t="keep">${IC.pin}<b>Keep</b><small>till it asks again</small></button>`
     : `<button data-t="sleep">${MOON}<b>Sleep</b><small></small></button><button data-t="note">${IC.doc}<b>Note + sleep</b><small>5 lines saved</small></button><button data-t="keep">${IC.pin}<b>Keep</b><small>skip till next time</small></button>`;
-  const f = FLOW = h(`<div class="tdy-flow${home ? ' cu-home' : ''}"><header class="cu-bar"><button class="ib cu-back" aria-label="Back">${IC.back}</button><b>${home ? 'Catch up' : 'Clean up'}</b><span class="sp"></span><button class="cu-close">Close</button></header>
-    <div class="cu-sc"><div class="cu-prog"></div><div class="cu-step"></div><div class="cu-slot"></div>
+  const f = FLOW = h(`<div class="tdy-flow${home ? ' cu-home' : ''}"><header class="cu-bar"><button class="ib cu-back" aria-label="Back">${IC.back}</button><b>${home ? 'Catch up' : 'Clean up'}</b><span class="cu-step"></span><span class="sp"></span><button class="cu-close">Close</button><div class="cu-prog"></div></header>
+    <div class="cu-sc"><div class="cu-slot"></div>
     <div class="cu-tiles">${tiles}</div>
     <div class="cu-foot"></div></div></div>`);
   document.body.append(f);
@@ -386,9 +395,10 @@ export function catchUp(list, start = 0, { home = false } = {}) {
     if (old && dir) { old.classList.add('go-' + dir); setTimeout(() => old.remove(), 300); n.classList.add('enter'); slot.append(n); requestAnimationFrame(() => requestAnimationFrame(() => n.classList.remove('enter'))); }
     else { slot.innerHTML = ''; slot.append(n); }
     tick(n);
+    const cq = $('.cu-q', n); if (cq) requestAnimationFrame(() => cq.classList.toggle('long', cq.scrollHeight > cq.clientHeight + 2));
     $('[data-t="sleep"] small', f).textContent = r.reasons.some(x => x.kind === 'q') ? 'drop the question' : 'close its tab';
     const rest = list.slice(k + 1).map(x => x.name);
-    $('.cu-foot', f).innerHTML = (home ? 'Continue sends it “continue”. ' : '') + `Sleep closes its tab; the chat is kept and wakes from Asleep any time.<br>Swipe the card: ← sleep · → keep${rest.length ? `<br>Next: ${rest.map(esc).join(' · ')}` : '<br>Last one'}`;
+    $('.cu-foot', f).innerHTML = `Sleep closes its tab (chat kept, wake from Asleep). Swipe ← sleep · → keep.${rest.length ? `<br>Next: ${rest.map(esc).join(' · ')}` : ''}`;
     $('.cu-sc', f).scrollTop = 0;
   };
   const next = dir => { done.add(list[k].pane); if (home) { ACTED.set(list[k].sid, list[k].key); redraw(); } busy = false; if (k + 1 >= list.length) { close(); toast('All caught up', 'ok', null, 1400); return; } k++; show(dir); };
@@ -431,10 +441,12 @@ export function catchUp(list, start = 0, { home = false } = {}) {
     const s = e.target.closest('.cu-sug'); if (s) { const i = $('.cu-ans input', f); i.value = s.textContent; i.focus(); return; }
     const x = e.target.closest('.cu-fix'); if (x) { fix(x.dataset.k, x.dataset.text || undefined); }
   });
+  f.addEventListener('focusin', e => { if (!e.target.closest('.cu-ans input')) return; f.classList.add('kb'); setTimeout(() => $('.cu-ans', f)?.scrollIntoView({ block: 'nearest' }), 320); });
+  f.addEventListener('focusout', e => { if (e.target.closest('.cu-ans input')) setTimeout(() => { if (!f.contains(document.activeElement) || !document.activeElement.matches('.cu-ans input')) f.classList.remove('kb'); }, 50); });
   f.addEventListener('submit', e => { e.preventDefault(); const v = $('.cu-ans input', f)?.value.trim(); if (v) { $('.cu-ans input', f).blur(); fix('answer', v); } });
   // swipe the card: left = sleep, right = keep
   let g = null;
-  f.addEventListener('pointerdown', e => { const c = e.target.closest('.cu-card'); if (!c || e.target.closest('input, button, a, form, .cu-msg pre')) return; g = { c, x: e.clientX, y: e.clientY, id: e.pointerId, lock: false, dx: 0 }; });
+  f.addEventListener('pointerdown', e => { const c = e.target.closest('.cu-card'); if (!c || e.target.closest('input, button, a, form, .cu-q pre')) return; g = { c, x: e.clientX, y: e.clientY, id: e.pointerId, lock: false, dx: 0 }; });
   f.addEventListener('pointermove', e => {
     if (!g || e.pointerId !== g.id) return;
     const dx = e.clientX - g.x, dy = e.clientY - g.y;
@@ -473,6 +485,7 @@ export const justSids = st => new Set(justList(st).map(a => a.sid));
 /** Called from find.js drawAgents: the card under the Tidy card (else under Recent). */
 export function drawJust(el, st) {
   let box = $('.tdy-just', el);
+  if (box && !cached()) return; // the agent list is reloading (after a wake): keep the card as it is, no flicker
   const list = justList(st);
   if (!list.length) { box?.remove(); return; }
   if (!box) { box = h('<section class="tdy-just"></section>'); box.addEventListener('click', onJust); }

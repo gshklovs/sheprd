@@ -850,7 +850,7 @@ pub(crate) fn row(a: &Value, idle: i64, reasons: Vec<Value>, full: Option<&str>)
     let one = |t: &str| t.replace("**", "").split_whitespace().collect::<Vec<_>>().join(" ");
     let last = a["last"]["text"].as_str().map(one).unwrap_or_default();
     json!({
-        "pane": a["pane"], "sid": a["session"], "name": name_of(a), "tab": a["tabLabel"], "color": a["color"], "cwd": a["cwd"], "home": a["home"] == true,
+        "pane": a["pane"], "sid": a["session"], "name": name_of(a), "job": a["job"], "tab": a["tabLabel"], "color": a["color"], "cwd": a["cwd"], "home": a["home"] == true,
         "status": a["status"], "idleMs": idle, "last": last, "full": full,
         "ctx": {"pct": a["ctx"]["pct"], "tokens": a["ctx"]["tokens"]}, "reasons": reasons,
     })

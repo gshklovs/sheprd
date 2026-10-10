@@ -26,7 +26,7 @@
 .amsg .am-h.fx .am-av.zz { color: color-mix(in srgb, var(--pt, var(--fg)) 62%, var(--bg2)); background: color-mix(in srgb, var(--pf, var(--bg3)) 62%, var(--bg2)); }
 .amsg .am-h.fx .am-av .moon { right: -4px; bottom: -4px; width: 15px; height: 15px; }
 .amsg .am-h.fx .am-av .moon svg { width: 10px; height: 10px; }
-.am-w .snd { font: 600 17px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; max-width: 100%; color: var(--pt, var(--fg)); border-radius: 7px; margin: -2px -6px; padding: 2px 6px; transition: background .15s; }
+.am-w .snd { font: 600 17px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; max-width: 100%; color: var(--pt, var(--fg)); border-radius: var(--r-ctl); margin: -2px -6px; padding: 2px 6px; transition: background .15s; }
 .amsg .am-h.fx .am-w { flex: 1; min-width: 0; }
 .am-w .snd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .am-w .snd svg { width: 15px; height: 15px; flex: none; margin-top: 1px; }
@@ -51,15 +51,15 @@
 .fwake .w1 b { font: 600 18px/1.2 var(--f-mid); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fwake .w1 small { font: 500 14.5px/1.25 var(--f-mid); display: block; color: var(--fg2); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fwake .wb { display: flex; gap: 8px; margin-top: 11px; }
-.fwake .wb .btn { font: 600 17.5px/1 var(--f-mid); flex: 1; min-height: 44px; border-radius: 12px; }
+.fwake .wb .btn { font: 600 17.5px/1 var(--f-mid); flex: 1; min-height: 44px; border-radius: var(--r-card); }
 .fwake .wb .btn.primary { flex: 1.4; }
 .fwake .wform { display: flex; gap: 8px; margin-top: 11px; align-items: flex-end; }
-.fwake .wform textarea { flex: 1; min-width: 0; font: inherit; font-size: 16px; border: 0; border-radius: 12px; padding: 9px 11px; background: var(--bg3); color: var(--fg); resize: none; }
-.fwake .wform .btn { min-height: 40px; border-radius: 12px; }
+.fwake .wform textarea { flex: 1; min-width: 0; font: inherit; font-size: 16px; border: 0; border-radius: var(--r-card); padding: 9px 11px; background: var(--bg3); color: var(--fg); resize: none; }
+.fwake .wform .btn { min-height: 40px; border-radius: var(--r-card); }
 .fwake .wn { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); margin-top: 9px; line-height: 1.35; }
 
 /* 1a: the Agents tab: find field, job line on rows, the Asleep group */
-.ffind { font: 500 16.5px var(--f-mid); display: flex; align-items: center; gap: 7px; width: 100%; height: 40px; border-radius: 11px; background: color-mix(in srgb, var(--fg) 6%, var(--bg)); padding: 0 11px; color: var(--fg2); margin: 6px 0 2px; text-align: left; }
+.ffind { font: 500 16.5px var(--f-mid); display: flex; align-items: center; gap: 7px; width: 100%; height: 40px; border-radius: var(--r-ctl); background: color-mix(in srgb, var(--fg) 6%, var(--bg)); padding: 0 11px; color: var(--fg2); margin: 6px 0 2px; text-align: left; }
 .ffind svg { width: 17px; height: 17px; flex: none; }
 .ffind span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .c-job { font: 500 15.5px/1.25 var(--f-mid); color: var(--fg); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -76,7 +76,7 @@
 .xrow > .btn.cont { align-self: center; }
 .xrow .xchev { align-self: center; color: var(--fg3); flex: none; display: flex; }
 .xrow .xchev svg { width: 18px; height: 18px; }
-.btn.cont { font: 600 15.5px/1 var(--f-mid); letter-spacing: .02em; min-height: 32px; padding: 0 13px; border-radius: 16px; background: var(--accent-fill); color: #fff; flex: none; }
+.btn.cont { font: 600 15.5px/1 var(--f-mid); letter-spacing: .02em; min-height: 32px; padding: 0 13px; border-radius: var(--r-card); background: var(--accent-fill); color: #fff; flex: none; }
 .btn.cont.ghost { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .g-zz .fhint { font: 500 14px/1.25 var(--f-mid); color: var(--fg3); padding: 7px 16px 2px; line-height: 1.35; }
 .g-zz .fhint a { color: var(--accent); }
@@ -123,13 +123,13 @@
 .fsh-acts .act .xax { font: 500 14.5px/1.25 var(--f-mid); margin-left: auto; color: var(--fg2); }
 .fsh-acts .act.xpri { font-weight: 600; }
 .fpinned { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); padding: 0 4px 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.fchip { font: 600 14.5px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px; border-radius: 14px; background: var(--bg2); color: var(--pt, var(--fg)); white-space: nowrap; }
+.fchip { font: 600 14.5px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px; border-radius: var(--r-card); background: var(--bg2); color: var(--pt, var(--fg)); white-space: nowrap; }
 .fchip .d { width: 8px; height: 8px; border-radius: 50%; background: var(--pe, var(--fg)); flex: none; }
 .fchip .xpn { color: var(--fg3); display: inline-flex; } .fchip .xpn svg { width: 11px; height: 11px; }
 .fsh-note { font: 500 15px/1.25 var(--f-mid); color: var(--fg2); margin: 0 4px 12px; line-height: 1.4; }
 .fmeta { display: flex; flex-direction: column; gap: 12px; }
 .fmeta label { font: 500 14.5px/1.25 var(--f-mid); display: flex; flex-direction: column; gap: 5px; color: var(--fg2); }
-.fmeta input { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 0; border-radius: 10px; padding: 10px 12px; }
+.fmeta input { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 0; border-radius: var(--r-ctl); padding: 10px 12px; }
 .fmeta small { font: 500 13.5px/1.25 var(--f-mid); color: var(--fg3); }
 /* Branch from here: "↳ from <parent>" on a branch's row and Recent cell (tap = the parent) */
 .xrow .xfrom { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); margin-right: 6px; }

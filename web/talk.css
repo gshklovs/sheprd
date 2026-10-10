@@ -2,7 +2,7 @@
 .tldr { margin: 10px 0 4px; padding: 9px 12px 10px; border-radius: var(--r-card); background: var(--bg2); box-shadow: var(--card-sh); }
 .tldr .tl-h { font: 600 13.5px/1.2 var(--f-mid); display: flex; align-items: center; gap: 4px; color: var(--accent); }
 .tldr .tl-t { font-size: 15px; line-height: 1.4; margin-top: 2px; }
-.tldr button, .tk-card .tk-say { color: var(--accent); display: inline-flex; align-items: center; gap: 3px; min-height: 32px; min-width: 32px; justify-content: center; font-size: 12px; border-radius: 8px; }
+.tldr button, .tk-card .tk-say { color: var(--accent); display: inline-flex; align-items: center; gap: 3px; min-height: 32px; min-width: 32px; justify-content: center; font-size: 12px; border-radius: var(--r-ctl); }
 .tldr button svg, .tk-say svg { width: 18px; height: 18px; }
 .tl-all span { font-weight: 600; }
 
@@ -10,9 +10,9 @@
 .tkcards { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
 .tk-card { background: var(--bg2); box-shadow: var(--card-sh); border-radius: var(--r-card); padding: 9px 12px 11px; }
 .tk-h { font: 600 15.5px/1.2 var(--f-mid); display: flex; align-items: center; gap: 4px; }
-.tk-x { width: 32px; height: 32px; font-size: 20px; line-height: 1; color: var(--fg2); border-radius: 8px; }
+.tk-x { width: 32px; height: 32px; font-size: 20px; line-height: 1; color: var(--fg2); border-radius: var(--r-ctl); }
 .tk-b { margin-top: 4px; font-size: 15px; line-height: 1.4; }
-.tk-cmd { margin: 6px 0 2px; padding: 7px 9px; background: var(--code); border-radius: 8px; font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
+.tk-cmd { margin: 6px 0 2px; padding: 7px 9px; background: var(--code); border-radius: var(--r-ctl); font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
 .tk-card .btns { margin-top: 8px; display: flex; gap: 8px; }
 .tk-why { margin-top: 4px; }
 
@@ -22,7 +22,7 @@
 .qx:active { background: var(--bg4); }
 
 .sayer { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 54px);
-  display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 32px); padding: 4px 6px 4px 4px; border-radius: 99px;
+  display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 32px); padding: 4px 6px 4px 4px; border-radius: var(--r-ctl);
   background: var(--bar); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: .5px solid var(--sep); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); font-size: 13px; }
 .sayer button { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); }
 .sayer .sy-pp { background: var(--accent-fill); color: #fff; }
@@ -35,21 +35,21 @@
 .ak-q .opt.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ak-q .ak-m .on::before { content: '☐'; }
 .ak-q .ak-m.sel .on::before { content: '☑'; }
-.ak-t { display: block; width: 100%; margin-top: 6px; resize: none; border: .5px solid var(--sep); background: var(--bg2); border-radius: 12px; padding: 9px 12px; line-height: 1.3; min-height: 40px; outline: none; -webkit-appearance: none; font: inherit; color: inherit; }
+.ak-t { display: block; width: 100%; margin-top: 6px; resize: none; border: .5px solid var(--sep); background: var(--bg2); border-radius: var(--r-card); padding: 9px 12px; line-height: 1.3; min-height: 40px; outline: none; -webkit-appearance: none; font: inherit; color: inherit; }
 .ak-go { width: 100%; margin-top: 12px; }
 .ak-q .opt { width: 100%; margin-top: 6px; }
 /* AskUserQuestion stepper (one question at a time), folded previews, Submit pinned at the panel bottom */
 .ak-steps { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px; padding: 0 2px 2px; }
 .ak-steps::-webkit-scrollbar { display: none; }
-.ak-st { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 5px; border-radius: 99px; background: var(--bg3); color: var(--fg2); font-size: 14px; font-weight: 600; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ak-st { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 5px; border-radius: var(--r-ctl); background: var(--bg3); color: var(--fg2); font-size: 14px; font-weight: 600; max-width: 60%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ak-st b { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: var(--bg4); color: var(--fg); }
 .ak-st.done b { background: var(--accent-fill); color: #fff; font-size: 0; }
 .ak-st.done b::before { content: '✓'; font-size: 13px; }
 .ak-st.cur { background: color-mix(in srgb, var(--accent) 18%, var(--bg2)); color: var(--fg); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .ak-steps ~ .ak-q { margin-top: 0; padding-top: 0; border-top: 0; }
-.ak-pvb { font: 600 13.5px/1.2 var(--f-mid); flex: none; align-self: center; color: var(--acct, var(--accent)); padding: 4px 9px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ak-pvb { font: 600 13.5px/1.2 var(--f-mid); flex: none; align-self: center; color: var(--acct, var(--accent)); padding: 4px 9px; border-radius: var(--r-ctl); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .opt.pvo .ak-pvb { background: var(--accent-fill); color: #fff; }
-.ak-pv { margin: 4px 0 0; padding: 8px 10px; max-height: min(180px, 30vh); overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: var(--code, var(--bg2)); border: .5px solid var(--sep); border-radius: 10px; font: 11px/1.3 var(--mono); white-space: pre; color: var(--fg); }
+.ak-pv { margin: 4px 0 0; padding: 8px 10px; max-height: min(180px, 30vh); overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: var(--code, var(--bg2)); border: .5px solid var(--sep); border-radius: var(--r-ctl); font: 11px/1.3 var(--mono); white-space: pre; color: var(--fg); }
 body.kb .ak-pv { max-height: 110px; }
 .ak-nav { position: sticky; bottom: -8px; z-index: 2; display: flex; gap: 8px; margin: 10px 0 -8px; padding: 8px 0; background: var(--bg1); border-top: .5px solid var(--sep); }
 .ak-err { color: var(--red); font-size: 14px; line-height: 1.35; margin: 8px 2px 0; }

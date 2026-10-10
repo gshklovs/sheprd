@@ -14,7 +14,7 @@
 .rp-av.home { background: var(--bg3); color: var(--fg); }
 .rp-av.more { background: var(--bg3); color: var(--fg2); font-size: 10px; }
 .rp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; min-width: 0; }
-.rp-br, .rp-b { font: 600 14px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 11px; max-width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--bg3); color: var(--fg2); }
+.rp-br, .rp-b { font: 600 14px/1.2 var(--f-mid); display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: var(--r-ctl); max-width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--bg3); color: var(--fg2); }
 .rp-br { font-family: var(--mono); font-size: 12px; }
 .rp-br svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; flex: none; }
 .rp-br.cur { background: var(--awash); color: var(--acct); }
@@ -31,7 +31,7 @@
 .reposh .rp-t { margin-bottom: 2px; padding-right: 40px; overflow-wrap: anywhere; }
 .rp-path { overflow-wrap: anywhere; margin: 0 0 10px; }
 .rp-links { display: flex; flex-wrap: wrap; gap: 8px; }
-.rp-links .btn { font: 600 15.5px/1 var(--f-mid); min-height: 44px; border-radius: 12px; flex: 1 1 auto; min-width: 0; }
+.rp-links .btn { font: 600 15.5px/1 var(--f-mid); min-height: 44px; border-radius: var(--r-card); flex: 1 1 auto; min-width: 0; }
 .rp-links svg { width: 17px; height: 17px; flex: none; }
 .rp-links svg.ghi, .rp-links svg.vc { fill: currentColor; stroke: none; }
 .rp-links svg:not(.ghi):not(.vc) { fill: none; stroke: currentColor; stroke-width: 2; }
@@ -44,7 +44,7 @@
 .rp-rl small { font: 500 14px/1.25 var(--f-mid); flex-basis: 100%; color: var(--fg2); overflow-wrap: anywhere; }
 .rp-rl .rp-av { margin-left: 0; width: 20px; height: 20px; font-size: 10px; border: 0; }
 .rp-rr { display: flex; align-items: center; gap: 2px; flex: none; }
-.rp-pr { display: inline-flex; align-items: center; min-height: 32px; padding: 0 9px; border-radius: 9px; background: var(--bg3); color: var(--fg2); font-size: 13px; font-weight: 600; }
+.rp-pr { display: inline-flex; align-items: center; min-height: 32px; padding: 0 9px; border-radius: var(--r-ctl); background: var(--bg3); color: var(--fg2); font-size: 13px; font-weight: 600; }
 .rp-pr.open { background: var(--awash); color: var(--acct); }
 .rp-ic { display: inline-grid; place-items: center; width: 40px; height: 44px; color: var(--accent); }
 .rp-ic svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; }
@@ -56,18 +56,18 @@
 .rp-url span { font: 500 13.5px/1.25 var(--f-mid); color: var(--fg2); }
 .rp-sel { display: flex; align-items: center; gap: 10px; margin-top: 10px; min-height: 44px; }
 .rp-sel span { font: 500 15px/1.25 var(--f-mid); color: var(--fg2); }
-.rp-sel select { flex: 1; min-width: 0; min-height: 40px; border-radius: 10px; border: .5px solid var(--sep); background: var(--bg1); color: var(--fg); font: 15px var(--mono); padding: 0 10px; }
-.rp-warn { color: var(--fg); background: var(--bg3); border-radius: 8px; padding: 7px 10px; margin: 8px 0 0; }
+.rp-sel select { flex: 1; min-width: 0; min-height: 40px; border-radius: var(--r-ctl); border: .5px solid var(--sep); background: var(--bg1); color: var(--fg); font: 15px var(--mono); padding: 0 10px; }
+.rp-warn { color: var(--fg); background: var(--bg3); border-radius: var(--r-ctl); padding: 7px 10px; margin: 8px 0 0; }
 .btn.dprod, .btn.rp-danger { color: var(--red); }
 .btn.rp-danger { background: var(--red); color: #fff; }
 .rp-tok { margin-top: 8px; }
 .rp-tok p { margin: 4px 0 8px; }
-.rp-cmd { font: 12px/1.4 var(--mono); background: var(--code, var(--bg3)); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; user-select: all; -webkit-user-select: all; }
+.rp-cmd { font: 12px/1.4 var(--mono); background: var(--code, var(--bg3)); border-radius: var(--r-ctl); padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; user-select: all; -webkit-user-select: all; }
 .rp-logw { margin-top: 10px; }
 .rp-lh { font: 500 14px/1.25 var(--f-mid); color: var(--fg2); display: flex; align-items: center; gap: 6px; margin: 0 0 6px 4px; }
 .rp-lh .spin { margin-right: 4px; }
 .rp-logw.ok .rp-lh { color: var(--done); } .rp-logw.failed .rp-lh { color: var(--red); }
-.rp-log { font: 11.5px/1.4 var(--mono); background: #0d0d0f; color: #e5e5ea; border-radius: 10px; padding: 8px 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.rp-log { font: 11.5px/1.4 var(--mono); background: #0d0d0f; color: #e5e5ea; border-radius: var(--r-ctl); padding: 8px 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 .rp-err { color: var(--red); margin: 8px 0 0; }
 .rp-ct { overflow-wrap: anywhere; }
 .reposh .sh-body > * { flex: none; }

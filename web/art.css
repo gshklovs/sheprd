@@ -11,11 +11,11 @@
 .ac-pv.live .ac-ph { visibility: hidden; }
 .ac-pv.gone { cursor: default; }
 .ac-meta { display: flex; align-items: center; gap: 10px; padding: 10px 12px 4px; min-width: 0; }
-.ac-ico { font-size: 22px; line-height: 1; flex: none; width: 34px; height: 34px; border-radius: 9px; background: var(--bg3); display: flex; align-items: center; justify-content: center; }
+.ac-ico { font-size: 22px; line-height: 1; flex: none; width: 34px; height: 34px; border-radius: var(--r-ctl); background: var(--bg3); display: flex; align-items: center; justify-content: center; }
 .ac-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .ac-tx b { font: 600 16.5px/1.2 var(--f-mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac-tx small { color: var(--fg2); font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ac-v { flex: none; font-size: 11px; font-weight: 600; color: var(--fg2); background: var(--bg3); border-radius: 6px; padding: 2px 6px; font-variant-numeric: tabular-nums; }
+.ac-v { flex: none; font-size: 11px; font-weight: 600; color: var(--fg2); background: var(--bg3); border-radius: var(--r-ctl); padding: 2px 6px; font-variant-numeric: tabular-nums; }
 .ac-act { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 12px 12px; }
 .ac-act .btn svg { width: 15px; height: 15px; }
 .ac-st { padding: 6px 12px 12px; font-size: 13px; color: var(--fg2); }
@@ -28,14 +28,14 @@
 .artc.out { margin-top: 6px; }
 
 /* chip on agent cards */
-.artchip { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 6px 10px 6px 6px; border-radius: 11px; background: var(--bg3); color: var(--fg); min-width: 0; cursor: pointer; -webkit-touch-callout: none; user-select: none; }
-.artchip > i, .artchip > img { flex: none; width: 34px; height: 34px; border-radius: 8px; font-style: normal; font-size: 19px; display: flex; align-items: center; justify-content: center; background: var(--bg2); object-fit: cover; }
+.artchip { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 6px 10px 6px 6px; border-radius: var(--r-ctl); background: var(--bg3); color: var(--fg); min-width: 0; cursor: pointer; -webkit-touch-callout: none; user-select: none; }
+.artchip > i, .artchip > img { flex: none; width: 34px; height: 34px; border-radius: var(--r-ctl); font-style: normal; font-size: 19px; display: flex; align-items: center; justify-content: center; background: var(--bg2); object-fit: cover; }
 .artchip .sb { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .artchip b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artchip small { font-size: 11.5px; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artchip:active { opacity: .7; }
 /* tray / switcher mini chip */
-.artmini { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 8px; background: var(--bg3); font-size: 15px; line-height: 1; cursor: pointer; -webkit-touch-callout: none; user-select: none; }
+.artmini { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--r-ctl); background: var(--bg3); font-size: 15px; line-height: 1; cursor: pointer; -webkit-touch-callout: none; user-select: none; }
 .swrow .artmini { margin-left: 6px; width: 32px; height: 32px; font-size: 17px; }
 
 /* fullscreen preview */
