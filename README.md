@@ -220,4 +220,4 @@ PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). The web app has no buil
 
 ## License
 
-[MIT](LICENSE). Fonts: Geist and JetBrains Mono, both under the SIL Open Font License (`web/fonts/`).
+[MIT](LICENSE). Fonts: Geist, JetBrains Mono and Michroma, all under the SIL Open Font License (`web/fonts/`).
