@@ -146,12 +146,46 @@ const RE_H = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const RE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const isBlockStart = (l, n) =>
   RE_FENCE.test(l) || RE_H.test(l) || RE_HR.test(l) || /^\s*>/.test(l) || RE_LIST.test(l) ||
-  (l.includes('|') && n !== undefined && RE_SEP.test(n) && n.includes('-'));
+  (l.includes('|') && n !== undefined && isTable(l, n));
 
+// GFM table cells: split on unescaped pipes (outer pipes optional), `\|` → a literal pipe (also inside code spans)
 const cells = l => {
-  l = l.trim().replace(/^\|/, '').replace(/\|$/, '');
+  l = l.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '');
   return l.split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
 };
+// a header row + a delimiter row with the same number of cells (GFM: otherwise it is not a table)
+const isTable = (l, n) => RE_SEP.test(n) && n.includes('-') && cells(l).length === cells(n).length;
+// a row ends the table at a blank line or where another block starts (fence, heading, quote, rule)
+const rowEnds = l => !l.trim() || !l.includes('|') || RE_FENCE.test(l) || RE_H.test(l) || /^\s*>/.test(l) || RE_HR.test(l);
+const plain = c => c.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '');
+const NUMC = /^[-+−]?[$€£¥]?\(?[\d.,]+%?\)?[kKmMbBx×%]?$|^[-–—]?$|^\d+\s*\/\s*\d+$/;
+// A table scrolls sideways in its own box (.tbl) when it is wider than the message; the page never does.
+// Columns: right/center colons on a numeric or short column → tabular figures; short columns never wrap ("Score",
+// "3/5", "Naval"); long prose columns get a reading min width so they wrap into lines, not a word per line.
+function table(lines, i, ctx) {
+  const head = cells(lines[i]), n = head.length;
+  const al = cells(lines[i + 1]).map(c => (/^:-+:$/.test(c) ? 'center' : /-:$/.test(c) ? 'right' : /^:-/.test(c) ? 'left' : ''));
+  const rows = [];
+  i += 2;
+  while (i < lines.length && !rowEnds(lines[i])) {
+    const r = cells(lines[i++]);
+    rows.push(Array.from({ length: n }, (_, k) => r[k] ?? '')); // GFM: pad short rows, drop extra cells
+  }
+  table.end = i;
+  const cls = head.map((h, k) => {
+    const col = rows.map(r => plain(r[k]));
+    const max = Math.max(plain(h).length, ...col.map(c => c.length));
+    const num = col.some(c => c.trim()) && col.every(c => NUMC.test(c.trim()));
+    const c = [];
+    if ((al[k] === 'right' || al[k] === 'center') && (num || max <= 16)) c.push('num');
+    if (max <= 14) c.push('nw'); else if (max >= 48) c.push('wide');
+    return c.length ? ` class="${c.join(' ')}"` : '';
+  });
+  const st = k => (al[k] ? ` style="text-align:${al[k]}"` : '');
+  const cell = (tag, c, k) => `<${tag}${cls[k]}${st(k)}>${inl(c, ctx)}</${tag}>`;
+  return '<div class="tbl"><table><thead><tr>' + head.map((c, k) => cell('th', c, k)).join('') + '</tr></thead><tbody>' +
+    rows.map(r => '<tr>' + r.map((c, k) => cell('td', c, k)).join('') + '</tr>').join('') + '</tbody></table></div>';
+}
 
 export function md(src, ctx, depth = 0) {
   const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n');
@@ -180,15 +214,9 @@ export function md(src, ctx, depth = 0) {
       out += `<blockquote>${depth < 8 ? md(buf.join('\n'), ctx, depth + 1) : esc(buf.join('\n'))}</blockquote>`;
       continue;
     }
-    if (l.includes('|') && i + 1 < lines.length && RE_SEP.test(lines[i + 1]) && lines[i + 1].includes('-')) {
-      const head = cells(l), al = cells(lines[i + 1]).map(c => (/^:-+:$/.test(c) ? 'center' : /-:$/.test(c) ? 'right' : ''));
-      i += 2;
-      const st = k => (al[k] ? ` style="text-align:${al[k]}"` : '');
-      let t = '<div class="tbl"><table><thead><tr>' + head.map((c, k) => `<th${st(k)}>${inl(c, ctx)}</th>`).join('') + '</tr></thead><tbody>';
-      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
-        t += '<tr>' + cells(lines[i++]).map((c, k) => `<td${st(k)}>${inl(c, ctx)}</td>`).join('') + '</tr>';
-      }
-      out += t + '</tbody></table></div>';
+    if (l.includes('|') && i + 1 < lines.length && isTable(l, lines[i + 1])) {
+      out += table(lines, i, ctx);
+      i = table.end;
       continue;
     }
     if ((m = l.match(RE_LIST))) {

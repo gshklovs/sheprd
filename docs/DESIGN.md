@@ -54,6 +54,10 @@ Tidy/Catch-up groups, Decide, Undo). Caps are allowed **only** here. A header is
 - Rajdhani has no tabular figures, so **numbers that tick or stand in columns** (Machine live stats and columns,
   countdowns, gauges, the usage tank, context rings) use system `tabular-nums`. That avoids jitter. Mono is never used
   for a number unless it is part of code.
+- Markdown tables (md.js `table()`): no boxes, hairline (`--sep`) rows, a slightly stronger hairline under the header,
+  header in Rajdhani 600 fg2. Columns marked right or centre by the alignment colons take `tabular-nums` when numeric or
+  short; short columns stay on one line; long prose columns get an 8 em min width so they wrap into lines. Cells wrap at
+  words (the chat's break-anywhere does not reach them). A table wider than the message scrolls sideways in its own box.
 
 ## Surfaces, frames, radius
 

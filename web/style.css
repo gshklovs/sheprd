@@ -264,10 +264,20 @@ html[data-offline] .brand .conn { display: inline-block; background: var(--red);
 pre { margin: 0; font: 12.5px/1.45 var(--mono); }
 .md pre.code { background: var(--code); border: .5px solid var(--sep); border-radius: var(--r-ctl); padding: 9px 11px; overflow-x: auto; margin: 0 0 8px; -webkit-overflow-scrolling: touch; }
 .md pre.code code { background: none; padding: 0; font-size: 12.5px; overflow-wrap: normal; }
-.tbl { overflow-x: auto; margin: 0 0 8px; -webkit-overflow-scrolling: touch; }
-.md table { border-collapse: collapse; font-size: 13.5px; }
-.md th, .md td { border: .5px solid var(--bg4); padding: 4px 8px; text-align: left; vertical-align: top; }
-.md th { background: var(--bg2); }
+/* tables (md.js table()): hairline rows, no boxes; a wide table scrolls sideways in .tbl, never the page.
+   .msg breaks words anywhere, which squeezed every column to a letter per line ("S/c/o/r/e"): cells wrap at words. */
+.tbl { overflow-x: auto; overscroll-behavior-x: contain; max-width: 100%; margin: 2px 0 10px; -webkit-overflow-scrolling: touch; }
+.md table { border-collapse: collapse; font-size: 14px; line-height: 1.38; overflow-wrap: normal; word-break: normal; }
+.md th, .md td { padding: 7px 8px; text-align: left; vertical-align: top; min-width: 5.5em; overflow-wrap: break-word; }
+.md th:first-child, .md td:first-child { padding-left: 0; }
+.md th:last-child, .md td:last-child { padding-right: 0; }
+.md tbody tr { border-top: .5px solid var(--sep); }
+.md thead tr { border-bottom: .5px solid color-mix(in srgb, var(--fg) 30%, transparent); }
+.md th { font: 600 15px/1.2 var(--f-mid); color: var(--fg2); padding-top: 4px; padding-bottom: 6px; vertical-align: bottom; }
+.md td.wide, .md th.wide { min-width: 8em; }
+.md td.nw, .md th.nw { white-space: nowrap; min-width: 0; }
+.md td.num { font-variant-numeric: tabular-nums; }
+.md td a, .md td code { overflow-wrap: anywhere; }
 .task { display: inline-block; width: 13px; height: 13px; border: 1.5px solid var(--fg2); border-radius: 4px; margin-right: 6px; vertical-align: -1px; }
 .task.on { background: var(--done); border-color: var(--done); }
 .md li:has(> .task) { list-style: none; margin-left: -18px; }

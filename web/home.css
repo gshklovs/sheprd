@@ -68,7 +68,9 @@
 @keyframes pbcur { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .pbar i, .pbar i::after { animation: none !important; } .hcard { transition: none; } }
 
-/* Scheduled: a section (header + hairline rows, docs/DESIGN.md; base look in style.css .bgs); rows keep 44pt tap targets */
+/* Scheduled is off Home: schedules live in History › Schedules, and the home agent answers "what's scheduled" from GET /api/sched */
+.agents .bgs { display: none !important; }
+/* (kept for the section's look if it returns) Scheduled: a section (header + hairline rows, docs/DESIGN.md; base look in style.css .bgs); rows keep 44pt tap targets */
 .agents .bgs { margin: 18px 0 6px; }
 .agents .bgs .bg-row { min-height: 44px; padding: 0 4px; gap: 8px; }
 .agents .bgs .bg-ic { width: 20px; color: var(--accent); } .agents .bgs .bg-ic svg { width: 16px; height: 16px; }
