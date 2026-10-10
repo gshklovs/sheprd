@@ -157,6 +157,7 @@ function heroHTML(it, n, idx) {
       <a class="h-tt" href="${MODS.queue.hrefOf(it)}"><b class="tt">${esc(it.nm)}</b><small><b>${esc(sp.pill)}</b> · <span data-since="${it.ts || a.since}"></span>${par ? ` · ↳ ${esc(par.home ? HOME_NAME() : nm(par))}` : ''}</small></a>${dots}</div>
     ${sp.ctx ? `<div class="h-q">${sp.ctx}</div>` : ''}
     ${md ? `<div class="h-md">${esc(md.slice(0, 400))}</div>` : ''}
+    ${sp.form || ''}
     ${sp.imgs?.length ? thumbs(sp.imgs.map(asImg)) : ''}
     ${sp.code ? `<pre class="h-code">${esc(sp.code)}</pre>` : ''}
     <div class="h-acts${acts.length > 2 ? ' n3' : ''}"${box}>${acts.map(btn).join('')}</div>
@@ -197,7 +198,8 @@ function drawHero(box, items, working) {
   box.querySelector(':scope > .hcalmw')?.remove();
   const html = heroHTML(it, items.length, 0);
   if (cur && cur.dataset.key === it.key) {
-    if (!cur.contains(document.activeElement) && !HERO.drag && patchHTML(cur, html)) tick(cur);
+    // never while a field there has focus or a pasted value (a vault request's paste field)
+    if (!cur.contains(document.activeElement) && ![...cur.querySelectorAll('input')].some(i => i.value) && !HERO.drag && patchHTML(cur, html)) tick(cur);
     return;
   }
   const n = h(`<section class="hcard${colCls(it.a.color)}${it.kind === 'surf' ? ' k-surf' : ''}" data-key="${esc(it.key)}" data-pane="${esc(it.pane)}"></section>`);
@@ -223,7 +225,7 @@ function wireHero(box) {
     const b = e.target.closest('[data-hact]');
     if (b && !b.disabled) { mark('r'); tr.heroAct(it, +b.dataset.hact); return; }
     if (e.target.closest('[data-reply]')) { mark('r'); setTimeout(() => { tr.hold(it.key); refresh(); }, 0); return; } // app.js sends it
-    if (e.target.closest('a, button, input, form, pre, .thumbs')) return; // a picture opens the gallery (app.js)
+    if (e.target.closest('a, button, input, form, pre, .thumbs, .vq')) return; // a picture opens the gallery (app.js)
     e.preventDefault(); nav(tr.hrefOf(it)); // the card's body opens the chat at the item
   });
   box.addEventListener('submit', async e => {
@@ -233,7 +235,7 @@ function wireHero(box) {
   });
   // swipe the card: right = primary action, left = snooze (next item)
   box.addEventListener('pointerdown', e => {
-    const c = e.target.closest('.hcard:not(.out)'); if (!c || e.button > 0 || e.target.closest('input, form, pre, button, a, .thumbs')) return; // the picture strip scrolls sideways itself
+    const c = e.target.closest('.hcard:not(.out)'); if (!c || e.button > 0 || e.target.closest('input, form, pre, button, a, .thumbs, .vq')) return; // the picture strip scrolls sideways itself
     HERO.drag = { c, x: e.clientX, y: e.clientY, id: e.pointerId, lock: null }; HERO.dragged = false;
   });
   box.addEventListener('pointermove', e => {

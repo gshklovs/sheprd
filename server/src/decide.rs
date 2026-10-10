@@ -347,7 +347,7 @@ async fn api_decide(State(app): State<Shared>, AxPath(id): AxPath<String>, Json(
 }
 
 /// Steer to the live pane (held on a draft / menu), else resume the asleep session with it.
-async fn deliver(app: &Shared, card: &Value, text: String) -> Result<(String, bool), Response> {
+pub(crate) async fn deliver(app: &Shared, card: &Value, text: String) -> Result<(String, bool), Response> {
     let live = {
         let inner = app.inner.lock().unwrap();
         // a live agent pane (herdr reports it), else the pane its session runs in now

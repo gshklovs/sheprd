@@ -981,6 +981,27 @@ body.kb .plan .pl-md { max-height: 22vh; }
 .slash .sl-row small { font-size: 13px; line-height: 17px; color: var(--fg2); }
 .slash .sl-row.on { background: var(--bg3); }
 .slash .sl-row:active { background: var(--bg3); }
+/* a vault request (app.js vaultForm): paste fields on an agent's card, hairline rows, no inner boxes */
+.vq { margin-top: 8px; border-top: .5px solid var(--sep); }
+.vq-hint { font-size: 13.5px; color: var(--fg2); padding: 8px 0 0; }
+.vq-row { display: block; padding: 9px 0 2px; }
+.vq-row.done + .vq-row, .vq-row + .vq-row.done { border-top: .5px solid var(--sep); } /* open rows: the field's underline is the line */
+.vq-row.done { display: flex; align-items: baseline; gap: 10px; padding: 10px 0 8px; }
+.vq-l { display: flex; align-items: baseline; gap: 8px; font: var(--t-name-sm); }
+.vq-l small { font: 500 12px/1.2 var(--mono); color: var(--fg3); margin-left: auto; overflow-wrap: anywhere; text-align: right; }
+.vq-row.done .vq-l { flex: 1; min-width: 0; }
+.vq-ok { font: var(--t-sub); color: var(--done); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vq-ok.off { color: var(--fg3); }
+.vq-in { display: block; width: 100%; box-sizing: border-box; height: 42px; margin-top: 2px; padding: 0 2px; border: 0; border-bottom: 1px solid var(--fg3);
+  border-radius: 0; background: transparent; font: 400 16px/1 var(--mono); color: var(--fg); outline: none; -webkit-appearance: none; appearance: none; }
+.vq-in:focus { border-bottom-color: var(--accent); }
+.vq-in::placeholder { font-family: var(--f-body); color: var(--fg3); }
+.vq-in:disabled { opacity: .5; }
+.vq-acts { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.vq-acts .btn { min-height: 36px; font-family: var(--f-mid); font-size: 15px; }
+.vq-acts .btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+.vq-foot { font: var(--t-small); color: var(--fg3); padding-top: 9px; }
+.hcard .vq { margin: 4px 0 10px; }
 /* Branch from here (sheets.js branchSheet) */
 .brsheet .br-h { display: flex; align-items: center; gap: 8px; }
 .brsheet .br-h svg { width: 20px; height: 20px; fill: none; stroke: var(--accent); stroke-width: 1.8; }
@@ -1131,3 +1152,19 @@ body.kb .plan .pl-md { max-height: 22vh; }
   background-repeat: no-repeat; }
 .hcard.out::after, .hcard.in::after { display: none; } /* not on the card flying out / sliding in */
 .hud-cut, .btn.primary, .h-acts .hb.pri, .dentry .dgo, .sf-rep .btn:not(.did) { clip-path: polygon(0 0, calc(100% - var(--r-cut)) 0, 100% var(--r-cut), 100% 100%, 0 100%); }
+/* Vault (vault.js): write-only secrets — name, "set · ••••tail · updated", inline editor */
+.vault .vlt-lead b { font-family: var(--mono); font-weight: 500; font-size: 12.5px; color: var(--fg); }
+.vlt-row + .vlt-row { border-top: .5px solid var(--sep); }
+.vlt-h { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 14px; text-align: left; }
+.vlt-h:disabled { opacity: 1; }
+.vlt-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vlt-name { font-family: var(--mono); font-size: 14.5px; color: var(--fg); overflow-wrap: anywhere; }
+.vlt-st { font-size: 13px; color: var(--fg3); }
+.vlt-st.on { color: var(--fg2); font-variant-numeric: tabular-nums; }
+.vlt-ch { color: var(--fg3); font-size: 20px; line-height: 1; }
+.vlt-ed { padding: 0 14px 4px; }
+.vlt-new .vlt-ed { padding-top: 12px; }
+.vlt-ed .form + .form, .vlt-ed .form + p + .form { margin-top: 8px; }
+.vlt-ed .form input { font-family: var(--mono); }
+.vlt-ed p.small { margin: 0 0 8px; }
+.vlt-nerr { color: var(--red); margin: 6px 0 0 !important; }

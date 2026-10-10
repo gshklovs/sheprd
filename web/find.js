@@ -245,12 +245,14 @@ function recentList(st) {
   }).filter(Boolean).filter(r => !r.hidden);
   const when = r => r.lu || 0;
   const pins = rows.filter(r => r.pinned).sort((a, b) => (b.home - a.home) || when(b) - when(a) || (b.ts || 0) - (a.ts || 0));
-  // every running agent gets a cell; asleep ones only
-  // fill the grid up to RECENT_N
-  const others = rows.filter(r => !r.pinned && !r.service), byWhen = (a, b) => when(b) - when(a);
-  const awake = others.filter(r => !r.asleep).sort(byWhen), asleep = others.filter(r => r.asleep && when(r) > 0).sort(byWhen);
-  const list = pins.concat(awake);
-  return list.concat(asleep.slice(0, Math.max(0, RECENT_N - list.length)));
+  // every running agent (working, or blocked on the user) gets a cell; everything else (pins first, then awake, then
+  // asleep, each by last talk) only fills the grid up to RECENT_N
+  const running = r => !r.asleep && (r.status === 'working' || r.status === 'blocked');
+  const byWhen = (a, b) => when(b) - when(a), others = rows.filter(r => !r.pinned && !r.service);
+  const run = pins.filter(running).concat(others.filter(running).sort(byWhen));
+  const fill = pins.filter(r => !running(r)).concat(others.filter(r => !r.asleep && !running(r)).sort(byWhen), others.filter(r => r.asleep && when(r) > 0).sort(byWhen));
+  const keep = new Set(run.concat(fill.slice(0, Math.max(0, RECENT_N - run.length))));
+  return pins.concat(others.filter(r => !r.asleep).sort(byWhen), others.filter(r => r.asleep).sort(byWhen)).filter(r => keep.has(r));
 }
 /** Session ids on the Recent grid (app.js leaves them out of Awake; drawAgents out of Asleep). */
 export const recentSids = st => new Set(recentList(st).map(r => r.sid));

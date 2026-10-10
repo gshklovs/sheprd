@@ -78,6 +78,8 @@ sheprd setup --yes --no-wait  # unattended
 - **Files and git**: files touched and their diffs, branch vs main, and CI/PR status (via `gh`).
 - **Voice notes** (optional): dictate a message and it's transcribed locally with whisper.cpp.
 - **Live terminal**: the real pane, when you need it.
+- **Vault**: when an agent needs an API key or token it asks with a paste card on your phone instead of in chat.
+  The value goes write-only to `~/.config/sheprd/vault/<name>` (owner-only) and never passes through the transcript.
 
 ## How it works
 
@@ -113,6 +115,8 @@ sheprd has **no login of its own**: anyone who can reach the port can drive your
 `127.0.0.1` (and your Tailscale IP on the default port), so by default that means **you, on your tailnet**.
 Tailscale Serve keeps it inside your tailnet; never use `tailscale funnel` for it. `SHEPRD_LISTEN=0.0.0.0:7878`
 exposes it to your LAN, so only do that on a network you trust.
+The same applies to the Vault: anyone who can reach sheprd can replace or delete a stored secret (never read one
+back), so keep it on your tailnet.
 
 ## Commands
 

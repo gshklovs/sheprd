@@ -1409,6 +1409,61 @@ to the home agent (display name `SHEPRD_HOME_NAME`, default "Master") for things
   files must be signed with `shortcuts sign` (macOS/iOS only); once built, Shortcuts' Share → Copy iCloud Link shares it.
 - Tests: `cargo test send share`.
 
+## Vault — write-only secrets (`server/src/vault.rs`, `web/vault.js`, Settings → Vault)
+One file per secret at `~/.config/sheprd/vault/<name>` (dir **0700**, files **0600**), read directly by agents and other
+tools on the machine. Written atomically: a temp file `.<name>.tmp-<rand>` in the same dir (O_CREAT|O_EXCL|O_NOFOLLOW,
+0600), fsync, rename, fsync the dir. The value is stored as pasted minus trailing whitespace/newline. Names
+`^[a-z0-9_]{1,64}$` (no traversal possible); a slot that is a symlink or not a regular file is refused (never read,
+written or deleted through); the vault dir itself must be a real directory owned by the user (its mode is reset to 0700).
+Test instances (port ≠ 7878) may set `SHEPRD_VAULT_DIR`.
+- `GET /api/vault` → `{slots:[{name, set, tail?, updated?}], dir}`: every valid file in the dir. `tail` = the last 4
+  characters, only for values of 12+ characters; `updated` = mtime ms. **No endpoint ever returns a value.** Needs
+  Host = one of this server's names.
+- `PUT|POST /api/vault/<name>` `{value}` (≤ 16 KB) → `{ok, slot}`; `DELETE /api/vault/<name>` → `{ok, deleted}`.
+- Accepted only from the app's own page: Host **and** Origin are this server's own names (tailnet name, tailnet IP:port,
+  127.0.0.1/localhost:port — DNS rebinding fails), `Content-Type: application/json`, `X-Sheprd: vault`,
+  `Sec-Fetch-Site` (when sent) `same-origin`, no `Tailscale-Funnel-Request`. Otherwise 403. Stricter than the rest of
+  the API (which relies on axum's JSON content-type check). Bodies are parsed by hand: errors never quote the input.
+- **sheprd has no login**: anyone who can reach the server (you, on your tailnet) can replace or delete a secret, though
+  never read one back. Keep the server on your tailnet only.
+- Every vault response: `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, nosniff; the service worker never
+  handles `/api/*`. `/api/file` refuses any path inside the vault dir (403 "not served").
+- No leaks: the server has no request/URI logging; the log says only `vault: set <name>` / `vault: delete <name>`. The
+  field is `type=password`, autocomplete/autocapitalize/autocorrect/spellcheck off, read once on Save, then cleared and
+  removed; never in localStorage, drafts or JS state.
+- Tests: `cargo test vault`.
+
+### Vault requests (an agent asks the user for a secret)
+An agent that needs a key/token posts a request instead of asking in chat. Mod tool `vault_request {name, label, why, hint?, link?,
+link_label?, title?}` or `{slots: [{name, label, hint?}] (≤ 6), why, …}`; non-blocking.
+- `POST /api/vault/request` `{pane?, session?, why, name+label | slots, hint?, link?, linkLabel?, title?, push?}` → `{ok,
+  id}` (a surface id). Guard = share::check_sender (our Host; an Origin, when sent, of our own; no Funnel) → 403. Names
+  follow the vault rules (`^[a-z0-9_]{1,64}$`, any name, `request` reserved; `request` is the
+  route, so it can't be a slot) → 400; `link` must be http(s); a body with `value`/`values`/`secret` (top level or in a
+  slot) → 400 (a request never carries a value). Errors never quote the input.
+- The card is a normal surface (level attention, title default "Paste <labels>", body = `why`) with `vault: {slots:
+  [{name, label, hint, saved: ms|null}], why, hint, link, linkLabel, state: open|saved|superseded|cancelled, closed}`.
+  It shows inline in the agent's chat (after the newest item at posting), as Home's hero / needs-you item ("Vault ·
+  <agent> needs you: paste …", rank 0, with the fields; not repeated in "You should see this"), never suppressed by an
+  earlier dismissal; a newer request from the same agent for any of the same slots supersedes an open one; its push
+  opens the agent's chat at the card.
+- Phone: one password field per slot (type=password, autocomplete/autocapitalize/autocorrect/spellcheck off,
+  data-private, 1Password/LastPass ignore: the Settings → Vault attributes); a tap on the label focuses it. "Save to
+  vault" PUTs each filled field to `PUT /api/vault/<name>` (the vault-strict path), clears and removes it, then
+  `POST /api/vault/request/<id>/saved {names}` (vault-strict: Origin, `X-Sheprd: vault`, JSON → else 403). The server
+  checks each name is a slot of that open request and its file was written after the card (409 otherwise), marks it
+  `saved`, closes + dismisses the card once all are saved, and sends the agent through the steer path (held on a draft /
+  menu, an asleep agent resumed): **`[Vault] The user saved <name>[, <name>]`**: names only, **no tail** (the transcript
+  goes to the model provider; even 2 characters of a secret don't belong there). The agent reads
+  `~/.config/sheprd/vault/<name>` itself. → `{ok, saved, done, via, held, undelivered?}` (`undelivered`: saved, but the
+  agent is gone). The card then shows "Saved · ends …xy" (the last 2 of the vault's own 4-char tail, values of 12+
+  chars, from the PUT reply / `GET /api/vault`, in memory only) and the field is gone.
+- `POST /api/vault/request/<id>/cancel` (check_sender): the agent takes it back.
+- All under `/api/vault*`: no-store, never touched by sw.js. The value is only ever in the field and the PUT body.
+- Tests: `cargo test vault` (request_parsing, request_guard_bad_name_400_foreign_origin_403,
+  request_card_and_steer_never_hold_a_value, request_supersedes_same_agent_same_slot); mod test `vault_request …`;
+  `web-dev/t-vaultreq.mjs <port> <temp vault dir> <light|dark>` (mock `MOCK_VAULT=<dir> MOCK_VAULTREQ=1`).
+
 ## Find and continue (`server/src/find.rs`, `web/find.js` + `find.css`)
 An agent is **awake** while a herdr pane hosts its session and
 **asleep** once the pane is closed; asleep agents continue in place with their whole conversation.

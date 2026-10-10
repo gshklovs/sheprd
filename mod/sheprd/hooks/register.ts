@@ -141,6 +141,48 @@ const DECIDE_SCHEMA = {
   required: ['title'],
 }
 
+// Vault request (server/src/vault.rs, API.md "Vault requests"): a card with a paste field per secret in this agent's
+// chat and on Home. The user pastes on the phone, the value goes straight to ~/.config/sheprd/vault/<name> (0600) and
+// this session gets "[Vault] The user saved <name>" (names only). Non-blocking.
+const VAULT_TOOL = 'vault_request'
+const VAULT_TOOL_FULL = 'mcp__sheprd__vault_request'
+const VAULT_DESCRIPTION = [
+  'Ask the user for a secret (API key, token, client ID/secret, password) through their phone instead of chat.',
+  'Their phone shows a card with one paste field per slot ("Save to vault", plus your `link`, e.g. the developer portal',
+  'page where they get it). The value is written to ~/.config/sheprd/vault/<name> (owner-only file) and never passes',
+  'through chat or this transcript. Never ask for secrets in plain chat and never echo them.',
+  'It does not block: end your turn (or do other work). When saved you get a message "[Vault] The user saved <name>[, <name>]";',
+  'then read the value yourself from ~/.config/sheprd/vault/<name> (e.g. `$(cat ~/.config/sheprd/vault/<name>)`',
+  'inside the command that needs it; never print it). Ask for related values together (client ID + secret) via `slots`.',
+].join('\n')
+const VAULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: 'Slot name, a-z 0-9 _ (1-64), e.g. "openai_api_key". Or use `slots` for several.' },
+    label: { type: 'string', description: 'What the user sees for that slot, e.g. "OpenAI API key".' },
+    slots: {
+      type: 'array',
+      maxItems: 6,
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Slot name, a-z 0-9 _ (1-64).' },
+          label: { type: 'string', description: 'What the user sees, e.g. "X client ID".' },
+          hint: { type: 'string', description: 'Optional placeholder, e.g. "starts with sk-".' },
+        },
+        required: ['name'],
+      },
+      description: 'Several secrets in one card, e.g. [{name:"x_client_id",label:"Client ID"},{name:"x_client_secret",label:"Client secret"}].',
+    },
+    why: { type: 'string', description: 'One or two sentences: what you need it for.' },
+    hint: { type: 'string', description: 'Optional: where to find it, e.g. "Keys and tokens tab → OAuth 2.0 Client ID and Secret".' },
+    link: { type: 'string', description: 'Optional https URL where the user gets it (shown as an Open link button).' },
+    link_label: { type: 'string', description: 'Optional button text for `link`, e.g. "X developer portal".' },
+    title: { type: 'string', description: 'Optional card headline (default "Paste <labels>").' },
+  },
+  required: ['why'],
+}
+
 const GUIDE =
   'The user often supervises this session from their phone (the sheprd app) rather than the terminal. ' +
   `When something must be seen rather than read, call ${TOOL_FULL}: screenshots or visual results you produced ` +
@@ -149,7 +191,8 @@ const GUIDE =
   'If the human must act (sudo command, plug something in, log in): level attention, `command`, `replies: ["done"]`, then end your turn. ' +
   'Prefer one surfaced item over long prose describing it. ' +
   'When you need a decision from the user, ask with AskUserQuestion: they can answer it from the phone too. ' +
-  "Don't spam: at most a few per turn, only things the user would want to open on their phone, never routine progress."
+  "Don't spam: at most a few per turn, only things the user would want to open on their phone, never routine progress. " +
+  `When you need a secret, token or key from the user, call ${VAULT_TOOL_FULL} instead of asking them to paste it in chat; never ask for secrets in plain chat.`
 
 const HOME_BRIEF = [
   "You are the user's HOME agent: their general-purpose agent, empowered to do anything on their behalf. You are the",
@@ -253,6 +296,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: DESCRIPTION, inputSchema: INPUT_SCHEMA })
     await $.tool.register({ name: DECIDE_TOOL, description: DECIDE_DESCRIPTION, inputSchema: DECIDE_SCHEMA })
+    await $.tool.register({ name: VAULT_TOOL, description: VAULT_DESCRIPTION, inputSchema: VAULT_SCHEMA })
     await $.command
       .register({
         name: PHONE_CMD,
@@ -442,6 +486,42 @@ export const register: Register = (on, options) => {
         `Posted to the user's Decide deck${id ? ` (id ${id})` : ''}. The answer arrives as a later prompt starting ` +
         '"[Decision: ". Continue other work or end your turn; do not ask the same question again in chat.' +
         (id ? ` To take it back: curl -s -X POST ${baseUrl}/api/decide/${id}/withdraw` : ''),
+    }
+  })
+
+  on('tool.call', { tool: VAULT_TOOL_FULL }, async ($, e) => {
+    const str = (v: unknown, n: number): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : undefined)
+    const body: Record<string, unknown> = { why: str(e.why, 400) ?? '' }
+    if (Array.isArray(e.slots) && e.slots.length > 0) {
+      body.slots = e.slots.map(x => {
+        if (typeof x === 'string') return { name: x }
+        const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
+        return { name: o.name, label: str(o.label, 60), hint: str(o.hint, 140) }
+      })
+    } else if (typeof e.name === 'string') {
+      body.name = e.name.trim()
+      if (str(e.label, 60)) body.label = str(e.label, 60)
+    } else {
+      return { result: 'vault_request needs `name` (or `slots`): the vault slot(s) to fill, a-z 0-9 _.', isError: true }
+    }
+    for (const [k, to, n] of [['hint', 'hint', 200], ['link', 'link', 500], ['link_label', 'linkLabel', 30], ['title', 'title', 70]] as const) {
+      const v = str(e[k], n)
+      if (v) body[to] = v
+    }
+    const sent = await postFull($, `${baseUrl}/api/vault/request`, body, POST_TIMEOUT_MS)
+    if (!sent.ok) {
+      const err = typeof sent.json.error === 'string' ? sent.json.error : sent.why
+      return { result: `Vault request not posted: ${err}.`, isError: true }
+    }
+    const id = typeof sent.json.id === 'string' ? sent.json.id : ''
+    const names = Array.isArray(body.slots) ? (body.slots as { name?: unknown }[]).map(x => String(x.name)) : [String(body.name)]
+    return {
+      result:
+        `Asked the user on their phone for ${names.join(', ')}${id ? ` (request ${id})` : ''}. End your turn now (or do other work); ` +
+        'when they save it you get "[Vault] The user saved <name>". Then read it from ' +
+        names.map(n => `~/.config/sheprd/vault/${n}`).join(', ') +
+        ' inside the command that needs it, without printing it. Do not ask for it in chat.' +
+        (id ? ` To take the request back: curl -s -X POST ${baseUrl}/api/vault/request/${id}/cancel` : ''),
     }
   })
 

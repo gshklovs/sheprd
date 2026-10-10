@@ -48,6 +48,7 @@ mod undo;
 mod transcript;
 mod usage;
 mod v3;
+mod vault;
 mod voice;
 
 use axum::body::{Body, Bytes};
@@ -344,6 +345,7 @@ async fn main() {
         .merge(slash::routes())
         .merge(tidy::routes())
         .merge(catchup::routes())
+        .merge(vault::routes())
         .fallback(get(static_file))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         // never gzip media: it is already compressed, and a gzipped 200 drops Accept-Ranges (ranged.rs)
@@ -2331,6 +2333,10 @@ async fn api_file(headers: HeaderMap, Query(q): Query<FileQ>) -> Response {
     if !allowed.iter().any(|r| p.starts_with(r)) {
         return json_err(StatusCode::FORBIDDEN, "outside allowed roots");
     }
+    // the secrets vault is write-only: never served, listed or tailed (vault.rs)
+    if vault::covers(&p) {
+        return json_err(StatusCode::FORBIDDEN, "not served");
+    }
     if p.is_dir() {
         let mut entries = Vec::new();
         if let Ok(mut rd) = tokio::fs::read_dir(&p).await {
@@ -2464,7 +2470,13 @@ fn auto_clear_surfaces(app: &Shared, pane: Option<String>, since: i64) {
     });
 }
 
-async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Response {
+async fn api_surface(State(app): State<Shared>, Json(b): Json<Value>) -> Response {
+    post_surface(app, b, None).await
+}
+
+/// Posts a surface card. `vault`: a vault request (vault.rs `parse_request`, only from `POST /api/vault/request`):
+/// paste fields on the card, never suppressed by an earlier dismissal, its push opens the agent's chat at it.
+pub(crate) async fn post_surface(app: Shared, mut b: Value, vault: Option<Value>) -> Response {
     v3::redirect_surface(&app, &mut b); // a reviewer's result goes to the reviewed agent
     let title = b["title"].as_str().unwrap_or("").trim().to_string();
     if title.is_empty() {
@@ -2558,6 +2570,11 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
             Err(e) => return json_err(StatusCode::BAD_REQUEST, e),
         }
     }
+    let is_vault = vault.is_some();
+    if let Some(v) = vault {
+        item["vault"] = v;
+        item["replies"] = json!([]);
+    }
     let push = b["push"].as_bool() != Some(false); // `push: false`: shown, never pushed
     let fps = surfaces::keys(session.as_deref(), pane.as_deref(), &shown, item["body"].as_str().unwrap_or(""));
     let claimed: Vec<usize> = {
@@ -2565,7 +2582,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
         // the same note from the same agent: dismissed before → not shown, toasted or pushed again;
         // still on screen → this one replaces it (server-made surfaces with their own link always go through)
         let Inner { surfaces: list, surf_gone, .. } = &mut *inner;
-        if push_url.is_none() && !surfaces::admit(list, surf_gone, &fps) {
+        if push_url.is_none() && !is_vault && !surfaces::admit(list, surf_gone, &fps) {
             return Json(json!({"ok": true, "id": id, "suppressed": "dismissed before"})).into_response();
         }
         let claimed = inner
@@ -2575,6 +2592,7 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
             .filter_map(|s| s["i"].as_u64().map(|i| i as usize))
             .collect();
         decide::supersede(&mut inner.surfaces, &item);
+        vault::supersede(&mut inner.surfaces, &item);
         inner.surfaces.push_front(item.clone());
         inner.surfaces.truncate(200);
         save_surfaces(&inner.surfaces);
@@ -2623,8 +2641,12 @@ async fn api_surface(State(app): State<Shared>, Json(mut b): Json<Value>) -> Res
         if push && level != "info" && !v3::at_desk(&app2, pane.as_deref().unwrap_or("")).await {
             let who = shown_who.unwrap_or_else(|| "agent".into());
             // `pushUrl`: a deep link of the server's own; a decision (or a legacy attention card with reply chips):
-            // the Decide deck at it; else Home's "You should see this" panel at this card
-            let url = push_url.or_else(|| decide::push_url(&item)).unwrap_or_else(|| see_url(&id2));
+            // the Decide deck at it; a vault request: that agent's chat at the card; else Home's "You should see this"
+            // panel at this card
+            let url = push_url
+                .or_else(|| decide::push_url(&item))
+                .or_else(|| is_vault.then(|| vault::push_url(pane.as_deref(), at)).flatten())
+                .unwrap_or_else(|| see_url(&id2));
             let body = v3::surface_body(body.as_deref(), item["command"].as_str(), &who);
             let payload = json!({"title": shown, "body": transcript::cut(&body, 300).0, "url": url, "tag": id2});
             send_push(&app2, &payload, level == "attention").await;

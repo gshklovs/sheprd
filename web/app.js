@@ -699,9 +699,79 @@ function surfHTML(s, { inline, pane } = {}) {
       ${thumbs((s.images || []).map(asImg))}
       ${links.length ? `<div class="chips">${links.map(l => `<a class="chip" href="${esc(fixUrl(l.url))}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a>`).join('')}</div>` : ''}
       ${s.command ? `<div class="sf-cmd"><pre>${esc(s.command)}</pre><button class="btn sm sf-copy">${I.copy}Copy</button>${pane || s.pane ? '<button class="btn sm sf-term">Terminal</button>' : ''}</div>` : ''}
+      ${s.vault ? vaultForm(s) : ''}
       ${s.replies?.length ? (done ? `<div class="sf-sent">✓ Sent: ${esc(repLabel(done))}</div>` : repBtns(s.replies)) : ''}
     </div>`;
 }
+// ---------- vault requests (vault.rs, API.md "Vault requests"): an agent asks for a secret ----------
+// One password field per slot (same attributes as Settings → Vault), "Save to vault", an optional "Open link". Save =
+// PUT /api/vault/<name> per filled field (the value is read once, sent, the field cleared and removed), then
+// POST /api/vault/request/<id>/saved {names}: the server checks the files and steers the agent "[Vault] The user saved <names>".
+// The card never holds a value; "ends …xy" comes from the vault's own metadata (the last 2 of its 4-char tail).
+const VQH = { 'x-sheprd': 'vault' }, VQT = {}; // VQT: slot → tail (from a PUT reply or GET /api/vault), memory only
+let vqTails = null;
+async function vqCall(method, path, body) {
+  const o = { method, headers: { ...VQH }, cache: 'no-store', credentials: 'same-origin' };
+  if (body !== undefined) { o.headers['content-type'] = 'application/json'; o.body = body; }
+  const r = await fetch('/api/vault' + path, o);
+  let j = null; try { j = await r.json(); } catch { }
+  if (!r.ok) throw new Error(j?.error || 'HTTP ' + r.status);
+  return j;
+}
+const vqEnds = n => VQT[n] ? ' · ends …' + esc(String(VQT[n]).slice(-2)) : '';
+function vqFetchTails() {
+  vqTails ||= vqCall('GET', '').then(r => {
+    for (const x of r.slots || []) if (x.set && x.tail) VQT[x.name] = x.tail;
+    document.querySelectorAll('.vq-ok[data-vqn]').forEach(e => { e.textContent = 'Saved' + (VQT[e.dataset.vqn] ? ' · ends …' + String(VQT[e.dataset.vqn]).slice(-2) : ''); });
+  }, () => { vqTails = null; });
+}
+function vaultForm(s) {
+  const v = s.vault || {}, slots = v.slots || [], open = v.state === 'open';
+  if (slots.some(x => x.saved && !(x.name in VQT))) setTimeout(vqFetchTails, 0);
+  const row = x => x.saved
+    ? `<div class="vq-row done"><span class="vq-l">${esc(x.label || x.name)}</span><span class="vq-ok" data-vqn="${esc(x.name)}">Saved${vqEnds(x.name)}</span></div>`
+    : open ? `<label class="vq-row"><span class="vq-l">${esc(x.label || x.name)}<small>${esc(x.name)}</small></span>`
+      + `<input class="vq-in" data-vqn="${esc(x.name)}" type="password" placeholder="${esc(x.hint || 'Paste here')}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-private data-1p-ignore data-lpignore="true" data-form-type="other" enterkeyhint="done"></label>`
+      : `<div class="vq-row done"><span class="vq-l">${esc(x.label || x.name)}</span><span class="vq-ok off">${v.state === 'superseded' ? 'Asked again below' : 'Withdrawn'}</span></div>`;
+  const left = open && slots.some(x => !x.saved);
+  const link = v.link ? `<a class="btn sm vq-link" href="${esc(v.link)}" target="_blank" rel="noopener noreferrer">${I.ext}${esc(v.linkLabel || 'Open link')}</a>` : '';
+  return `<div class="vq" data-vq="${esc(s.id)}" data-private>${v.hint ? `<div class="vq-hint">${esc(v.hint)}</div>` : ''}${slots.map(row).join('')}`
+    + (left || link ? `<div class="vq-acts">${left ? '<button class="btn sm primary hud-cut vq-save" data-ev="vault.request.save">Save to vault</button>' : ''}${left ? link : ''}</div>` : '')
+    + `<div class="vq-foot">Write-only · goes to ~/.config/sheprd/vault, never into the chat</div></div>`;
+}
+document.addEventListener('keydown', e => {
+  const inp = e.target.closest?.('.vq-in'); if (!inp || e.key !== 'Enter') return;
+  e.preventDefault();
+  const box = inp.closest('.vq'), next = [...box.querySelectorAll('.vq-in')].find(x => !x.value.trim());
+  if (next) next.focus(); else box.querySelector('.vq-save')?.click();
+}, true);
+document.addEventListener('click', async e => {
+  const b = e.target.closest('.vq-save'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const box = b.closest('.vq'), id = box.dataset.vq, fields = [...box.querySelectorAll('.vq-in')].filter(x => x.value.trim());
+  if (!fields.length) { box.querySelector('.vq-in')?.focus(); toast('Paste a value first', '', null, 1400); return; }
+  if (b.disabled) return;
+  b.disabled = true; b.textContent = 'Saving…';
+  const names = [];
+  try {
+    for (const f of fields) {
+      f.disabled = true;
+      const r = await vqCall('PUT', '/' + f.dataset.vqn, JSON.stringify({ value: f.value }));
+      f.value = ''; names.push(f.dataset.vqn);
+      if (r?.slot?.tail) VQT[f.dataset.vqn] = r.slot.tail; else delete VQT[f.dataset.vqn];
+      const lab = f.closest('.vq-row');
+      lab.replaceWith(h(`<div class="vq-row done"><span class="vq-l">${esc(lab.querySelector('.vq-l').firstChild.textContent)}</span><span class="vq-ok" data-vqn="${esc(f.dataset.vqn)}">Saved${vqEnds(f.dataset.vqn)}</span></div>`));
+    }
+    const r = await vqCall('POST', '/request/' + enc(id) + '/saved', JSON.stringify({ names }));
+    haptic();
+    toast(r.undelivered ? 'Saved. The agent isn’t reachable: tell it when it’s back' : r.held ? 'Saved · the agent is told once its box is free' : 'Saved · the agent is told', 'ok', null, 2200);
+  } catch (x) {
+    box.querySelectorAll('.vq-in').forEach(f => { f.disabled = false; });
+    toast((names.length ? 'Saved ' + esc(names.join(', ')) + ', then: ' : 'Not saved: ') + esc(x.message), 'err', null, 4000);
+  }
+  if (!box.querySelector('.vq-in')) box.querySelector('.vq-acts')?.remove();
+  else { b.disabled = false; b.textContent = 'Save to vault'; }
+}, true);
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); }
   catch {
@@ -1056,7 +1126,7 @@ function getAgentsView() {
       dismissSurfs(clr.dataset.ids.split(' ')); haptic(); surfOpen = false; return;
     }
     if (e.target.closest('.more')) { surfOpen = !surfOpen; render(G.st); return; }
-    if (e.target.closest('a,img')) return;
+    if (e.target.closest('a,img,.vq')) return;
     const c = e.target.closest('.surf');
     if (c) { const s = G.st.surfaces.find(s => String(s.id) === c.dataset.id); s && openSurface(s); }
   });
@@ -1128,7 +1198,7 @@ function getAgentsView() {
     // surfaces: the "You should see this" panel. A tapped push (#/see/<id>, G.see) puts its card first and lights it
     // up, also when the hero has it; a card that is gone by then leaves a note, the panel shows anyway.
     const see = G.see, seeOn = !!see && !see.gone && !G.dismissed.has(see.id);
-    const inQ = new Set(MODS.queue?.items(st).filter(x => x.kind === 'surf').map(x => String(x.s.id))); // the hero has those
+    const inQ = new Set(MODS.queue?.items(st).filter(x => x.kind === 'surf' || x.kind === 'vault').map(x => String(x.s.id))); // the hero has those
     const surfs = (st.surfaces || []).filter(s => { const id = String(s.id); return !G.dismissed.has(id) && !isDecision(s) && (!inQ.has(id) || (seeOn && id === see.id)); });
     if (seeOn) {
       const k = surfs.findIndex(s => String(s.id) === see.id), c = see.card || (see.hint && { id: see.id, ts: see.t, level: 'attention', title: see.hint.title, body: see.hint.body });
@@ -1171,7 +1241,7 @@ function getAgentsView() {
         c.el.children[1].innerHTML = `<button data-act="stop">${I.stop}Stop</button>${a.home ? '' : `<button data-act="close">${I.x}Close</button>`}`;
       }
       if (pin) pinned.push(c.el);
-      else if (isQuiet(a)) quiet.push(c.el);
+      // no Quiet section any more: idle/test agents sit in their normal group
       else { const k = groupOf(a, dispStatus(a)); if (!byG.has(k)) byG.set(k, []); byG.get(k)[a.home ? 'unshift' : 'push'](c.el); }
       MODS.fleet?.deco(c, a);
     }
@@ -1189,7 +1259,7 @@ function getAgentsView() {
     drawBgs();
     $('.empty', el).hidden = list.length > 0;
     const shells = st.shells || [], tests = list.filter(isTest).length;
-    quietEl.hidden = !quiet.length && !shells.length;
+    quietEl.hidden = true;
     place($('.qcards', quietEl), quiet);
     const em = [quiet.length && `${quiet.length} agent${quiet.length === 1 ? '' : 's'}`, shells.length && `${shells.length} shell${shells.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
     if ($('summary em', quietEl).textContent !== em) $('summary em', quietEl).textContent = em;
@@ -2885,6 +2955,7 @@ async function settingsSheet() {
       <label class="kv"><span>Fill to screen bottom <small class="dim">test: removes the band under the composer</small></span><input type="checkbox" class="fillgap" switch${ls.get('fillgap', false) ? ' checked' : ''}></label></div>
     <div class="v3set"></div>
     <div class="usageset"></div>
+    <div class="vaultset"></div>
     <div class="btns"><button class="btn seen">Mark all as seen</button><button class="btn reload">Reload app</button></div>
     <p class="dim small">sheprd ${VERSION} · ${esc(location.origin)}</p>`);
   const q = s => $(s, sh);
@@ -2911,6 +2982,7 @@ async function settingsSheet() {
   q('.reload').onclick = () => location.reload();
   lazy('v3').then(m => m.settingsPart(q('.v3set'))).catch(() => { });
   lazy('git').then(m => m.settingsPart(q('.usageset'))).catch(() => { });
+  lazy('vault').then(m => m.settingsPart(q('.vaultset'))).catch(() => { });
   q('.resal')?.addEventListener('click', () => lazy('res').then(m => m.alertsSheet()));
   q('.hapt').onchange = e => { ls.set('haptics', e.target.checked); if (e.target.checked) haptic(); };
   q('.fillgap').onchange = e => {
@@ -3331,7 +3403,7 @@ setTimeout(() => (window.requestIdleCallback || setTimeout)(() => { lazy('search
 
 // shared with the lazily loaded feature modules (search.js, files.js, sheets.js)
 export { morph, patchHTML, cardAct, copyText, G, I, $, h, esc, api, post, ls, sheet, toast, haptic, tick, rel, shortPath, agentHref, itemHref, nav, getPrefs, DEF_SNIPS, insertAt, longPress, linkify, md, fileUrl, debounce, closeSheets, goBack, cdot, dispStatus, markSeen, LABEL, setMeta, renameSheet, sendKeys, switcher, newAgentSheet, wirePlus, quickNew };
-export { surfHTML, MODS, lazy, DONE_REP, repLabel, HOME_NAME }; // v3.js, queue.js, …
+export { surfHTML, vaultForm, MODS, lazy, DONE_REP, repLabel, HOME_NAME }; // v3.js, queue.js, …
 export { dismissSurfs, isDecision }; // queue.js
 export { takeMods, modSuffix, PMODS, asksYou }; // queue.js hero reply
 export { settingsSheet, openSearch }; // res.js (Machine gear), fleet.js (History)

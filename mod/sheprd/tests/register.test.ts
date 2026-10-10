@@ -99,7 +99,7 @@ test('session.start registers the tool', async ($, on) => {
     return { value: { tool: `mcp__sheprd__${e.name}` } }
   })
   await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
-  expect(names).toEqual(['surface', 'decide'])
+  expect(names).toEqual(['surface', 'decide', 'vault_request'])
 })
 
 test('prompt.compose adds a short section only where the tool is offered', async ($, on) => {
@@ -109,7 +109,7 @@ test('prompt.compose adds a short section only where the tool is offered', async
   const withTool = await $.prompt.compose({ ...base, tools: ['Bash', 'mcp__sheprd__surface'] })
   const added = withTool.sections.find(s => s.id === 'sheprd:phone')
   expect(added?.scope).toBe('session')
-  expect((added?.text ?? '').split(/\s+/).length).toBeLessThan(141)
+  expect((added?.text ?? '').split(/\s+/).length).toBeLessThan(165) // + the vault_request line
   const without = await $.prompt.compose({ ...base, tools: ['Bash'] })
   expect(without.sections.length).toBe(1)
 })
@@ -824,4 +824,29 @@ test('decide posts a decision card (images per option, absolute) and says how th
   expect(body.decision.options[1].label).toBe('B · Island')
   expect(String(ran.result)).toContain('id s9')
   expect(String(ran.result)).toContain('[Decision: ')
+})
+
+test('vault_request posts the slots (never a value) and says how the save arrives', async ($, on) => {
+  const posted = world(on, { posts: { '/api/vault/request': () => ({ ok: true, id: 's7' }) } })
+  const ran = await $.tool.call({
+    tool: 'mcp__sheprd__vault_request', why: 'To call the API', link: 'https://platform.example.com/keys', link_label: 'Key page',
+    slots: [{ name: 'api_client_id', label: 'Client ID' }, { name: 'api_client_secret', label: 'Client secret', value: 'sk-LEAK' }],
+  })
+  const p = posted.find(x => x.url.endsWith('/api/vault/request'))
+  const body = p?.body as Record<string, any>
+  expect(body.slots.length).toBe(2)
+  expect(body.slots[1].name).toBe('api_client_secret')
+  expect(JSON.stringify(body)).not.toContain('sk-LEAK')
+  expect(body.linkLabel).toBe('Key page')
+  expect(body.pane).toBe('w6:p1')
+  expect(String(ran.result)).toContain('[Vault] The user saved')
+  expect(String(ran.result)).toContain('~/.config/sheprd/vault/api_client_secret')
+})
+
+test('the phone guide steers secrets to vault_request', async ($, on) => {
+  world(on)
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude.', scope: 'shared' as const }] }))
+  const base = { model: 'm', promptModel: 'm', surfaces: [], outputStyle: null, traits: [] }
+  const out = await $.prompt.compose({ ...base, tools: ['Bash', 'mcp__sheprd__surface'] })
+  expect(out.sections.find(s => s.id === 'sheprd:phone')?.text ?? '').toContain('mcp__sheprd__vault_request')
 })
