@@ -1,7 +1,6 @@
 // Home "Briefing": the top of the Agents view.
-// 1. A live sentence built from a template, at most 3 clauses plus "+N more": needs-you first, then progress
-//    (job %, task list), then finished turns (with Haiku's outcome line), then the most interesting activities
-//    (state `activity.phrase`, server/src/activity.rs), then a recent service run ("backup ran 2m ago").
+// 1. A live sentence built from a template, two lines at most: what's still working ("3 working: Undo build, Tidy +2."),
+//    then one short clause for who needs the user (else what's failing, else what just finished).
 // 2. The hero: the Needs-you queue's top item (queue.js items/spec/actions), answered in place. Acting holds the
 //    item and the next one slides in; swipe right = primary action, left = snooze 15 min. Tapping the card's body
 //    opens the agent's chat at the item (there is no deck any more).
@@ -78,53 +77,67 @@ const actScore = a => { const x = actOf(a); return x ? (ACTW[x.cat] ?? 1) + (x.s
 const cap1 = s => s ? s[0].toUpperCase() + s.slice(1) : s;
 /** "🧪 Running the tests" for tiles and rows; the raw tool label stays in the title (and in the chat header). */
 export const actHTML = a => { const x = actOf(a); return x ? `<span class="aico" aria-hidden="true">${esc(x.icon || '•')}</span>${esc(cap1(x.phrase))}` : ''; };
-const ago = ms => { const m = Math.round((Date.now() - ms) / 60e3); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`; };
 
 // ---------- the sentence ----------
+// Two lines at most on a 402 px phone. It leads with what's still working ("3 working: Undo build, Tidy, Docs +2."), short names
+// (the agent's Haiku nickname `short`, a job's own short name), then at most one short clause: who needs the user, else
+// what's failing, else what just finished. A character budget (about 2 lines at 22 px, checked against the real layout) moves names that don't fit into "+N".
 const tint = (a, text = nm(a), href = a.pane ? agentHref(a) : '') => href ? `<a class="bn${colCls(a.color)}" href="${href}">${esc(text)}</a>` : `<b class="bn${colCls(a.color)}">${esc(text)}</b>`;
-function briefHTML(st, hero, tiles, ready, failing) {
-  const C = [];
+const clip = (s, n = 18) => { s = one(s); if (s.length <= n) return s; const w = s.split(' '); let o = ''; for (const x of w) { if ((o + ' ' + x).trim().length > n) break; o = (o + ' ' + x).trim(); } o = o.replace(/(\s+(a|an|the|on|of|for|to|in|at|with|and|from|by))+$/i, ''); return o || s.slice(0, n - 1) + '…'; };
+const shortOf = a => a.home ? HOME_NAME() : clip(whoName(a.short || a.title || a.name || a.pane, a.pane));
+let PROBE = null;
+const BUDGET = 84; // characters that fit in two lines of .bl at 402 px; draw() shrinks it if the line still wraps to 3
+function briefHTML(st, hero, tiles, ready, failing, budget = BUDGET) {
+  // the one clause after the working list: needs you > failing > finished
   const needs = [...new Map(hero.map(x => [x.pane, x.a])).values()];
-  const href0 = hero[0] && MODS.queue.hrefOf(hero[0]);
-  // an item can name what it needs ("Build agent needs you: approve the migration.")
-  const say = hero[0]?.say ? `: ${esc(hero[0].say.replace(/[.!]+$/, ''))}` : '';
-  if (needs.length) C.push({ s: true, h: needs.length === 1 ? `${tint(needs[0], nm(needs[0]), href0)} needs you${say}.` : `${tint(needs[0], nm(needs[0]), href0)}${say ? ` needs you${say};` : ''} and ${needs.length - 1} more need you.` });
-  for (const a of failing) C.push({ h: `${tint(a, a.service?.name || nm(a))} is failing` });
-  const plain = [];
-  for (const t of tiles) {
-    const x = !t.j && actOf(t.a);
-    if (t.j && t.p) C.push({ h: `${tint(t.a || { color: null, pane: '' }, t.title)} is at ${Math.round(t.p.pct)}%` });
-    else if (!t.j && t.a.todo?.total) {
-      const n = `${Math.min(t.a.todo.done + 1, t.a.todo.total)} of ${t.a.todo.total}`;
-      C.push({ h: x ? `${tint(t.a)} is ${esc(x.phrase)} (${n})` : `${tint(t.a)} is on ${n}` });
-    } else plain.push(t);
+  let tail = null;
+  if (needs.length) {
+    const a = needs[0], href0 = hero[0] && MODS.queue.hrefOf(hero[0]), n = shortOf(a);
+    const say = hero[0]?.say ? one(hero[0].say).replace(/[.!]+$/, '') : '';
+    const extra = needs.length > 1 ? ` +${needs.length - 1}` : '';
+    const withSay = needs.length === 1 && say && n.length + say.length < 30;
+    tail = { h: `${tint(a, n, href0)}${needs.length > 1 ? `&nbsp;<span class="bmore">${esc(extra.trim())}</span> need you` : ` needs you${withSay ? ': ' + esc(say) : ''}`}.`, len: n.length + (withSay ? 12 + say.length : 11) + extra.length };
+  } else if (failing.length) {
+    const a = failing[0], n = clip(a.service?.name || shortOf(a));
+    tail = { h: `${tint(a, n)} is failing${failing.length > 1 ? ` <span class="bmore">+${failing.length - 1}</span>` : ''}.`, len: n.length + 12 };
+  } else if (ready.length) {
+    const n = shortOf(ready[0]);
+    tail = { h: `${tint(ready[0], n)} finished${ready.length > 1 ? ` <span class="bmore">+${ready.length - 1}</span>` : ''}.`, len: n.length + 10 };
   }
-  // finished: the newest one with an outcome line says what it did
-  if (ready.length) {
-    const r = ready.find(a => a.outcome?.text) || ready[0];
-    const did = r.outcome?.text ? `${tint(r)} ${esc(one(r.outcome.text))}` : `${tint(r)} finished`;
-    C.push({ h: ready.length > 1 ? `${did}, and ${ready.length - 1} more finished` : did });
+  // what's still working: jobs and working agents (home.js tiles), with progress first, then the most interesting
+  const names = [], seen = new Set();
+  const rank = t => (t.p || t.a?.todo?.total ? 3 : 0) + (t.j ? 1.5 : actScore(t.a));
+  for (const t of [...tiles].sort((x, y) => rank(y) - rank(x))) {
+    const n = t.j ? clip(t.j.desc || (t.a ? shortOf(t.a) : cmdName(t.j.cmd))) : shortOf(t.a);
+    if (seen.has(n)) continue; seen.add(n);
+    names.push({ n, h: t.a ? tint(t.a, n) : `<b class="bn">${esc(n)}</b>` });
   }
-  // working without progress: one clause each, most interesting first (the cap turns the rest into "+N more")
-  plain.sort((a, b) => (b.j ? 1.5 : actScore(b.a)) - (a.j ? 1.5 : actScore(a.a)));
-  for (const t of plain) {
-    const x = !t.j && actOf(t.a);
-    C.push({ h: t.j ? (t.a ? `${tint(t.a, t.title)} is running` : `${esc(t.title)} is running`) : `${tint(t.a, t.title)} is ${x ? esc(x.phrase) : 'working'}` });
+  if (!names.length && !tail) return '<span class="bcalm">Nothing needs you.</span>';
+  let out = '';
+  if (names.length) {
+    let room = budget - (tail ? tail.len + 1 : 0) - `${names.length} working: `.length, k = 0;
+    for (const x of names) { const need = x.n.length + (k ? 2 : 0) + (k < names.length - 1 ? 3 : 0); if (k && need > room) break; room -= need; k++; }
+    out = `${names.length} working: ${names.slice(0, k).map(x => x.h).join(', ')}${k < names.length ? `&nbsp;<span class="bmore">+${names.length - k}</span>` : ''}.`;
+  } else out = 'Nothing running.';
+  return out + (tail ? ' ' + tail.h : '');
+}
+
+// two lines at most: a narrower phone or a wide name shrinks the budget until it fits (more names go to "+N"),
+// measured on an invisible copy of the line so the real one only changes once
+function fitBrief(brief, make) {
+  const w = $('.bl', brief)?.clientWidth || brief.clientWidth - 8;
+  let html = '';
+  for (let b = BUDGET; b >= 24; b -= 6) {
+    html = make(b);
+    if (w <= 0) break;
+    const pr = PROBE || (PROBE = Object.assign(document.createElement('h1'), { className: 'bl' }));
+    pr.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;left:0;top:0;width:${w}px`;
+    pr.innerHTML = html; brief.append(pr);
+    const lh = parseFloat(getComputedStyle(pr).lineHeight), fits = !lh || pr.offsetHeight <= lh * 2.5;
+    pr.remove();
+    if (fits) break;
   }
-  // room left: the latest background-service run ("backup ran 2m ago")
-  if (C.filter(c => !c.s).length < 3) {
-    const sv = (st?.agents || []).filter(a => a.service && !a.service.error && !a.service.stale && a.service.lastRun && Date.now() - a.service.lastRun < 15 * 60e3)
-      .sort((a, b) => b.service.lastRun - a.service.lastRun)[0];
-    if (sv && C.length) C.push({ h: `${tint(sv, sv.title || sv.service.name)} ${esc(sv.service.verb || 'ran')} ${ago(sv.service.lastRun)}`, svc: true });
-  }
-  if (!C.length) return '<span class="bcalm">Nothing needs you.</span>';
-  const shown = C.slice(0, 3), more = C.slice(3).filter(c => !c.svc).length;
-  let out = '', rest = shown;
-  if (shown[0].s) { out = shown[0].h + ' '; rest = shown.slice(1); }
-  if (rest.length) {
-    out += (rest.length === 1 ? rest[0].h : rest.slice(0, -1).map(c => c.h).join(', ') + ', and ' + rest.at(-1).h) + '.';
-  }
-  return out + (more > 0 ? ` <span class="bmore">+${more} more</span>` : '');
+  return html;
 }
 
 // ---------- hero ----------
@@ -421,7 +434,9 @@ export function draw(el, st, o) {
   const workingPanes = new Set(o.list.filter(a => !a.home && !a.pinned && dispStatus(a) === 'working').map(a => a.pane));
   if (run.length) loadProg(run);
   const ready = o.list.filter(a => !a.home && dispStatus(a) === 'done');
-  if (patchHTML(brief, `<div class="kick">${esc(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${o.list.length} agent${o.list.length === 1 ? '' : 's'}${run.length ? ` · ${run.length} job${run.length > 1 ? 's' : ''}` : ''}</div><h1 class="bl">${briefHTML(st, items, tiles, ready, o.failing || [])}</h1>`)) tick(brief);
+  const kick = `<div class="kick">${esc(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))} · ${o.list.length} agent${o.list.length === 1 ? '' : 's'}${run.length ? ` · ${run.length} job${run.length > 1 ? 's' : ''}` : ''}</div>`;
+  const html = fitBrief(brief, b => briefHTML(st, items, tiles, ready, o.failing || [], b));
+  if (patchHTML(brief, `${kick}<h1 class="bl">${html}</h1>`)) tick(brief);
   if (st?.decisions?.open || $('.dwrap', el)) lazy('decide').then(m => m.homeCard(el, G.st), () => { }); // decide.js: "N to decide" under the briefing
   drawHero(heroBox, items, tiles.length);
   drawApps(el, o.jobs || [], byPane);
@@ -431,4 +446,4 @@ export function draw(el, st, o) {
 }
 // re-render when the triage queue changes underneath us (held, snoozed, a menu loaded)
 lazy('queue').then(tr => tr.setHook(refresh));
-export const _test = { briefHTML, parseProg, tileHTML, groupApps, appName };
+export const _test = { briefHTML, fitBrief, parseProg, tileHTML, groupApps, appName };

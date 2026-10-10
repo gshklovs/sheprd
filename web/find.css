@@ -4,9 +4,20 @@
 .fav { --sz: 34px; position: relative; flex: none; width: var(--sz); height: var(--sz); border-radius: 50%; display: grid; place-items: center;
   background: var(--pf, var(--bg3)); color: var(--pt, var(--fg)); font: 700 calc(var(--sz) * .42)/1 -apple-system, system-ui, sans-serif; }
 /* The home agent's face: a gray disc with one sky-blue dot, no letter.
-   The mixes follow the theme: the disc is a step off the card, the dot a touch deeper on light and lighter on dark. */
+   The mixes follow the theme: the disc is a step off the card, the dot a touch deeper on light and lighter on dark.
+   The dot is half the disc, lit from the top left (a soft specular spot, a slightly deeper lower edge) and a faint
+   sheen crosses it once every 6 s; reduced motion keeps the static highlight only. */
 .fav.xed, .amsg .am-h.fx .am-av.xed { --ed-dot: color-mix(in srgb, #5cb8f2 88%, var(--fg));
-  background: radial-gradient(circle closest-side, var(--ed-dot) 26%, transparent 29%), color-mix(in srgb, var(--fg) 11%, var(--bg2)); }
+  background: color-mix(in srgb, var(--fg) 11%, var(--bg2)); }
+.fav.xed::before { content: ''; position: absolute; left: 25%; top: 25%; width: 50%; height: 50%; border-radius: 50%; pointer-events: none;
+  background:
+    linear-gradient(110deg, transparent 38%, rgb(255 255 255 / .5) 50%, transparent 62%) 110% 0 / 260% 100% no-repeat,
+    radial-gradient(circle at 34% 30%, rgb(255 255 255 / .8) 0, rgb(255 255 255 / .25) 18%, transparent 42%),
+    radial-gradient(circle at 50% 40%, var(--ed-dot) 58%, color-mix(in srgb, var(--ed-dot) 78%, #0b4f86) 100%);
+  box-shadow: 0 0 calc(var(--sz) * .14) color-mix(in srgb, var(--ed-dot) 40%, transparent);
+  animation: ed-glim 6s ease-in-out 1.2s infinite; }
+@keyframes ed-glim { 0%, 72% { background-position: 110% 0, 0 0, 0 0; } 100% { background-position: -10% 0, 0 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) { .fav.xed::before { animation: none; } }
 .fav.zz { color: color-mix(in srgb, var(--pt, var(--fg)) 62%, var(--bg2)); background: color-mix(in srgb, var(--pf, var(--bg3)) 62%, var(--bg2)); }
 .fav .moon { position: absolute; right: -3px; bottom: -3px; width: 17px; height: 17px; border-radius: 50%; background: var(--bg2); display: grid; place-items: center; color: var(--fg2); }
 .fav .moon svg { width: 11px; height: 11px; }

@@ -2,11 +2,11 @@
 .agents .brand { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; display: flex; align-items: center; gap: 7px; text-align: left; }
 .brief { padding: 2px 4px 0; }
 .brief .kick { font-size: 13px; color: var(--fg2); font-weight: 500; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
-.brief .bl { font-size: 26px; line-height: 1.2; font-weight: 700; letter-spacing: -.5px; margin: 0 0 14px; color: var(--fg); overflow-wrap: anywhere; }
+.brief .bl { font-size: 22px; line-height: 1.25; font-weight: 700; letter-spacing: -.5px; margin: 0 0 14px; color: var(--fg); overflow-wrap: anywhere; }
 .brief .bn { color: var(--act, var(--accent)); }
 .brief .bcalm { color: var(--done); }
-.brief .bmore { display: inline-block; font-size: 14px; font-weight: 600; letter-spacing: 0; color: var(--fg2); background: var(--bg3); padding: 2px 9px; border-radius: 11px; vertical-align: 4px; }
-@media (max-width: 380px) { .brief .bl { font-size: 23px; } }
+.brief .bmore { display: inline-block; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--fg2); background: var(--bg3); padding: 2px 9px; border-radius: 11px; vertical-align: 3px; }
+@media (max-width: 380px) { .brief .bl { font-size: 20px; } }
 
 /* hero: the queue's top item */
 .hero { position: relative; margin-bottom: 4px; }
