@@ -137,3 +137,15 @@
 .xrow .xfrom { color: var(--fg2); font-size: 13px; margin-right: 6px; }
 .xrow .xfrom b { color: var(--accent); font-weight: 600; }
 .fgc small.gfrom { display: block; color: var(--accent); font-size: 11.5px; }
+
+/* Agents grid in Rajdhani: a mid-priority industrial face, not the wordmark's Michroma (that stays a header face). Self-hosted Latin subset
+   (fonts/rajdhani-*.woff2, in the sw shell) so it works offline. Avatars are left alone. */
+@font-face { font-family: "Sheprd Rajdhani"; src: url(fonts/rajdhani-500.woff2) format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Sheprd Rajdhani"; src: url(fonts/rajdhani-600.woff2) format("woff2"); font-weight: 600; font-display: swap; }
+.frec .gh .sp { align-self: center; height: .5px; background: var(--sep); margin: 0 8px 0 12px; }
+.frec .gh .gt { font-family: "Sheprd Rajdhani", system-ui; font-weight: 600; font-size: 14px; letter-spacing: .24em; display: inline-flex; align-items: center; gap: 7px; }
+.frec .gh .gt::before { content: ""; width: 5px; height: 5px; background: var(--accent); transform: rotate(45deg); }
+.frec .fgc b { font-family: "Sheprd Rajdhani", system-ui; font-weight: 600; font-size: 17px; letter-spacing: .015em; line-height: 1.12; }
+/* the status/time line: sentence case, Rajdhani 500 */
+.frec .fgc small { font-family: "Sheprd Rajdhani", system-ui; font-weight: 500; font-size: 14px; color: var(--fg2); margin-top: 1px; }
+.frec .fgc small.gfrom { font-size: 13.5px; color: var(--accent); }
