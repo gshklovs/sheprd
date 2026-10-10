@@ -652,7 +652,7 @@ fn pane_ord(p: &str) -> (usize, String) {
     (n.len(), n.to_string())
 }
 
-/// Infers each live agent's parent. Priority: spawn > review > fork > drive > split (same tab).
+/// Infers each live agent's parent. Priority: branch = spawn > review > fork > drive > split (same tab).
 fn parents(app: &App, agents: &[Value]) -> HashMap<String, (String, &'static str)> {
     let panes: HashSet<&str> = agents.iter().filter_map(|a| a["pane"].as_str()).collect();
     let names: HashMap<&str, &str> =
@@ -720,6 +720,14 @@ fn parents(app: &App, agents: &[Value]) -> HashMap<String, (String, &'static str
     tc.heads.retain(|s, _| live_sids.contains(s.as_str()));
     tc.head_tried.retain(|s, _| live_sids.contains(s.as_str()));
     drop(tc);
+    // branches (branch.rs): recorded at the branch, so they win over the same-first-row fork guess
+    let by_sid: HashMap<&str, &str> = agents.iter().filter_map(|a| Some((a["session"].as_str()?, a["pane"].as_str()?))).collect();
+    for a in agents {
+        let (Some(pane), Some(sid)) = (a["pane"].as_str(), a["session"].as_str()) else { continue };
+        if let Some(pp) = crate::find::branch_of(sid).and_then(|p| by_sid.get(p.as_str()).copied()) {
+            add(pane.to_string(), pp.to_string(), 0, "branch");
+        }
+    }
     // forks: same first user row; the older session is the parent
     for (p, fu, created) in &heads {
         let Some(fu) = fu else { continue };

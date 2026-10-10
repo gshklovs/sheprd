@@ -7,6 +7,7 @@ mod activity;
 mod alerts;
 mod apps;
 mod asks;
+mod branch;
 mod artifacts;
 mod chips;
 mod cli;
@@ -39,6 +40,7 @@ mod services;
 mod slash;
 mod surfaces;
 mod theme;
+mod tidy;
 mod transcript;
 mod usage;
 mod v3;
@@ -265,6 +267,7 @@ async fn main() {
     tokio::spawn(theme::run(app.clone()));
     tokio::spawn(send::run(app.clone()));
     tokio::spawn(push_digests(app.clone()));
+    tokio::spawn(tidy::run(app.clone()));
 
     let api = Router::new()
         .route("/api/health", get(api_health))
@@ -310,6 +313,7 @@ async fn main() {
         .merge(v3::routes())
         .merge(fleet::routes())
         .merge(find::routes())
+        .merge(branch::routes())
         .merge(sched::routes())
         .merge(cloud::routes())
         .merge(desk::routes())
@@ -330,6 +334,7 @@ async fn main() {
         .merge(asks::routes())
         .merge(repos::routes())
         .merge(slash::routes())
+        .merge(tidy::routes())
         .fallback(get(static_file))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         // never gzip media: it is already compressed, and a gzipped 200 drops Accept-Ranges (ranged.rs)

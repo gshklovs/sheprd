@@ -287,18 +287,36 @@ function rings(f, s, size = 26) {
   const arc = (r, c, p, cls) => `<circle class="ur-bg" r="${r}" cx="14" cy="14"/>` + (p == null ? '' : `<circle class="ur-fg${cls}" r="${r}" cx="14" cy="14" stroke-dasharray="${(Math.min(100, p) / 100 * c).toFixed(1)} ${c.toFixed(1)}"/>`);
   return `<svg class="urings" viewBox="0 0 28 28" width="${size}" height="${size}">${arc(r1, c1, f, lvl(f))}${arc(r2, c2, s, lvl(s))}</svg>`;
 }
-// usage half of the Master header button (app.js ovHTML(): context ring + this): both windows as rings
-// (outer 5-hour, inner weekly; amber from 70 %, red from 85 %), no number so the status strip keeps its room; cached numbers, refreshed in the background
-function bit() {
+// ---- Master header icon (feedback f1a126f673e1): ONE 32px "tank" for this chat's context + both plan windows ----
+// centre: a disc that fills from the bottom with context, its % on top (a spinner while compacting);
+// thick SOLID inner ring = 5-hour; thin outer ring cut into 7 day-segments = weekly. Each part takes its own level
+// colour (amber from 70 %, red from 85 %), so the one near its limit is the one that changes colour. Cached usage,
+// refreshed in the background; tapping it opens overviewSheet().
+const PT = (r, deg) => { const t = (deg - 90) * Math.PI / 180; return [(16 + r * Math.cos(t)).toFixed(2), (16 + r * Math.sin(t)).toFixed(2)]; };
+const ARC = (r, a0, a1) => { const [x0, y0] = PT(r, a0), [x1, y1] = PT(r, a1); return `M${x0} ${y0}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`; };
+const P100 = p => Math.min(100, Math.max(0, p ?? 0));
+export function tankSVG(c, f, s, busy) {
+  const cl = lvl(c), y = (16 + 8.4 - 16.8 * P100(c) / 100).toFixed(2), SEG = 360 / 7, GAP = 11, fa = P100(s) * 3.6;
+  let wk = '';
+  for (let i = 0; i < 7; i++) {
+    const a0 = i * SEG + GAP / 2, a1 = (i + 1) * SEG - GAP / 2;
+    wk += `<path class="tk-bg" d="${ARC(15, a0, a1)}"/>`;
+    if (s != null && fa > a0) wk += `<path class="tk-wk${lvl(s)}" d="${ARC(15, a0, Math.max(a0 + 1.5, Math.min(a1, fa)))}"/>`;
+  }
+  const five = `<circle class="tk-bg tk-5" r="11.4" cx="16" cy="16"/>` + (f == null || f <= 0 ? '' :
+    `<circle class="tk-5${lvl(f)}" r="11.4" cx="16" cy="16" pathLength="100" stroke-dasharray="${Math.max(1.5, P100(f)).toFixed(1)} 100" transform="rotate(-90 16 16)"/>`);
+  return `<svg class="tank" viewBox="0 0 32 32" aria-hidden="true"><defs><clipPath id="tk-clip"><circle cx="16" cy="16" r="8.4"/></clipPath></defs>` +
+    `<circle class="tk-in" cx="16" cy="16" r="8.4"/>` + (c == null ? '' : `<rect class="tk-lq${cl}" x="7.6" y="${y}" width="16.8" height="16.8" clip-path="url(#tk-clip)"/>`) +
+    five + wk + (busy || c == null ? '' : `<text x="16" y="16.5">${Math.round(c)}</text>`) + '</svg>';
+}
+function fused(a) {
   const d = U.d || ls.get('usage.last', null);
   if (!U.d || Date.now() - U.at > 60000) loadUsage().catch(() => { });
-  const f = lim(d, 'five_hour'), s = lim(d, 'seven_day');
-  if (!f && !s) return '';
-  const top = [f, s].filter(x => x?.pct != null).sort((x, y) => y.pct - x.pct)[0];
-  const pc = x => x?.pct != null ? Math.round(x.pct) + '%' : '—';
-  return `<span class="ovu${lvl(top?.pct)}" title="5-hour ${pc(f)} · weekly ${pc(s)}">${rings(f?.pct, s?.pct, 22)}</span>`;
+  const c = a?.ctx?.pct, f = lim(d, 'five_hour')?.pct, s = lim(d, 'seven_day')?.pct, busy = !!a?.ctx?.compacting;
+  const pc = x => x != null ? Math.round(x) + '%' : '—';
+  return `<span class="ovf" title="Context ${busy ? 'compacting' : pc(c)} · 5-hour ${pc(f)} · weekly ${pc(s)}">${tankSVG(c, f, s, busy)}${busy ? '<span class="spin"></span>' : ''}</span>`;
 }
-G.usage = { bit };
+G.usage = { fused };
 G.view?.onState?.(G.st); // the Master header may already be up without its usage half
 // keep the header fresh while the Master chat is open
 setInterval(() => { if (!document.hidden && G.view?.home) loadUsage().catch(() => { }); }, 60000);

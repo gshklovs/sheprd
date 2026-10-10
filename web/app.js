@@ -36,6 +36,31 @@ const ls = {
   get(k, d) { try { const v = localStorage.getItem('mm.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { v == null ? localStorage.removeItem('mm.' + k) : localStorage.setItem('mm.' + k, JSON.stringify(v)); } catch { } },
 };
+// Row groups on the Agents tab (Ready, Awake, find.js's Asleep) fold from their header (feedback f1a1271e4356): the
+// caret turns, the body (.gb) slides shut, the count stays in the header; remembered per group on this phone.
+const FOLD_IC = '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
+function setFold(sec, shut, anim) {
+  const gb = sec.querySelector(':scope > .gb'), gh = sec.querySelector(':scope > .gh');
+  sec.classList.toggle('shut', shut); gh?.setAttribute('aria-expanded', String(!shut));
+  if (!gb) return;
+  const from = gb.hidden ? 0 : gb.getBoundingClientRect().height;
+  gb._an?.cancel(); gb._an = null;
+  gb.hidden = false;
+  const to = shut ? 0 : gb.scrollHeight;
+  if (!anim || matchMedia('(prefers-reduced-motion: reduce)').matches || Math.abs(to - from) < 2) { gb.hidden = shut; gb.style.overflow = ''; return; }
+  gb.style.overflow = 'hidden';
+  const an = gb._an = gb.animate([{ height: from + 'px', opacity: shut ? 1 : .4 }, { height: to + 'px', opacity: shut ? .4 : 1 }], { duration: Math.min(320, 160 + Math.abs(to - from) / 6), easing: 'cubic-bezier(.2,.8,.2,1)' });
+  an.onfinish = () => { gb._an = null; gb.hidden = shut; gb.style.overflow = ''; };
+}
+function foldable(sec, k) {
+  const gh = sec.querySelector(':scope > .gh'); if (!gh || sec._fold) return;
+  sec._fold = k; gh.classList.add('fh'); gh.setAttribute('role', 'button'); gh.tabIndex = 0;
+  gh.insertAdjacentHTML('beforeend', `<span class="gcar" aria-hidden="true">${FOLD_IC}</span>`);
+  setFold(sec, !!ls.get('fold.' + k, false), false);
+  const go = () => { const shut = !sec.classList.contains('shut'); ls.set('fold.' + k, shut || null); haptic(); setFold(sec, shut, true); };
+  gh.addEventListener('click', go);
+  gh.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+}
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 async function api(path, o = {}) {
@@ -477,10 +502,17 @@ document.addEventListener('click', e => {
     copyText(ln.textContent).then(() => { ln.classList.add('ln-hit'); setTimeout(() => ln.classList.remove('ln-hit'), 700); toast('Line copied', 'ok', null, 1000); });
   }
 }, true);
+// A second finger cancels every pending long-press: two fingers held still are the feedback gesture (feedback.js, 550 ms),
+// which must not open a message menu at 450 ms on the way.
+const LP_CANCEL = new Set();
+document.addEventListener('pointerdown', e => { if (!e.isPrimary) LP_CANCEL.forEach(f => f()); }, true);
+document.addEventListener('touchstart', e => { if (e.touches.length > 1) LP_CANCEL.forEach(f => f()); }, { capture: true, passive: true });
 function longPress(root, sel, fn, ms = 450) {
   let t = 0, x0 = 0, y0 = 0;
   const cancel = () => { clearTimeout(t); t = 0; };
+  LP_CANCEL.add(cancel);
   root.addEventListener('pointerdown', e => {
+    if (!e.isPrimary) return cancel();
     const tg = sel ? e.target.closest(sel) : root;
     if (!tg || !root.contains(tg) || e.button > 0) return;
     x0 = e.clientX; y0 = e.clientY; cancel();
@@ -963,7 +995,6 @@ function getAgentsView() {
       <div class="cbox">
         <div class="cards"></div>
         <div class="bgs" hidden></div>
-        <div class="jobs" hidden></div>
         <div class="empty" hidden><p>No agents running.</p><button class="btn">Start an agent</button></div>
         <details class="quiet" hidden><summary><b>Quiet</b><em></em><span class="sp"></span><button class="qclose" hidden></button></summary><div class="qcards"></div><div class="qsh"></div></details>
       </div>
@@ -1012,9 +1043,12 @@ function getAgentsView() {
   });
 
   // "↳ started by Master" on worker cards; tapping it opens the parent.
-  const FROM = { spawn: 'started by', review: 'reviewing', fork: 'forked from', drive: 'driven by', split: 'split from' };
+  const FROM = { spawn: 'started by', review: 'reviewing', fork: 'forked from', drive: 'driven by', split: 'split from', branch: 'branched from' };
   const fromHTML = a => {
-    const pp = a.parent?.pane; if (!pp) return '';
+    const pp = a.parent?.pane, bo = a.branchOf;
+    // a branch (Branch from here): "↳ from <parent>", its parent awake or asleep
+    if (bo && (!pp || a.parent.via === 'branch')) return `<span class="c-from br" data-go="${bo.pane ? '#/a/' + enc(bo.pane) : '#/t/' + enc(bo.sid)}" title="branched from">↳ from <b>${esc(whoName(bo.name))}</b></span>`;
+    if (!pp) return '';
     const p = G.st?.agents.find(x => x.pane === pp);
     return `<span class="c-from" data-go="#/a/${enc(pp)}" title="${FROM[a.parent.via] || 'from'}">↳ <b>${esc(p?.home ? HOME_NAME() : p?.title || pp)}</b></span>`;
   };
@@ -1032,10 +1066,15 @@ function getAgentsView() {
     if (a.last?.text) return ['', `${a.last.role === 'user' ? '<b>You: </b>' : ''}${esc(a.last.text.replace(/\*\*|__|`+|^#+\s*/gm, ''))}`];
     return null;
   };
+  // the last hour's failed background job of this agent (the Jobs list used to show it): a red tag, tap → its log
+  const jobFail = a => {
+    const j = jobs.filter(j => j.pane === a.pane && j.status === 'failed' && j.ended && now() - j.ended < 3600e3).sort((x, y) => y.ended - x.ended)[0];
+    return j ? `<b class="c-jf" data-job="${esc(j.id)}" title="${esc(j.desc || j.cmd)}">job failed</b>` : '';
+  };
   const cardHTML = a => {
     const s = dispStatus(a), sub = a.subagents?.running, sep = '<i class="msep">·</i>';
     const meta = [(s === 'blocked' || s === 'done') && `<b class="t-${s}">${LABEL[s]}</b>`, a.service && `<b class="t-blocked">${esc(a.service.name)}</b>`, !a.job && esc(a.wsLabel || a.ws) + (a.tabLabel ? ' · ' + esc(whoName(a.tabLabel)) : ''), // find.js: the job line says more
-      fromHTML(a), sub && `<span class="subb">${I.fork}${sub}</span>`, G.res?.cardLine(a)].filter(Boolean).join(sep);
+      fromHTML(a), jobFail(a), sub && `<span class="subb">${I.fork}${sub}</span>`, G.res?.cardLine(a)].filter(Boolean).join(sep);
     const thumb = G.art?.chip(a, 'thumb') || '', inl = thumb ? '' : G.art?.chip(a, 'inline') || '', out = outcomeHTML(a, s);
     return `<a class="card s-${s}${a.home ? ' home' : colCls(a.color)}" href="${agentHref(a)}">${ringHTML(a, s)}<div class="cbody">
       <div class="c-title"><span class="tt">${esc(a.home ? HOME_NAME() : whoName(a.short || a.title || a.name || a.kind || a.pane, a.pane))}</span>${a.pinned ? `<span class="cflag">${I.pin}</span>` : ''}${a.muted ? `<span class="cflag">${I.bellx}</span>` : ''}<span class="since" data-since="${a.since}"></span></div>
@@ -1052,7 +1091,7 @@ function getAgentsView() {
   const groupOf = (a, s) => s === 'done' && !a.home ? 'ready' : 'all';
   const grpEl = k => {
     let g = groups.get(k);
-    if (!g) { g = h(`<section class="agrp g-${k}">${k === 'home' ? '' : '<div class="gh"><span class="gt"></span><span class="gn"></span></div>'}<div class="gl"></div></section>`); groups.set(k, g); }
+    if (!g) { g = h(`<section class="agrp g-${k}">${k === 'home' ? '' : '<div class="gh"><span class="gt"></span><span class="gn"></span></div>'}<div class="gb"><div class="gl"></div></div></section>`); groups.set(k, g); if (k !== 'home') foldable(g, k); }
     return g;
   };
   const place = (box, nodes) => { // keyed reorder: move only what is out of place, drop leftovers
@@ -1216,36 +1255,14 @@ function getAgentsView() {
   longPress(bgsEl, '.bg-row.solo', r => { const v = soloOf(r); if (!v) return false; soloSheet(v); });
   longPress(bgsEl, '.bg-row.svc:not(.solo)', r => { const a = G.st?.agents.find(a => a.pane === r.dataset.pane); if (!a) return false; lazy('sheets').then(m => m.cardSheet(a)); });
 
-  // background jobs (F11)
-  const jobsEl = $('.jobs', el);
+  // background jobs (F11): /api/jobs feeds home.js (In-flight tiles, Running apps) and the cards' "job failed" tag.
+  // The Jobs list under the rows is gone (feedback f1a1271e8862): a job's log is one tap from its tile, app sheet or tag.
   let jobs = [], jobsSig = null, jobsT = 0;
-  const durs = ms => { const s = Math.max(0, ms / 1000 | 0); return s < 60 ? s + 's' : s < 3600 ? (s / 60 | 0) + 'm' : (s / 3600 | 0) + 'h ' + ((s % 3600) / 60 | 0) + 'm'; };
-  // running jobs sit below the agents; finished ones fold into one row and can be cleared (per phone)
-  let jobsOpen = false;
-  const jobRow = j => `<button class="job j-${esc(j.status)}" data-id="${esc(j.id)}">
-        <span class="jst">${j.status === 'running' ? '<span class="spin"></span>' : j.status === 'completed' ? '✓' : j.status === 'unknown' ? '?' : '✗'}</span>
-        <span class="sb"><b>${esc(j.desc || j.cmd)}</b><small>${j.status === 'running' ? `running <span data-since="${j.started}"></span>` : `${esc(j.status)} after ${durs(j.ended - j.started)} · <span data-since="${j.ended}" data-ago></span>`}${j.agentTitle ? ' · ' + esc(whoName(j.agentTitle, j.pane)) : ''}</small>${G.res?.jobLine(j) || ''}</span><span class="go">›</span></button>`;
-  const drawJobs = () => {
-    const cleared = ls.get('jobsCleared', 0);
-    const run = []; // running jobs are In-flight tiles (home.js)
-    const fin = jobs.filter(j => j.status !== 'running' && j.ended && j.ended > cleared && now() - j.ended < 6 * 3600e3);
-    jobsEl.hidden = !run.length && !fin.length;
-    patchHTML(jobsEl, jobsEl.hidden ? '' : `<div class="jh"><span>Jobs</span>${fin.length ? '<button class="jclr">Clear finished</button>' : ''}</div>`
-      + run.map(jobRow).join('')
-      + (fin.length ? `<button class="jfold">${jobsOpen ? '▾' : '▸'} ${fin.length} finished</button>` + (jobsOpen ? fin.map(jobRow).join('') : '') : ''));
-    tick(jobsEl);
-  };
   const loadJobs = async () => {
     if (G.noJobs) return;
-    try { jobs = (await api('jobs')).jobs || []; drawJobs(); render(G.st); }
+    try { jobs = (await api('jobs')).jobs || []; render(G.st); }
     catch (e) { if (e.status === 404) G.noJobs = true; }
   };
-  jobsEl.addEventListener('click', e => {
-    if (e.target.closest('.jclr')) { ls.set('jobsCleared', now()); jobsOpen = false; haptic(); drawJobs(); return; }
-    if (e.target.closest('.jfold')) { jobsOpen = !jobsOpen; drawJobs(); return; }
-    const b = e.target.closest('.job'); const j = b && jobs.find(x => x.id === b.dataset.id);
-    if (j) lazy('sheets').then(m => m.jobSheet(j));
-  });
   const jobsCheck = st => {
     const sig = (st?.jobsRunning ?? 0) + ':' + (st?.agents || []).map(a => a.jobs?.total || 0).join(',');
     if (sig === jobsSig) return;
@@ -1263,7 +1280,11 @@ function getAgentsView() {
     openW = off ? w : openW === w ? null : openW;
   };
   const agentOf = w => G.st?.agents.find(a => a.pane === w.dataset.pane);
-  cbox.addEventListener('click', e => { const f = e.target.closest('.c-from'); if (f) { e.preventDefault(); e.stopPropagation(); location.hash = f.dataset.go; } }, true);
+  cbox.addEventListener('click', e => {
+    const jf = e.target.closest('.c-jf'), j = jf && jobs.find(x => x.id === jf.dataset.job);
+    if (j) { e.preventDefault(); e.stopPropagation(); lazy('sheets').then(m => m.jobSheet(j)); return; }
+    const f = e.target.closest('.c-from'); if (f) { e.preventDefault(); e.stopPropagation(); location.hash = f.dataset.go; }
+  }, true);
   cbox.addEventListener('touchstart', e => {
     const w = e.target.closest('.cwrap'); sw = null;
     if (!w || e.touches.length !== 1 || e.target.closest('.cact')) return;
@@ -1324,7 +1345,7 @@ function getAgentsView() {
         s.gone = 'expired'; if (G.view === agentsView) render(G.st);
       });
     },
-    resRedraw() { render(G.st); drawJobs(); }, // phase 2: res.js glance tick
+    resRedraw() { render(G.st); }, // phase 2: res.js glance tick
   };
 }
 
@@ -1739,10 +1760,12 @@ class ChatView {
       // worker agents: breadcrumb back to whoever started them
       if (!this.home) {
         const pp = a?.parent?.pane, par = pp && st.agents.find(x => x.pane === pp);
-        const sig = pp ? `${pp}|${par?.title}|${a.parent.via}` : '';
+        const bo = a?.branchOf && (!pp || a.parent.via === 'branch') ? a.branchOf : null;
+        const sig = bo ? `b|${bo.sid}|${bo.pane}|${bo.name}` : pp ? `${pp}|${par?.title}|${a.parent.via}` : '';
         if (sig !== this.parSig) {
           this.parSig = sig; const c = q('.crumb');
-          if (pp) { c.hidden = false; c.innerHTML = `<a href="#/a/${enc(pp)}">${I.back}${esc(par?.home ? HOME_NAME() : par?.title || pp)}</a><span>${{ spawn: 'started this agent', review: 'is being reviewed by this agent', fork: 'was forked into this agent', drive: 'is driving this agent', split: 'split off this agent' }[a.parent.via] || 'is this agent’s parent'}</span>`; }
+          if (bo) { c.hidden = false; c.innerHTML = `<a href="${bo.pane ? '#/a/' + enc(bo.pane) : '#/t/' + enc(bo.sid)}">${I.back}${esc(whoName(bo.name))}</a><span>branched into this agent</span>`; }
+          else if (pp) { c.hidden = false; c.innerHTML = `<a href="#/a/${enc(pp)}">${I.back}${esc(par?.home ? HOME_NAME() : par?.title || pp)}</a><span>${{ spawn: 'started this agent', review: 'is being reviewed by this agent', fork: 'was forked into this agent', drive: 'is driving this agent', split: 'split off this agent' }[a.parent.via] || 'is this agent’s parent'}</span>`; }
           else c.hidden = true;
         }
       }
@@ -1763,8 +1786,8 @@ class ChatView {
         if (this.home) t2.hidden = !dg;
       }
       const pill = q('.pill'); pill.hidden = false; pill.className = 'pill s-' + s; pill.innerHTML = `<i></i>${LABEL[s]}`;
-      // Master: one button = context ring + plan usage (git.js G.usage.bit); workers: the context ring alone
-      const cxb = q(this.home ? '.ovb' : '.ctxb'), cx = this.home ? (ctxHTML(a) || '<span class="ctxg"></span>') + (G.usage?.bit() || '') : ctxHTML(a);
+      // Master: one "tank" icon = context + both plan windows (git.js G.usage.fused); workers: the context ring alone
+      const cxb = q(this.home ? '.ovb' : '.ctxb'), cx = this.home ? (G.usage?.fused(a) || '<span class="ctxg"></span>') : ctxHTML(a);
       cxb.hidden = !cx; if (cx !== this.cxSig) { this.cxSig = cx; cxb.innerHTML = cx; }
       setCol(this.el, a.home ? null : a.color);
       this.updChips(a);
@@ -3281,4 +3304,5 @@ export { lightbox, mediaViewer }; // fleet.js, art.js
 export { SICON, sicon, schedIconSheet }; // fleet.js
 export { popMenu, dropEmpty, hasContent }; // art.js
 export { sortAgents, steerAgent }; // sheets.js
+export { foldable }; // find.js (Asleep)
 export { whoName, isMasterName }; // find.js, home.js, fleet.js, search.js, queue.js, sheets.js, res.js

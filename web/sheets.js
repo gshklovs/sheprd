@@ -104,13 +104,15 @@ export function msgSheet(view, it, el) {
   const plain = user ? text : (el.innerText || text).trim();
   const canCompose = !!view.target && !view.el.classList.contains('ro');
   const rows = [['copy', 'Copy'], !user && ['md', 'Copy as Markdown'], navigator.share && ['share', 'Share…'],
-    !user && ['say', 'Read aloud'], canCompose && ['quote', 'Quote in reply'], ['fwd', 'Send to agent…'], user && canCompose && ['edit', 'Edit & resend']].filter(Boolean);
+    !user && ['say', 'Read aloud'], canCompose && ['quote', 'Quote in reply'], ['fwd', 'Send to agent…'], user && canCompose && ['edit', 'Edit & resend'],
+    canBranch(view, it, card) && ['branch', 'Branch from here…']].filter(Boolean);
   const sh = sheet(`<div class="mprev">${esc(plain.slice(0, 220))}${plain.length > 220 ? '…' : ''}</div><div class="acts">${rows.map(([k, l]) => `<button class="act" data-a="${k}">${l}</button>`).join('')}</div>`);
   const ta = view.ta, put = v => { ta.value = v; ta.dispatchEvent(new Event('input')); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); };
   sh.addEventListener('click', e => {
     const b = e.target.closest('[data-a]'); if (!b) return;
     const a = b.dataset.a;
     if (a === 'fwd') { forwardSheet(view, text, sh, fwdSource(view, it, user, card)); return; }
+    if (a === 'branch') { sh.close(); branchSheet(view, it, plain); return; }
     sh.close();
     if (a === 'copy') copyText(plain);
     else if (a === 'md') copyText(text);
@@ -119,6 +121,41 @@ export function msgSheet(view, it, el) {
     else if (a === 'quote') put(text.split('\n').map(l => '> ' + l).join('\n') + '\n\n' + ta.value);
     else if (a === 'edit') put(text + (ta.value ? '\n' + ta.value : ''));
   });
+}
+// ---------- Branch from here (API.md "Branch") ----------
+// An agent's own message in a main transcript (not a subagent's, not another agent's card) can start a branch: a new
+// agent with this chat up to that message, then the user's reply. The original agent is left as it is.
+const canBranch = (view, it, card) => !card && it.k === 'text' && !!view.tid && !view.tid.includes('~');
+export function branchSheet(view, it, plain) {
+  const who = view.home ? HOME_NAME() : whoName(view.agent?.title || view.agent?.name || view.zz?.name || '') || 'this agent';
+  const q = plain.length > 280 ? '…' + plain.slice(-280) : plain;
+  const sh = sheet(`<h2 class="br-h">${I.fork || ''}Branch from here</h2>
+    <p class="br-sub">A new agent starts with this chat up to here, then your reply. ${esc(who)} stays as it is.</p>
+    <blockquote class="br-q">${esc(q)}</blockquote>
+    <form class="br-f"><textarea class="br-ta" rows="3" placeholder="Your reply in the branch" enterkeyhint="send" aria-label="Your reply"></textarea>
+    <button class="btn primary br-go" disabled>Branch</button></form>`, 'brsheet');
+  const ta = $('.br-ta', sh), go = $('.br-go', sh), f = $('.br-f', sh);
+  const key = 'brdraft.' + view.tid + '.' + it.i;
+  ta.value = ls.get(key, '') || ''; go.disabled = !ta.value.trim();
+  ta.oninput = () => { go.disabled = !ta.value.trim(); ls.set(key, ta.value); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 220) + 'px'; };
+  ta.onkeydown = e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) f.requestSubmit(); };
+  setTimeout(() => ta.focus(), 60);
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const text = ta.value.trim(); if (!text || go.disabled && go.dataset.busy) return;
+    go.disabled = true; go.dataset.busy = 1; go.innerHTML = '<span class="spin"></span> Branching…';
+    try {
+      const r = await post(`t/${encodeURIComponent(view.tid)}/branch`, { i: it.i, text });
+      ls.set(key, null); haptic(); sh.close();
+      G.starting.set(r.pane, Date.now());
+      lazy('find').then(m => m.agents?.(true)).catch(() => { }); // the branch joins Recent / Agents / search at once
+      location.hash = '#/a/' + encodeURIComponent(r.pane);
+      toast(`Branched · ${esc(r.title)}`, 'ok', null, 2200);
+    } catch (err) {
+      delete go.dataset.busy; go.disabled = false; go.textContent = 'Branch';
+      toast('Couldn’t branch: ' + esc(err.message), 'err');
+    }
+  };
 }
 // Who a forwarded message is from: `pane` (when it is a live agent) lets the receiver see it as that agent's card.
 function fwdSource(view, it, user, card) {

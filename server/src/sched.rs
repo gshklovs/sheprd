@@ -538,7 +538,7 @@ fn timer_spec(cal: &str, mono: &str) -> String {
     v.join("; ")
 }
 
-async fn systemd_timers() -> Vec<Value> {
+pub(crate) async fn systemd_timers() -> Vec<Value> {
     let Some(list) = systemctl(&["list-timers", "--all", "--output=json", "--no-pager"]).await else { return vec![] };
     let list: Vec<Value> = serde_json::from_str(&list).unwrap_or_default();
     if list.is_empty() {

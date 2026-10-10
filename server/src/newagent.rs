@@ -230,11 +230,11 @@ async fn apply(app: &crate::Shared, pane: &str, title: String, color: Option<Str
 
 /// The 7 pastels the phone shows (web/style.css "agent colors"), as Claude `/color` names. Claude also takes "red";
 /// it is left out so an agent never looks like an error (a "red" reply becomes pink, the nearest pastel).
-const PICK: [&str; 7] = ["orange", "yellow", "green", "cyan", "blue", "purple", "pink"];
+pub const PICK: [&str; 7] = ["orange", "yellow", "green", "cyan", "blue", "purple", "pink"];
 
 /// Haiku's pick unless another colour is used less: then the next least-used one after it in palette order, so new
 /// agents spread over the 7 and neighbours differ. `used` = colours of the other live agents ("red" counts as pink).
-fn spread(pick: &str, used: &[String]) -> String {
+pub fn spread(pick: &str, used: &[String]) -> String {
     let n = |c: &str| used.iter().filter(|u| u.as_str() == c || (c == "pink" && u.as_str() == "red")).count();
     let at = PICK.iter().position(|c| *c == pick).unwrap_or(4);
     let min = PICK.iter().map(|c| n(c)).min().unwrap_or(0);
@@ -253,7 +253,7 @@ fn prompt_for(first: &str, cwd: &str) -> String {
 }
 
 /// Pulls {"title","color"} out of Haiku's reply and checks it.
-fn parse_reply(s: &str) -> Option<(String, String)> {
+pub fn parse_reply(s: &str) -> Option<(String, String)> {
     let a = s.find('{')?;
     let b = s.rfind('}')?;
     let v: Value = serde_json::from_str(s.get(a..=b)?).ok()?;

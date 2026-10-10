@@ -72,6 +72,10 @@ pub struct Info {
     pub at: i64,
     /// hidden from Recent
     pub hidden: bool,
+    /// branched from this session (branch.rs), with the parent's name then and when
+    pub branch_of: Option<String>,
+    pub branch_name: Option<String>,
+    pub branch_at: i64,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
@@ -121,6 +125,38 @@ fn flush(now: bool) {
 /// Where a session last lived, for Continue.
 pub fn place(sid: &str) -> Option<Info> {
     with(|s| s.info.get(sid).cloned())
+}
+
+/// `sid` was just branched off `parent` (branch.rs).
+pub fn branched(sid: &str, parent: &str, parent_name: &str, _i: usize) {
+    with(|s| {
+        let i = s.info.entry(sid.to_string()).or_default();
+        i.branch_of = Some(parent.to_string());
+        i.branch_name = Some(parent_name.to_string()).filter(|n| !n.is_empty());
+        i.branch_at = now_ms();
+        s.dirty = true;
+    });
+    flush(true);
+}
+
+/// The session `sid` was branched from, if any.
+pub fn branch_of(sid: &str) -> Option<String> {
+    with(|s| s.info.get(sid).and_then(|i| i.branch_of.clone()))
+}
+
+/// `branchOf: {sid, name, pane}` for a branch: its parent's name now (live title, else asleep name, else the name it
+/// had at the branch) and its pane when awake.
+fn branch_json(i: Option<&Info>, info: &HashMap<String, Info>, live: &[Value], sess: &HashMap<String, Sess>) -> Value {
+    let Some(p) = i.and_then(|i| i.branch_of.clone()) else { return Value::Null };
+    let a = live.iter().find(|a| a["session"].as_str() == Some(p.as_str()));
+    let name = match a {
+        Some(a) if a["home"] == true => Some(crate::home_name()),
+        Some(a) => a["short"].as_str().or(a["title"].as_str()).map(str::to_string),
+        None => sess.get(&p).map(|s| asleep_name(info.get(&p), s)),
+    }
+    .or_else(|| i.and_then(|i| i.branch_name.clone()))
+    .unwrap_or_else(|| "another chat".into());
+    json!({"sid": p, "name": name, "pane": a.map(|a| a["pane"].clone()).unwrap_or(Value::Null)})
 }
 
 /// A resume just opened `pane` for `sid`.
@@ -206,6 +242,7 @@ pub fn decorate(app: &App, agents: &mut [Value]) {
     let sess: HashMap<String, Sess> = fleet::snapshot().into_iter().map(|s| (s.sid.clone(), s)).collect();
     let pending: Vec<String> = app.inner.lock().unwrap().meta.keys().cloned().collect();
     let mut pin = Vec::new();
+    let mut branches: Vec<(String, Info)> = Vec::new();
     with(|st| {
         for a in agents.iter_mut() {
             let Some(sid) = a["session"].as_str().map(str::to_string) else {
@@ -234,6 +271,8 @@ pub fn decorate(app: &App, agents: &mut [Value]) {
             let pane = a["pane"].as_str().unwrap_or("").to_string();
             let title = a["title"].as_str().unwrap_or("").to_string();
             a["job"] = json!(i.job);
+            let i2 = i.clone();
+            branches.push((a["pane"].as_str().unwrap_or("").to_string(), i2));
             a["short"] = if home { Value::Null } else { json!(live_short(Some(i), sess.get(&sid), &title, pending.contains(&pane))) };
             let want = home;
             if want && !st.defaults.contains(&sid) {
@@ -246,6 +285,18 @@ pub fn decorate(app: &App, agents: &mut [Value]) {
             }
         }
     });
+    // `branchOf` on branches (branch.rs): their parent, awake or asleep
+    let branches: Vec<(String, Info)> = branches.into_iter().filter(|(_, i)| i.branch_of.is_some()).collect();
+    if !branches.is_empty() {
+        let info = with(|st| st.info.clone());
+        let live: Vec<Value> = agents.to_vec();
+        for (pane, i) in &branches {
+            let b = branch_json(Some(i), &info, &live, &sess);
+            if let Some(a) = agents.iter_mut().find(|a| a["pane"].as_str() == Some(pane.as_str())) {
+                a["branchOf"] = b;
+            }
+        }
+    }
     if !pin.is_empty() {
         let mut p = app.prefs.lock().unwrap();
         let mut n = pinned_count(&p);
@@ -326,6 +377,7 @@ async fn api_agents(State(app): State<Shared>, Query(q): Query<ListQ>) -> Respon
     let st = state_of(&app);
     let live: Vec<Value> = st["agents"].as_array().cloned().unwrap_or_default();
     let by: HashMap<&str, &Sess> = all.iter().map(|s| (s.sid.as_str(), s)).collect();
+    let by_sid: HashMap<String, Sess> = all.iter().map(|s| (s.sid.clone(), s.clone())).collect();
     let (prefs, pins) = {
         let p = app.prefs.lock().unwrap();
         (p.v["sessions"].clone(), pinned_count(&p))
@@ -335,7 +387,9 @@ async fn api_agents(State(app): State<Shared>, Query(q): Query<ListQ>) -> Respon
     with(|st| {
         for a in &live {
             let Some(sid) = a["session"].as_str() else { continue };
-            out.push(row_live(a, st.info.get(sid), by.get(sid).copied()));
+            let mut r = row_live(a, st.info.get(sid), by.get(sid).copied());
+            r["branchOf"] = branch_json(st.info.get(sid), &st.info, &live, &by_sid);
+            out.push(r);
         }
         let awake: Vec<&str> = live.iter().filter_map(|a| a["session"].as_str()).collect();
         let mut sleep: Vec<&Sess> = all.iter().filter(|s| !awake.contains(&s.sid.as_str()) && listable(s, now)).collect();
@@ -343,7 +397,9 @@ async fn api_agents(State(app): State<Shared>, Query(q): Query<ListQ>) -> Respon
         let lim = q.limit.unwrap_or(40).clamp(1, 200);
         older = sleep.len().saturating_sub(lim);
         for s in sleep.into_iter().take(lim) {
-            out.push(row_asleep(s, st.info.get(&s.sid), prefs[&s.sid]["pinned"] == true));
+            let mut r = row_asleep(s, st.info.get(&s.sid), prefs[&s.sid]["pinned"] == true);
+            r["branchOf"] = branch_json(st.info.get(&s.sid), &st.info, &live, &by_sid);
+            out.push(r);
         }
     });
     Json(json!({"now": now, "agents": out, "older": older, "pins": pins, "maxPins": MAX_PINS})).into_response()

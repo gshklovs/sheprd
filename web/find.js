@@ -7,7 +7,7 @@
 // 3. Agent-message cards name their sender ("Nightly Backup ›"): tap opens its chat even when it is asleep (closed pane);
 //    an asleep agent's chat shows "Asleep 2h · <job>", a "Fell asleep at …" line and a wake card: Continue resumes it
 //    in place (`claude --resume` in its old workspace and tab, then "continue"), Message… wakes it with your words.
-import { G, I, $, h, esc, api, post, toast, haptic, tick, rel, shortPath, openSearch, sheet, longPress, agentHref, whoName, isMasterName, HOME_NAME } from './app.js';
+import { G, I, $, h, esc, api, post, toast, haptic, tick, rel, shortPath, openSearch, sheet, longPress, agentHref, whoName, isMasterName, foldable, HOME_NAME } from './app.js';
 
 (() => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'find.css'; document.head.append(l); })();
 
@@ -143,6 +143,7 @@ function draw(view) {
       + `<form class="wform" hidden><textarea rows="2" placeholder="Message ${esc(nm)}" enterkeyhint="send"></textarea><button class="btn primary">Send</button></form>`
       + '<div class="wn">Continue wakes it right here with its whole history. It reads the last message and carries on.</div></div>');
     el.insertBefore(w, $('.composer', el));
+    tidy().then(m => m.noteInto(w, a.sid), () => { }); // its handoff note, when it was put to sleep with one
     $('.wgo', w).onclick = e => continueAgent(a.sid, { btn: e.currentTarget, name: nm });
     const f = $('.wform', w), ta = $('textarea', f);
     $('.wmsg', w).onclick = () => { f.hidden = false; $('.wb', w).hidden = true; $('.wn', w).textContent = 'Sending wakes it with your message, right here with its whole history.'; ta.focus(); };
@@ -152,12 +153,18 @@ function draw(view) {
 }
 
 // ---------- 1a: Awake / Asleep on the Agents tab ----------
+// Clean up agents (cleanup.js): the tidy card, the order of just-slept agents, the note in an asleep chat
+let TIDY = null, SLEPT = null;
+const tidy = () => TIDY ??= import('./cleanup.js').then(m => { SLEPT = m.SLEPT; return m; });
 const ASLEEP_N = 5;
 const lastLine = a => String(a.last?.text || '').replace(/\*\*|__|`+|^#+\s*/gm, '').replace(/\s+/g, ' ').trim();
 /** One asleep agent row: disc with a moon, name + age, job line, last line, Continue. */
+/** "↳ from <parent>" on a branch (Branch from here); a tap opens the parent, awake or asleep. */
+export const fromHTML = a => a?.branchOf ? `<span class="xfrom" data-go="${a.branchOf.pane ? '#/a/' + enc(a.branchOf.pane) : '#/t/' + enc(a.branchOf.sid)}">↳ from <b>${esc(whoName(a.branchOf.name))}</b></span>` : '';
+document.addEventListener('click', e => { const f = e.target.closest('.xfrom[data-go], .gfrom[data-go]'); if (f) { e.preventDefault(); e.stopPropagation(); location.hash = f.dataset.go; } }, true);
 export const sleepRow = (a, { hl = x => esc(x), why = '' } = {}) => `<a class="xrow zz${colCls(a.color)}" href="#/t/${enc(a.sid)}" data-sid="${esc(a.sid)}">${favHTML(a)}`
   + `<span class="xb"><span class="f1"><span class="xnm">${hl(nameOf(a))}</span><span class="tm" data-since="${a.ts}"></span></span>`
-  + `<span class="f2">${a.job ? hl(a.job) : esc(shortPath(a.cwd || ''))}</span>`
+  + `<span class="f2">${fromHTML(a)}${a.job ? hl(a.job) : esc(shortPath(a.cwd || ''))}</span>`
   + `<span class="f3"><span class="zzt">${MOON}</span><span class="xlt">${why || esc(lastLine(a) || 'Asleep')}</span></span></span>`
   + `<button class="btn cont" data-cont="${esc(a.sid)}" data-nm="${esc(nameOf(a))}">Continue</button></a>`;
 let drawT = 0;
@@ -165,6 +172,7 @@ let drawT = 0;
 export function drawAgents(el, st, skip = recentSids(st)) {
   const cbox = $('.cbox', el); if (!cbox) return;
   drawRecent(el, st);
+  tidy().then(m => m.drawCard(el, G.st), () => { }); // cleanup.js: the "N agents are idle" card under Recent
   let ff = $('.ffind', cbox);
   if (!ff) {
     ff = h(`<button class="ffind">${I.search}<span>Find an agent: name, job, folder, chat</span></button>`);
@@ -178,10 +186,11 @@ export function drawAgents(el, st, skip = recentSids(st)) {
   if (!L || Date.now() - AT > 15e3) agents().then(() => { clearTimeout(drawT); drawT = setTimeout(() => G.view?.el === el && G.view.onState?.(G.st), 30); }, () => { });
   if (!L) return;
   const live = new Set((st?.agents || []).map(a => a.session).filter(Boolean));
-  const zz = L.agents.filter(a => a.asleep && !live.has(a.sid) && !skip.has(a.sid)).sort((a, b) => b.ts - a.ts);
+  // just put to sleep (cleanup.js) first, as of then
+  const zz = L.agents.filter(a => a.asleep && !live.has(a.sid) && !skip.has(a.sid)).map(a => SLEPT?.get(a.sid) > a.ts ? { ...a, ts: SLEPT.get(a.sid) } : a).sort((a, b) => b.ts - a.ts);
   let sec = $('.g-zz', cbox);
   if (!zz.length) { sec?.remove(); return; }
-  if (!sec) { sec = h('<section class="agrp g-zz"><div class="gh"><span class="gt">Asleep</span><span class="gn"></span></div><div class="gl fzl"></div><div class="fhint"></div></section>'); }
+  if (!sec) { sec = h('<section class="agrp g-zz"><div class="gh"><span class="gt">Asleep</span><span class="gn"></span></div><div class="gb"><div class="gl fzl"></div><div class="fhint"></div></div></section>'); foldable(sec, 'zz'); } // folds from its header (app.js); search is its own view
   const cards = $('.cards', cbox); if (sec.previousElementSibling !== cards) cards.after(sec);
   const shown = zz.slice(0, ASLEEP_N), older = zz.length - shown.length + (L.older || 0);
   const html = shown.map(a => sleepRow(a)).join('');
@@ -217,7 +226,7 @@ export function hlWords(text, q) {
 }
 /** An awake agent's row in search results (asleep ones use sleepRow). */
 export const awakeRow = (a, hl) => `<a class="xrow${colCls(a.color)}" href="${a.home ? '#/' : '#/a/' + enc(a.pane)}">${favHTML(a)}`
-  + `<span class="xb"><span class="f1"><span class="xnm">${hl(nameOf(a))}</span></span><span class="f2">${a.job ? hl(a.job) : ''}</span>`
+  + `<span class="xb"><span class="f1"><span class="xnm">${hl(nameOf(a))}</span></span><span class="f2">${fromHTML(a)}${a.job ? hl(a.job) : ''}</span>`
   + `<span class="f3">${stHTML(a)}<span>·</span><span class="xlt">${hl(shortPath(a.cwd || ''))}</span></span></span><span class="xchev">${CHEV}</span></a>`;
 
 // ---------- 2a: Recent on Home ----------
@@ -229,7 +238,7 @@ function recentList(st) {
   const live = new Map((st?.agents || []).filter(a => a.session).map(a => [a.session, a]));
   const rows = L.agents.map(r => {
     const a = live.get(r.sid);
-    return a ? { ...r, pane: a.pane, status: a.status, since: a.since, color: a.color, job: a.job ?? r.job, name: a.home ? HOME_NAME() : whoName(a.short || a.title || r.name, a.pane), home: !!a.home, pinned: a.pinned ?? r.pinned, asleep: false, service: !!a.service }
+    return a ? { ...r, branchOf: a.branchOf || r.branchOf, pane: a.pane, status: a.status, since: a.since, color: a.color, job: a.job ?? r.job, name: a.home ? HOME_NAME() : whoName(a.short || a.title || r.name, a.pane), home: !!a.home, pinned: a.pinned ?? r.pinned, asleep: false, service: !!a.service }
       : live.size && !r.asleep ? null : r; // gone since the list was fetched: asleep now, or not yet listed
   }).filter(Boolean).filter(r => !r.hidden);
   const when = r => r.lu || 0;
@@ -249,8 +258,15 @@ const cellSub = r => {
   return `${p}${r.lu || r.ts || r.since ? ago(r.lu || r.ts || r.since) : 'idle'}`;
 };
 const hrefOf = r => r.asleep ? '#/t/' + enc(r.sid) : r.home ? '#/' : '#/a/' + enc(r.pane);
+let MISS = '', MISS_T = 0;
 export function drawRecent(el, st) {
   const brief = $('.brief', el); if (!brief) return;
+  // an agent that got its session since the list was fetched (a branch, a new agent): fetch again, at most every 3 s
+  const L0 = cached(), miss = L0 ? (st?.agents || []).filter(a => a.session && !a.service && !L0.agents.some(r => r.sid === a.session)).map(a => a.session).join() : '';
+  if (miss && miss !== MISS) { // once per new set, so one that never lists can't make it poll
+    MISS = miss; clearTimeout(MISS_T);
+    MISS_T = setTimeout(() => agents(true).then(() => G.view?.el === el && G.view.onState?.(G.st), () => { }), Math.max(0, 3e3 - (Date.now() - AT)));
+  }
   let box = $('.frec', el);
   const rows = recentList(st);
   if (!rows.length) { box?.remove(); return; }
@@ -260,7 +276,7 @@ export function drawRecent(el, st) {
     longPress(box, '.fgc', c => { const r = recentList(G.st).find(x => x.sid === c.dataset.sid); if (!r) return false; pinSheet(r, c); });
   }
   if (box.previousElementSibling !== brief) brief.after(box);
-  const html = rows.map(r => `<a class="fgc${colCls(r.color)}" href="${hrefOf(r)}" data-sid="${esc(r.sid)}">${favHTML(r, { sz: 30 })}<span class="gb"><b>${esc(nameOf(r))}</b><small>${cellSub(r)}</small></span></a>`).join('');
+  const html = rows.map(r => `<a class="fgc${colCls(r.color)}" href="${hrefOf(r)}" data-sid="${esc(r.sid)}">${favHTML(r, { sz: 30 })}<span class="gb"><b>${esc(nameOf(r))}</b><small>${cellSub(r)}</small>${r.branchOf ? `<small class="gfrom" data-go="${r.branchOf.pane ? '#/a/' + enc(r.branchOf.pane) : '#/t/' + enc(r.branchOf.sid)}">↳ from ${esc(whoName(r.branchOf.name))}</small>` : ''}</span></a>`).join('');
   const g = $('.fgrid', box);
   if (g._h !== html) { g._h = html; g.innerHTML = html; }
   tick(g);

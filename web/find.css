@@ -129,3 +129,7 @@
 .fmeta label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--fg2); }
 .fmeta input { font: inherit; font-size: 16px; color: var(--fg); background: var(--bg2); border: 0; border-radius: 10px; padding: 10px 12px; }
 .fmeta small { font-size: 12.5px; color: var(--fg3); }
+/* Branch from here: "↳ from <parent>" on a branch's row and Recent cell (tap = the parent) */
+.xrow .xfrom { color: var(--fg2); font-size: 13px; margin-right: 6px; }
+.xrow .xfrom b { color: var(--accent); font-weight: 600; }
+.fgc small.gfrom { display: block; color: var(--accent); font-size: 11.5px; }

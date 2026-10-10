@@ -1466,3 +1466,69 @@ Web (`web/find.js`, lazy):
   5), Open chat, Rename and edit job line (asleep: stored, typed in as `/rename` on Continue; awake: `/api/a/:pane/meta`;
   the home agent: job line only), Hide from Recent (also unpins); then the pinned chips.
 Tests: `cargo test find:: fleet::`.
+
+## Clean up agents (`server/src/tidy.rs`, `web/cleanup.js` + `cleanup.css`)
+
+Builds on Find and continue:
+**sleep = close the pane** (herdr `pane.close`, the tab goes with its last pane), **wake = Continue**
+(`/api/sessions/{sid}/resume`). The server never kills a process.
+
+- `GET /api/tidy` → `{safe, check, keep, hiddenUntil, idleMin, undoMs, pending, commits, slept}`; each row
+  `{pane, sid, name, color, cwd, home, status, idleMs, last, full (check rows: the whole last message), ctx:{pct, tokens}, reasons}`,
+  reason `{kind: q|draft|git|srv|shell|sub|ok|lock|pin|work, text, fix?: {kind: answer|push|stop|send, label?, text?, reply?, port?}}`.
+  Cached 8 s. Order: **keep** = never-sleep (`lock`: the home agent / herdr name `master*`, a background `service`,
+  panes in `SHEPRD_NEVER_SLEEP` (none by default), and every session ever seen in them), working / blocked, pinned,
+  held messages, a systemd timer that prompts the pane, Keep (24 h), active within `idleMin` (default 60); **check** =
+  `q` (the last message waits on the user: Haiku once per completionSeq + last ts, cached in `<state>/tidy.json`; a heuristic
+  until then), `draft` (inputbox.rs: a real draft, not Claude's faint suggestion), `git` (files this session wrote with
+  Edit/Write that are still uncommitted; commits it made, from `[branch hash]` in its git commit output, that no remote
+  branch contains), `srv` (a listener in the pane's process tree "will stop"; a detached listener on a port it mentions,
+  offered Stop), `shell` / `sub` (background shells / subagents); **safe** = the rest, `ok` chips for a port it mentions
+  served by a systemd user service ("Grafana stays up on :3000") or an active timer it names ("backup timer keeps running").
+- `POST /api/tidy/sleep {panes, note}` → `{id, at, due, n, names, note}`; **403** `{error, refused}` if any never-sleep pane
+  is in it. After 8 s each pane that is still the same session and not working/blocked is closed. `note: true`: Haiku
+  writes `Done / Open / Next / Files / Ports` (5 lines) from the transcript without waking the agent →
+  `<state>/handoffs/<sid>.md`; `GET /api/tidy/note/{sid}` → `{note, at}` (the asleep chat shows it above Continue).
+- `POST /api/tidy/undo {id}` inside the window (409 after: Continue instead). `POST /api/tidy/snooze {pane}` (Keep, 24 h),
+  `POST /api/tidy/hide {hours}` (Not now, default 6), `POST /api/tidy/prefs {idleMin}` (5-1440).
+- `POST /api/tidy/fix {pane, kind, text?, note?}`: `answer` / `push` / `stop` send `text` through `/api/a/{pane}/prompt`
+  (held behind a draft as usual), `send` presses Enter on a real draft; all **with a commitment to sleep**: once that turn
+  ends (it worked, or its completionSeq moved) the new last message is classified, and with no new question the pane gets
+  the same deferred close (`by: "commit"`, the phone shows the undo toast via `GET /api/tidy/pending`); a question or a
+  blocked prompt drops the commitment and the card comes back. Commitments expire after 3 h.
+- Haiku: ≤ 150 calls a day (questions + notes), only while the phone is in use or the user asks; `SHEPRD_TIDY_HAIKU=0` off.
+  Tests: `SHEPRD_FAKE_TIDY=1`, `SHEPRD_TIDY_IDLE_MS`.
+- Phone: Home card under Recent with ≥ 3 safe agents; review sheet; catch-up flow (full screen, swipe left = sleep,
+  right = keep); undo toast; just-slept agents first in Asleep. Tests: `cargo test tidy::`.
+
+## Branch from here (`server/src/branch.rs`, `web/sheets.js` branchSheet)
+
+Long-press an agent's own message in a chat (not a user bubble, not another agent's card, not a subagent transcript)
+→ **Branch from here…** → a sheet quotes the message's end and takes the user's reply → a new agent whose conversation is
+the chat up to and including that message, then the reply. The original agent and its transcript are never touched.
+
+`POST /api/t/{sid}/branch {i, text}` → `{pane, tab, ws, sid, title, color, parent}`
+- `i`: an assistant text item of that transcript (400 for anything else, a `~agentId` tid or an empty reply; 404
+  unknown item; 409 when its folder is gone).
+- The copy: the parent JSONL up to the end of item `i`'s line → `<same project dir>/<new uuid>.jsonl`. Rows go out
+  byte for byte with `"sessionId":"<old>"` rewritten (uuid / parentUuid chain intact), minus the parent's
+  `custom-title`, `agent-name`, `agent-color`, `ai-title`, `last-prompt`, `queue-operation` and `continued-in` rows.
+  The cut row (a JSON line) loses any `tool_use` blocks (their results are not in the branch; `stop_reason` becomes
+  `end_turn`); a row that is only a tool call is refused. Then `custom-title` + `agent-name` (the name) and
+  `agent-color` rows: the same rows `/rename` and `/color` write, so the fleet, History and Claude show them at once.
+- Name: 2-4 words from the reply's first sentence, filler dropped ("ok actually let's try websockets instead of
+  polling" → "Websockets Polling"); Haiku then names it after its new direction and a better name goes in like a
+  phone rename (`/rename` typed once idle, tab label at once). Test hook: `SHEPRD_FAKE_AUTONAME="Title|color"`.
+- Colour: never the parent's; the least-used of the 7 pastels among live agents, starting after the parent's.
+- Start: a tab in the parent's workspace (live pane's, else where it last lived, else the folder's) and folder,
+  labelled with the name; `claude --resume <new> --permission-mode auto --model <the parent's last model>` under a
+  `br-…` herdr name (never `master*`); the reply waits in the boot queue (newagent.rs) until Claude is ready.
+- Fleet: `<state>/agents.json` keeps `branch_of` / `branch_name` / `branch_at` per session. Live agents get
+  `branchOf: {sid, name, pane|null}` and `parent: {pane, via: "branch"}` (outranks the same-first-row `fork` guess);
+  `/api/agents` rows carry `branchOf` too. The phone shows "↳ from <parent>" on cards, Recent cells and search /
+  asleep rows, and "<parent> branched into this agent" as the chat crumb; tapping it opens the parent, awake or asleep.
+
+Limits: the branch has no file-history (Claude's rewind / checkpoints of the parent are not copied); branching from
+a message in the middle of a tool-using turn keeps only the text (tool calls after it, and their results, stay in
+the parent); a message from before a `/compact` branches from the full pre-compact chain as Claude stored it.
+Tests: `cargo test branch`.

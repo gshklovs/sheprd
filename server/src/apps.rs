@@ -228,7 +228,7 @@ fn job_pids(id: &str, cmd: &str) -> Vec<u32> {
 }
 
 /// LISTEN TCP sockets of these processes: (address, port), lowest port first.
-fn listening(pids: &[u32]) -> Vec<(String, u16)> {
+pub(crate) fn listening(pids: &[u32]) -> Vec<(String, u16)> {
     if pids.is_empty() {
         return vec![];
     }
@@ -277,7 +277,7 @@ fn reach_of(addrs: &[String], port: u16, ts_ip: &str) -> Option<String> {
 }
 
 /// LISTEN rows of /proc/net/tcp{,6}: (address, port, inode).
-fn parse_listen(s: &str, v6: bool) -> Vec<(String, u16, String)> {
+pub(crate) fn parse_listen(s: &str, v6: bool) -> Vec<(String, u16, String)> {
     let mut out = vec![];
     for l in s.lines().skip(1) {
         let f: Vec<&str> = l.split_whitespace().collect();
