@@ -462,10 +462,11 @@ struct ResumeBody {
 
 /// Resume an asleep session with `text` as its first message (decide.rs: the user's pick wakes the agent that asked).
 pub async fn resume_with(app: Shared, sid: String, text: String) -> Response {
-    api_resume(State(app), AxPath(sid), Some(Json(ResumeBody { ws: None, text: Some(text), wake: false }))).await
+    api_resume(State(app), AxPath(sid), axum::http::HeaderMap::new(), Some(Json(ResumeBody { ws: None, text: Some(text), wake: false }))).await
 }
 
-async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body: Option<Json<ResumeBody>>) -> Response {
+async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, h: axum::http::HeaderMap, body: Option<Json<ResumeBody>>) -> Response {
+    let src = crate::tidy::origin(&h, "POST /api/sessions/:sid/resume");
     if !crate::valid_sid(&sid) {
         return json_err(StatusCode::BAD_REQUEST, "bad session id");
     }
@@ -481,12 +482,14 @@ async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body
                 return herdr_err(e);
             }
         }
+        crate::tidy::log_event("wake", json!({"sid": sid, "pane": pane, "wake": body.wake, "result": "already awake: nothing launched", "src": src}));
         return Json(json!({"pane": pane, "live": true, "already": true})).into_response();
     }
     {
         let mut r = RESUMING.lock().unwrap();
         r.retain(|_, (_, t)| now_ms() - *t < 90_000);
         if let Some((pane, _)) = r.get(&sid) {
+            crate::tidy::log_event("wake", json!({"sid": sid, "pane": pane, "wake": body.wake, "result": "already starting: nothing launched", "src": src}));
             return Json(json!({"pane": pane, "live": true, "starting": true, "already": true})).into_response();
         }
     }
@@ -506,6 +509,7 @@ async fn api_resume(State(app): State<Shared>, AxPath(sid): AxPath<String>, body
         Err(r) => return r,
     };
     RESUMING.lock().unwrap().insert(sid.clone(), (pane.clone(), now_ms()));
+    crate::tidy::log_event("wake", json!({"sid": sid, "pane": pane, "ws": wsid, "tab": label, "wake": body.wake, "result": "launched claude --resume", "src": src}));
     crate::find::resumed(&sid, &pane);
     let args = vec!["--resume".to_string(), sid.clone(), "--permission-mode".into(), "auto".into()];
     let (app2, pane2, sid2) = (app.clone(), pane.clone(), sid.clone());

@@ -1265,6 +1265,11 @@ fn pending_session(app: &App, tid: &str) -> bool {
     !tid.contains('~') && app.inner.lock().unwrap().pane_sessions.values().any(|s| s == tid)
 }
 
+/// The session running in `pane`, if known.
+fn pane_for_session_rev(app: &App, pane: &str) -> Option<String> {
+    app.inner.lock().unwrap().pane_sessions.get(pane).cloned()
+}
+
 fn pane_for_session(app: &App, sid: &str) -> Option<String> {
     app.inner.lock().unwrap().pane_sessions.iter().find(|(_, s)| s.as_str() == sid).map(|(p, _)| p.clone())
 }
@@ -1764,13 +1769,17 @@ fn close_guard(app: &App, pane: &str) -> Option<&'static str> {
     (a["home"] == true || master("name") || master("tabLabel")).then_some("The home agent's tab is never closed from the phone")
 }
 
-async fn api_close(State(app): State<Shared>, AxPath(pane): AxPath<String>) -> Response {
+async fn api_close(State(app): State<Shared>, AxPath(pane): AxPath<String>, h: HeaderMap) -> Response {
+    let src = tidy::origin(&h, "POST /api/a/:pane/close");
     // the home agent's tab (home, or a herdr name / tab label `master*`) is never closed from the phone
     if let Some(why) = close_guard(&app, &pane) {
+        tidy::log_event("close.pane", json!({"pane": pane, "result": "refused: home agent", "src": src}));
         return json_err(StatusCode::FORBIDDEN, why);
     }
+    let sid = pane_for_session_rev(&app, &pane);
     match herdr::quick("pane.close", json!({"pane_id": pane})).await {
         Ok(_) => {
+            tidy::log_event("close.pane", json!({"pane": pane, "sid": sid, "result": "closed", "src": src}));
             app.refresh.notify_one();
             Json(json!({"ok": true})).into_response()
         }

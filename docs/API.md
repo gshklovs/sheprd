@@ -1522,6 +1522,14 @@ Builds on Find and continue:
   tab is added at the end; if another pane kept the old tab open, a second tab of the same name appears), the model
   (no `--model`: Claude's default), and a workspace that closed with its last tab (the agent opens in the workspace
   matching its folder, else the first one). Wake does not send "continue" (Continue in Asleep still does).
+- **Who did it: `<state>/tidy-log.jsonl`** (~/.local/state/sheprd; rotates to `.1` past 4 MB). One line per Tidy
+  `sleep` (request: panes, sids, names, undo id), `sleep.refused`, `undo`, `fix`, `close` (each deferred close after the
+  undo window: `closed` / `kept awake: changed since` / error, with the request's `src`), `just.hide`, `wake` (every
+  `POST /api/sessions/:sid/resume`: `launched claude --resume` or `already awake: nothing launched`) and `close.pane`
+  (`POST /api/a/:pane/close`). `src` = `{source, endpoint, ua}`: `phone / browser (sheprd app)` for a browser user
+  agent, else `api (curl / agent / script)`; a commitment sleep's source is `sleep commitment after a fix`. Names: Tidy
+  rows and `/api/agents` rows carry `tab` (the herdr tab label it had); the phone shows it when it differs from the
+  name ("Fix Login Bug · tab api").
 - **Never closes more than one agent without naming them** (audit 2026-10-10): the only herdr-destructive call is
   `pane.close` (`POST /api/a/{pane}/close`, one pane, confirm sheet naming it; **403** for the home agent's tab: home or herdr
   name / tab label `master*`) and Tidy's deferred close (above). Quiet's "Close tests" now opens one sheet naming every

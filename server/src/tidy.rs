@@ -164,6 +164,8 @@ struct Pending {
     by: &'static str,
     cancelled: bool,
     done: bool,
+    /// who asked (tidy-log.jsonl): `origin()` of the request, or the commitment that triggered it
+    src: Value,
 }
 
 struct Commit {
@@ -793,7 +795,7 @@ fn row(a: &Value, idle: i64, reasons: Vec<Value>, full: Option<&str>) -> Value {
     let one = |t: &str| t.replace("**", "").split_whitespace().collect::<Vec<_>>().join(" ");
     let last = a["last"]["text"].as_str().map(one).unwrap_or_default();
     json!({
-        "pane": a["pane"], "sid": a["session"], "name": name_of(a), "color": a["color"], "cwd": a["cwd"], "home": a["home"] == true,
+        "pane": a["pane"], "sid": a["session"], "name": name_of(a), "tab": a["tabLabel"], "color": a["color"], "cwd": a["cwd"], "home": a["home"] == true,
         "status": a["status"], "idleMs": idle, "last": last, "full": full,
         "ctx": {"pct": a["ctx"]["pct"], "tokens": a["ctx"]["tokens"]}, "reasons": reasons,
     })
@@ -974,7 +976,7 @@ struct SleepBody {
 }
 
 /// Starts a deferred close of these agents; `Err` = refused (never-sleep panes, nothing to close).
-fn start_sleep(app: &Shared, agents: &[Value], panes: &[String], note: bool, by: &'static str) -> Result<Value, (StatusCode, Value)> {
+fn start_sleep(app: &Shared, agents: &[Value], panes: &[String], note: bool, by: &'static str, src: Value) -> Result<Value, (StatusCode, Value)> {
     let mut items = vec![];
     let mut refused = vec![];
     for p in panes {
@@ -998,9 +1000,11 @@ fn start_sleep(app: &Shared, agents: &[Value], panes: &[String], note: bool, by:
         r.next += 1;
         let id = format!("z{:x}{}", now / 1000 % 0xfffff, r.next);
         r.pending.retain(|p| now - p.due < 600_000);
-        r.pending.push(Pending { id: id.clone(), items: items.clone(), at: now, due: now + UNDO_MS, note, by, cancelled: false, done: false });
+        r.pending.push(Pending { id: id.clone(), items: items.clone(), at: now, due: now + UNDO_MS, note, by, cancelled: false, done: false, src: src.clone() });
         id
     });
+    log_event("sleep", json!({"id": id, "by": by, "src": src, "note": note, "panes": items.iter().map(|i| &i.0).collect::<Vec<_>>(),
+        "sids": items.iter().map(|i| &i.1).collect::<Vec<_>>(), "names": items.iter().map(|i| &i.2).collect::<Vec<_>>(), "dueMs": UNDO_MS}));
     invalidate();
     if note {
         for (_, sid, name) in &items {
@@ -1017,9 +1021,9 @@ fn start_sleep(app: &Shared, agents: &[Value], panes: &[String], note: bool, by:
 /// After the undo window: close each pane that is still idle and still the same session.
 async fn finish(app: &Shared, id: &str) {
     tokio::time::sleep(Duration::from_millis(UNDO_MS as u64)).await;
-    let Some(items) = rt(|r| r.pending.iter_mut().find(|p| p.id == id && !p.cancelled).map(|p| {
+    let Some((items, by, src)) = rt(|r| r.pending.iter_mut().find(|p| p.id == id && !p.cancelled).map(|p| {
         p.done = true;
-        p.items.clone()
+        (p.items.clone(), p.by, p.src.clone())
     })) else {
         return;
     };
@@ -1028,13 +1032,18 @@ async fn finish(app: &Shared, id: &str) {
         let Some(a) = agents.iter().find(|a| a["pane"].as_str() == Some(pane.as_str())) else { continue };
         if a["session"].as_str() != Some(sid.as_str()) || guard(a).is_some() || matches!(a["status"].as_str(), Some("working") | Some("blocked")) {
             eprintln!("tidy: kept {pane} awake (changed since)");
+            log_event("close", json!({"id": id, "by": "deferred close after the undo window", "asked": by, "src": src, "pane": pane, "sid": sid, "result": "kept awake: changed since"}));
             continue;
         }
         match crate::herdr::quick("pane.close", json!({"pane_id": pane})).await {
             Ok(_) => {
                 with(|s| s.slept.insert(sid.clone(), now_ms()));
+                log_event("close", json!({"id": id, "by": "deferred close after the undo window", "asked": by, "src": src, "pane": pane, "sid": sid, "result": "closed"}));
             }
-            Err(e) => eprintln!("tidy: close {pane}: {e}"),
+            Err(e) => {
+                eprintln!("tidy: close {pane}: {e}");
+                log_event("close", json!({"id": id, "by": "deferred close after the undo window", "asked": by, "src": src, "pane": pane, "sid": sid, "result": format!("error: {e}")}));
+            }
         }
     }
     save();
@@ -1042,14 +1051,18 @@ async fn finish(app: &Shared, id: &str) {
     app.refresh.notify_one();
 }
 
-async fn api_sleep(State(app): State<Shared>, Json(b): Json<SleepBody>) -> Response {
+async fn api_sleep(State(app): State<Shared>, h: HeaderMap, Json(b): Json<SleepBody>) -> Response {
     if b.panes.is_empty() || b.panes.len() > 60 {
         return json_err(StatusCode::BAD_REQUEST, "panes: 1-60");
     }
     let agents = live(&app);
-    match start_sleep(&app, &agents, &b.panes, b.note, "user") {
+    let src = origin(&h, "POST /api/tidy/sleep");
+    match start_sleep(&app, &agents, &b.panes, b.note, "user", src.clone()) {
         Ok(v) => Json(v).into_response(),
-        Err((c, v)) => (c, Json(v)).into_response(),
+        Err((c, v)) => {
+            log_event("sleep.refused", json!({"src": src, "panes": b.panes, "status": c.as_u16(), "error": v["error"]}));
+            (c, Json(v)).into_response()
+        }
     }
 }
 
@@ -1058,7 +1071,8 @@ struct IdBody {
     id: String,
 }
 
-async fn api_undo(State(app): State<Shared>, Json(b): Json<IdBody>) -> Response {
+async fn api_undo(State(app): State<Shared>, h: HeaderMap, Json(b): Json<IdBody>) -> Response {
+    log_event("undo", json!({"id": b.id, "src": origin(&h, "POST /api/tidy/undo")}));
     let r = rt(|r| {
         let p = r.pending.iter_mut().find(|p| p.id == b.id)?;
         if p.done || now_ms() >= p.due {
@@ -1235,7 +1249,8 @@ struct FixBody {
     note: bool,
 }
 
-async fn api_fix(State(app): State<Shared>, Json(b): Json<FixBody>) -> Response {
+async fn api_fix(State(app): State<Shared>, h: HeaderMap, Json(b): Json<FixBody>) -> Response {
+    log_event("fix", json!({"pane": b.pane, "kind": b.kind, "src": origin(&h, "POST /api/tidy/fix")}));
     let agents = live(&app);
     let Some(a) = agents.iter().find(|a| a["pane"].as_str() == Some(b.pane.as_str())).cloned() else {
         return json_err(StatusCode::NOT_FOUND, "unknown pane");
@@ -1321,7 +1336,8 @@ async fn watch_commits(app: &Shared) {
                 invalidate();
                 return;
             }
-            if let Err((_, e)) = start_sleep(&app, &agents, std::slice::from_ref(&pane), note, "commit") {
+            let src = json!({"source": "sleep commitment after a fix (its turn ended with no new question)", "endpoint": "tidy::watch_commits", "sid": sid});
+            if let Err((_, e)) = start_sleep(&app, &agents, std::slice::from_ref(&pane), note, "commit", src) {
                 eprintln!("tidy: commitment sleep {pane}: {e}");
             }
         });
@@ -1343,12 +1359,36 @@ fn pending_json() -> Value {
     })
 }
 
+/// Who sent a request, for tidy-log.jsonl: the phone app (a browser user agent) or anything else (curl, an agent,
+/// a script), with the endpoint and user agent.
+pub fn origin(h: &HeaderMap, endpoint: &str) -> Value {
+    let ua = h.get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.chars().take(200).collect::<String>());
+    let source = if ua.as_deref().is_some_and(|u| u.contains("Mozilla")) { "phone / browser (sheprd app)" } else { "api (curl / agent / script)" };
+    json!({"source": source, "endpoint": endpoint, "ua": ua})
+}
+
+/// Appends one line to `<state>/tidy-log.jsonl` (every Tidy sleep, undo, deferred close, fix, wake / resume, pane
+/// close, with who triggered it). Rotates to `.1` past 4 MB.
+pub fn log_event(ev: &str, mut v: Value) {
+    use std::io::Write;
+    v["ev"] = json!(ev);
+    v["t"] = json!(now_ms());
+    let path = crate::state_dir().join("tidy-log.jsonl");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 4 << 20) {
+        let _ = std::fs::rename(&path, path.with_extension("jsonl.1"));
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{v}");
+    }
+}
+
 /// How long the phone lists agents under "Just put to sleep" (one-tap Wake), unless the user hides the group.
 const JUST_MS: i64 = 6 * 3_600_000;
 
 /// Hide the "Just put to sleep" group (the agents stay in Asleep).
-async fn api_just_hide() -> Response {
+async fn api_just_hide(h: HeaderMap) -> Response {
     let at = now_ms();
+    log_event("just.hide", json!({"src": origin(&h, "POST /api/tidy/just/hide")}));
     with(|s| s.just_hidden = at);
     save();
     invalidate();

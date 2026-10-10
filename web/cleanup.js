@@ -153,6 +153,10 @@ const WHAT = `<details class="ts-what"><summary><span>Closes their tabs. Chats a
   + '<li><b>Keeps the whole conversation</b> and the 5-line note if it’s on. Nothing is deleted.</li>'
   + '<li><b>Wake it any time</b> from Agents › Asleep or search: it reopens in its old workspace and tab and picks up where it left off.</li>'
   + '<li>Changed your mind? Undo for 8 s, then Wake from “Just put to sleep” at the top of Agents.</li></ul></details>';
+/** The tab name it had when that is not its display name ("api" for "Fix Login Bug"): the user knows agents by
+ *  their herdr tab too, so Tidy shows both. */
+export const tabOf = r => { const t = String(r?.tab || '').trim(), k = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return t && !k(r.name).includes(k(t)) && !k(t).includes(k(r.name)) ? t : ''; };
+const withTab = r => tabOf(r) ? `${r.name} (${tabOf(r)})` : r.name;
 /** "Docs Site, Sheprd Setup and Nightly Report" / "Docs Site, Sheprd Setup +4 more" */
 export function namesLine(names) {
   if (names.length <= 1) return names[0] || '';
@@ -163,7 +167,7 @@ export function namesLine(names) {
 // ---------- A2: the review sheet ----------
 const rowHTML = (r, sec, on) => `<div class="tr${colCls(r.color)}" data-pane="${esc(r.pane)}" data-sec="${sec}">`
   + `<button class="tck${on ? ' on' : ''}" aria-label="${on ? 'Selected' : 'Not selected'}" aria-pressed="${on}">${IC.check}</button>${face(r, 34)}`
-  + `<div class="tb"><div class="t1"><b class="nm">${esc(r.name)}</b><span class="tm">${ago(r.idleMs)}</span></div>`
+  + `<div class="tb"><div class="t1"><b class="nm">${esc(r.name)}${tabOf(r) ? ` <span class="ttab">tab ${esc(tabOf(r))}</span>` : ''}</b><span class="tm">${ago(r.idleMs)}</span></div>`
   + `<div class="t2">${esc(fold(r.last) || shortPath(r.cwd || ''))}</div>`
   + `${r.reasons.length || r.ctx?.pct != null ? `<div class="t3">${r.reasons.map(chipHTML).join('')}${ctxHTML(r)}</div>` : ''}</div></div>`;
 /** "Master and Backup never sleep · 2 working · 1 pinned" */
@@ -205,7 +209,7 @@ export async function review() {
     const n = [...on].filter(p => tt.safe.some(r => r.pane === p) || tt.check.some(r => r.pane === p)).length;
     const go = $('.tf-go', foot), nx = $('.tf-next', foot), left = tt.check.filter(r => !on.has(r.pane));
     const picked = [...tt.safe, ...tt.check].filter(r => on.has(r.pane));
-    const gh = n ? `<b>Put ${n} to sleep</b><small>${esc(namesLine(picked.map(r => r.name)))}</small>` : '<b>Nothing selected</b>';
+    const gh = n ? `<b>Put ${n} to sleep</b><small>${esc(namesLine(picked.map(withTab)))}</small>` : '<b>Nothing selected</b>';
     if (go._h !== gh) { go._h = gh; go.innerHTML = gh; }
     go.disabled = !n;
     nx.hidden = !left.length; nx.textContent = n ? `Then catch up on ${left.length} ›` : `Catch up on ${left.length} ›`;
@@ -231,7 +235,7 @@ export async function review() {
       // more than one tab closes: the first tap names every one of them, the second (within 6 s) puts them to sleep
       if (rows.length > 1 && !(ARM > Date.now())) {
         haptic(); ARM = Date.now() + 6000;
-        const go = $('.tf-go', foot); go.classList.add('arm'); go._h = `<b>Close these ${rows.length} tabs?</b><small>${esc(rows.map(r => r.name).join(', '))}</small><small class="tf-tap">Tap again to put them to sleep</small>`; go.innerHTML = go._h;
+        const go = $('.tf-go', foot); go.classList.add('arm'); go._h = `<b>Close these ${rows.length} tabs?</b><small>${esc(rows.map(withTab).join(', '))}</small><small class="tf-tap">Tap again to put them to sleep</small>`; go.innerHTML = go._h;
         clearTimeout(ARMT); ARMT = setTimeout(() => { ARM = 0; go.classList.remove('arm'); go._h = null; draw(); }, 6000);
         return;
       }
@@ -369,7 +373,7 @@ export function drawJust(el, st) {
   const n = list.length, waking = list.filter(a => WAKING.has(a.sid)).length;
   const html = `<div class="tj-h"><span class="tj-ic">${MOON}</span><div class="tj-tx"><b>Just put to sleep</b><small>${plural(n, 'agent')} · ${esc(clock(Math.min(...list.map(a => a.sleptAt))))} · chats kept</small></div><button class="tj-hide">Hide</button></div>`
     + `<div class="tj-list">${list.map(a => `<div class="tj-row${colCls(a.color)}" data-sid="${esc(a.sid)}">${favHTML(a, { sz: 34 })}`
-      + `<a class="tj-b" href="#/t/${enc(a.sid)}"><b class="nm">${esc(nameOf(a))}</b><small>${esc(a.job || shortPath(a.cwd || ''))}</small></a>`
+      + `<a class="tj-b" href="#/t/${enc(a.sid)}"><b class="nm">${esc(nameOf(a))}</b><small>${tabOf({ ...a, name: nameOf(a) }) ? `tab ${esc(a.tab)} · ` : ''}${esc(a.job || shortPath(a.cwd || ''))}</small></a>`
       + (WAKING.has(a.sid) ? '<button class="btn cont tj-wake" disabled><span class="spin"></span>Waking</button>' : `<button class="btn cont tj-wake" data-sid="${esc(a.sid)}">Wake</button>`) + '</div>').join('')}</div>`
     + (n - waking > 1 ? `<button class="btn tj-all">Wake all ${n - waking}</button>` : '')
     + '<p class="tj-why">Wake reopens it in its old workspace and tab, right where it left off. Nothing is sent to it.</p>';
@@ -418,4 +422,4 @@ export async function noteInto(w, sid) {
     const at = $('.wb', w); at ? at.before(n) : w.append(n);
   } catch { }
 }
-export const _test = { keepWhy, cardHTML, rowHTML, namesLine, justList };
+export const _test = { keepWhy, cardHTML, rowHTML, namesLine, justList, tabOf };

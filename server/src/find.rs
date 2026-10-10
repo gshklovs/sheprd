@@ -343,7 +343,7 @@ fn row_live(a: &Value, i: Option<&Info>, s: Option<&Sess>) -> Value {
     let home = a["home"] == true;
     let name = if home { crate::home_name() } else { a["short"].as_str().or(a["title"].as_str()).unwrap_or("").to_string() };
     json!({
-        "sid": a["session"], "name": name, "title": a["title"], "job": a["job"], "jobBy": i.and_then(|i| i.job_by.clone()),
+        "sid": a["session"], "name": name, "title": a["title"], "tab": a["tabLabel"], "job": a["job"], "jobBy": i.and_then(|i| i.job_by.clone()),
         "cwd": a["cwd"], "color": a["color"], "pane": a["pane"], "status": a["status"], "since": a["since"],
         "asleep": false, "home": home, "service": !a["service"].is_null(),
         "ts": s.map(|s| s.mtime).unwrap_or(0).max(a["last"]["ts"].as_i64().unwrap_or(0)),
@@ -355,7 +355,7 @@ fn row_live(a: &Value, i: Option<&Info>, s: Option<&Sess>) -> Value {
 fn row_asleep(s: &Sess, i: Option<&Info>, pinned: bool) -> Value {
     let last = s.last_asst.as_ref().map(|t| json!({"role": "assistant", "text": t})).or_else(|| s.last.as_ref().map(|t| json!({"role": "user", "text": t})));
     json!({
-        "sid": s.sid, "name": asleep_name(i, s), "title": s.custom.clone().or(s.ai.clone()), "job": i.and_then(|i| i.job.clone()),
+        "sid": s.sid, "name": asleep_name(i, s), "title": s.custom.clone().or(s.ai.clone()), "tab": i.and_then(|i| i.label.clone()), "job": i.and_then(|i| i.job.clone()),
         "jobBy": i.and_then(|i| i.job_by.clone()), "cwd": s.cwd, "color": s.color, "pane": Value::Null, "status": Value::Null,
         "since": s.mtime, "created": s.created, "asleep": true, "home": false, "service": false, "ts": s.mtime, "lu": s.last_user, "last": last,
         "pinned": pinned, "hidden": i.is_some_and(|i| i.hidden), "prompts": s.prompts,
