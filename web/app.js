@@ -1764,6 +1764,8 @@ class ChatView {
     if (this.home) updPchips(this.list);
     if (this.pane) {
       const a = st?.agents.find(x => x.pane === this.pane);
+      // Undo last turn (undo.js): Claude exits and starts again in this pane; the chat stays put meanwhile
+      if (!a && G.undoing?.get(this.pane) > Date.now()) return;
       const shell = !a && st?.shells?.find(x => x.pane === this.pane);
       if (shell) { location.replace('#/s/' + enc(this.pane)); return; }
       this.agent = a;

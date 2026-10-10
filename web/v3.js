@@ -73,6 +73,7 @@ export function chatMenu(view) {
     a.mod && ['catch', 'Catch me up'], // talk.js
     ['mode', 'Mode (plan/auto) · ⇧Tab'], // was the ⇧Tab key above the composer
     ['fork', 'Fork session'],
+    view.target === view.pane && a.session && ['undo', 'Undo last turn…'], // undo.js
     ['term', view.screen ? 'Back to chat' : 'Terminal'],
     // moved here from the crowded chat header
     view.subs?.length && ['subs', `Subagents · ${view.subs.filter(s => s.running).length ? view.subs.filter(s => s.running).length + ' running of ' : ''}${view.subs.length}`],
@@ -87,6 +88,7 @@ export function chatMenu(view) {
     if (k === 'desk') focusDesk(a);
     else if (k === 'review') review(a);
     else if (k === 'fork') fork(a);
+    else if (k === 'undo') lazy('undo').then(m => m.undoSheet(view), e => toast('Load failed: ' + esc(e.message), 'err'));
     else if (k === 'mode') cycleMode(a);
     else if (k === 'catch') lazy('talk').then(m => m.catchUp(view));
     else if (k === 'git') location.hash = '#/g/' + enc(a.pane);

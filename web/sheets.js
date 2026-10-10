@@ -105,7 +105,7 @@ export function msgSheet(view, it, el) {
   const canCompose = !!view.target && !view.el.classList.contains('ro');
   const rows = [['copy', 'Copy'], !user && ['md', 'Copy as Markdown'], navigator.share && ['share', 'Share…'],
     !user && ['say', 'Read aloud'], canCompose && ['quote', 'Quote in reply'], ['fwd', 'Send to agent…'], user && canCompose && ['edit', 'Edit & resend'],
-    canBranch(view, it, card) && ['branch', 'Branch from here…']].filter(Boolean);
+    canBranch(view, it, card) && ['branch', 'Branch from here…'], user && undoable(view, it) && ['undo', 'Undo last turn…']].filter(Boolean);
   const sh = sheet(`<div class="mprev">${esc(plain.slice(0, 220))}${plain.length > 220 ? '…' : ''}</div><div class="acts">${rows.map(([k, l]) => `<button class="act" data-a="${k}">${l}</button>`).join('')}</div>`);
   const ta = view.ta, put = v => { ta.value = v; ta.dispatchEvent(new Event('input')); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); };
   sh.addEventListener('click', e => {
@@ -113,6 +113,7 @@ export function msgSheet(view, it, el) {
     const a = b.dataset.a;
     if (a === 'fwd') { forwardSheet(view, text, sh, fwdSource(view, it, user, card)); return; }
     if (a === 'branch') { sh.close(); branchSheet(view, it, plain); return; }
+    if (a === 'undo') { sh.close(); lazy('undo').then(m => m.undoSheet(view), e => toast('Load failed: ' + esc(e.message), 'err')); return; }
     sh.close();
     if (a === 'copy') copyText(plain);
     else if (a === 'md') copyText(text);
@@ -122,6 +123,9 @@ export function msgSheet(view, it, el) {
     else if (a === 'edit') put(text + (ta.value ? '\n' + ta.value : ''));
   });
 }
+// Undo last turn (undo.js): only on the chat's last prompt, in a live agent's own chat
+const undoable = (view, it) => !!view.pane && view.target === view.pane && !!view.agent && !(view.fixedTid || '').includes('~')
+  && it.i === [...view.items].reverse().find(x => x.k === 'user' && x.kind !== 'report')?.i;
 // ---------- Branch from here (API.md "Branch") ----------
 // An agent's own message in a main transcript (not a subagent's, not another agent's card) can start a branch: a new
 // agent with this chat up to that message, then the user's reply. The original agent is left as it is.

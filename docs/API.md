@@ -1533,6 +1533,39 @@ a message in the middle of a tool-using turn keeps only the text (tool calls aft
 the parent); a message from before a `/compact` branches from the full pre-compact chain as Claude stored it.
 Tests: `cargo test branch`.
 
+## Undo last turn (`server/src/undo.rs`, `web/undo.js` + `undo.css`)
+
+From a live agent's chat: long-press the user's last message (only that one) → **Undo last turn…**, or the chat's ⋯ menu (the home agent:
+tap its name). The conversation goes back to before that prompt, files the turn edited go back where Claude's checkpoints
+allow, and the prompt (plus any messages typed into the running turn) comes back into the composer, in front of an
+unsent draft, never over it. Nothing changes before the confirmation.
+
+- `GET /api/a/<pane>/undo` → `{uuid, ts, text, also[], images, from, checkpoint, files: [{path, act, inTurn, later}],
+  unchecked[], commands[], other[], tools, git: {other[], otherN, commits[]} | null, home, blocked}`.
+  `act`: `restore` | `delete` (the turn created it) | `recreate` | `missing` (backup gone) | `same`; `later` = modified after
+  the turn ended (those changes are lost too); `inTurn: false` with a change = something else changed a checkpointed file
+  since the prompt (it goes back too). `unchecked` = the turn's edits outside the checkpoint. `commands` = its Bash calls
+  (not undone), `other` = other non-read tools (already happened). `git.other` = changed files git sees that the
+  checkpoint doesn't cover (left as they are), `git.commits` = commits since the prompt (stay; files go back only in the
+  working tree). `blocked`: `working` | `blocked` | `held` (a message waits for its box) | `draft` (unsent text in its
+  terminal's box) | `menu` | `unreadable` | `moved` (continued in another session) | `busy` | null.
+- `POST /api/a/<pane>/undo {uuid, files?: bool}` → `{ok, text, files: {ok, warning} | null, restarted, error, backup, tid}`;
+  409 when `blocked`, or when `uuid` is no longer the last prompt.
+
+How (Claude Code 2.1.289): 1. `/exit` typed into the idle agent's empty box (inputbox guard; no signals), wait until herdr
+no longer sees an agent in the pane (20 s, else nothing changed); 2. `claude -p --resume <sid> --rewind-files <prompt uuid>
+--setting-sources "" --strict-mcp-config` with `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=1` (hidden standalone flag; print
+mode refuses without the env: "File rewinding is not enabled") restores every checkpointed file to its state at that
+prompt and deletes files the turn created; on failure Claude starts again on the untouched transcript; 3. the JSONL is
+cut in place at the prompt's line (a full copy first in `<state>/undo/<sid>.<ms>.jsonl`, last 20 kept); the latest
+`custom-title` / `agent-name` / `agent-color` / `ai-title` / `mode` / `permission-mode` / `tag` rows after the cut are
+re-appended; 4. `claude --resume <sid> --permission-mode <its mode> --model <its model>` in the same pane under the same
+herdr name (`master` stays `master`, so the home agent keeps its pin), prompts sent meanwhile
+wait in the boot queue. The phone keeps the chat (and the home agent's Home) up during the restart (`G.undoing`, `G.homePending`)
+and reloads the transcript after. `SHEPRD_CLAUDE_ARGS` (tests) appends args to the restart.
+Not undone: shell commands, git commits, pushes, messages to other agents, web calls, MCP tools; files Claude never
+checkpointed. A turn without a checkpoint (file history off) undoes the conversation only. Test: `cargo test undo::`.
+
 ## Apps (launcher) (`server/src/launcher.rs`, `web/apps-tab.js` + `apps-tab.css`, the Apps tab `#/apps`)
 Your self-hosted apps as a 2-column grid: each tile = the app's own thumbnail (4:3, object-fit: cover), its name with
 a health dot and a one-line description; tap opens the app. **Not** the "Running apps" of `apps.rs` / `POST /api/apps/about`

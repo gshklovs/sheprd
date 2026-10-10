@@ -287,12 +287,8 @@ pub async fn run_haiku(system: Option<&str>, prompt: &str, timeout: Duration) ->
         args.push(sys.to_string());
     }
     args.push(prompt.to_string());
-    let path = format!(
-        "{}:{}:/usr/local/bin:/usr/bin:/bin",
-        crate::home().join(".local/bin").display(),
-        crate::home().join(".local/share/mise/shims").display()
-    );
-    let mut cmd = if crate::cloud::which("systemd-run") {
+    let path = crate::cloud::child_path();
+    let mut cmd = if crate::cloud::user_scope() {
         let mut c = tokio::process::Command::new("systemd-run");
         c.args(["--user", "--quiet", "--pipe", "--wait", "--collect", "-p", "MemoryMax=1000M", "--working-directory"])
             .arg(&dir)

@@ -43,6 +43,7 @@ mod slash;
 mod surfaces;
 mod theme;
 mod tidy;
+mod undo;
 mod transcript;
 mod usage;
 mod v3;
@@ -317,6 +318,7 @@ async fn main() {
         .merge(fleet::routes())
         .merge(find::routes())
         .merge(branch::routes())
+        .merge(undo::routes())
         .merge(sched::routes())
         .merge(cloud::routes())
         .merge(desk::routes())
@@ -1832,7 +1834,7 @@ struct NewBody {
     shell: Option<bool>,
 }
 
-fn agent_slug(s: &str) -> String {
+pub(crate) fn agent_slug(s: &str) -> String {
     let mut out: String = s
         .to_lowercase()
         .chars()

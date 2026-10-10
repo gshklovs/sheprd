@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
@@ -66,16 +66,48 @@ fn store(f: impl FnOnce(&mut Value)) {
     let _ = std::fs::write(cache_file(), c.doc.to_string());
 }
 
-/// The real claude binary (the ~/.local/bin wrapper needs mise on PATH).
+/// Directories to look in for programs: the server's own PATH (`sheprd setup` copies the installing shell's PATH into
+/// the service), then the usual places user-level tools land.
+fn bin_dirs() -> Vec<PathBuf> {
+    let h = crate::home();
+    let mut v: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    for d in [h.join(".local/bin"), h.join(".claude/local"), h.join(".npm-global/bin"), h.join(".local/share/mise/shims"), h.join(".bun/bin")] {
+        v.push(d);
+    }
+    for d in ["/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin"] {
+        v.push(PathBuf::from(d));
+    }
+    v
+}
+
+/// The claude binary: on PATH or in a usual install place (native installer, npm, mise).
 pub(crate) fn claude_bin() -> Option<PathBuf> {
     let h = crate::home();
-    [h.join(".local/share/mise/installs/claude/latest/claude"), h.join(".local/bin/claude"), "/usr/bin/claude".into()]
-        .into_iter()
+    // a version manager's real binary first: its ~/.local/bin wrapper may need the manager on PATH
+    std::iter::once(h.join(".local/share/mise/installs/claude/latest/claude"))
+        .chain(bin_dirs().into_iter().map(|d| d.join("claude")))
         .find(|p| p.is_file())
 }
 
 pub(crate) fn which(name: &str) -> bool {
-    ["/usr/bin", "/bin", "/usr/local/bin"].iter().any(|d| Path::new(d).join(name).is_file())
+    bin_dirs().iter().any(|d| d.join(name).is_file())
+}
+
+/// Run children in their own systemd user scope (memory cap): only when `systemd-run` exists **and** a user manager
+/// is running (containers and WSL often have the binary without one).
+pub(crate) fn user_scope() -> bool {
+    which("systemd-run")
+        && std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .or_else(|| Some(PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() }))))
+            .is_some_and(|d| d.join("systemd/private").exists())
+}
+
+/// PATH for the headless claude runs the server starts (they may run tools: git, node, …).
+pub(crate) fn child_path() -> String {
+    let mut seen = std::collections::HashSet::new();
+    let v: Vec<String> = bin_dirs().into_iter().map(|d| d.to_string_lossy().into_owned()).filter(|d| !d.is_empty() && seen.insert(d.clone())).collect();
+    v.join(":")
 }
 
 /// Runs one headless turn that calls RemoteTrigger and returns the tool results
@@ -91,12 +123,8 @@ async fn remote_trigger(prompt: &str) -> Result<Vec<Value>, (bool, String)> {
     .iter()
     .map(|s| s.to_string())
     .collect();
-    let path = format!(
-        "{}:{}:/usr/local/bin:/usr/bin:/bin",
-        crate::home().join(".local/bin").display(),
-        crate::home().join(".local/share/mise/shims").display()
-    );
-    let mut cmd = if which("systemd-run") {
+    let path = crate::cloud::child_path();
+    let mut cmd = if user_scope() {
         let mut c = tokio::process::Command::new("systemd-run");
         c.args(["--user", "--quiet", "--pipe", "--wait", "--collect", "-p", "MemoryMax=1500M", "--working-directory"])
             .arg(&dir)
