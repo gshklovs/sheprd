@@ -270,6 +270,51 @@ async fn api_voice(State(app): State<Shared>, Query(q): Query<VoiceQ>, headers: 
     .into_response()
 }
 
+/// A saved audio file → text, through the same gate, ffmpeg and whisper as a voice note (send.rs: a voice memo
+/// shared to the home agent). `Ok("")` = silence. The file itself is left alone.
+pub async fn transcribe_file(app: &Shared, src: &Path) -> Result<String, String> {
+    let (Some(bin), Some(model)) = (whisper_bin(), whisper_model()) else { return Err("whisper.cpp is not installed on the box".into()) };
+    if which("ffmpeg").is_none() {
+        return Err("ffmpeg is not installed on the box".into());
+    }
+    let dir = home().join(".cache/sheprd/voice");
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| e.to_string())?;
+    let wav = dir.join(format!("{}-{}-shared.16k.wav", crate::now_ms(), std::process::id()));
+    let _tmp = Tmp(vec![wav.clone()]);
+    WAITING.fetch_add(1, Ordering::Relaxed);
+    let permit = GATE.acquire().await;
+    WAITING.fetch_sub(1, Ordering::Relaxed);
+    let _permit = permit.map_err(|_| "voice queue closed".to_string())?;
+    BUSY.fetch_add(1, Ordering::Relaxed);
+    let _busy = Busy;
+    let mut c = tokio::process::Command::new("nice");
+    c.args(["-n", NICE, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(src)
+        .args(["-vn", "-ac", "1", "-ar", "16000", "-t", &MAX_SECS.to_string()])
+        .args(["-map_metadata", "-1", "-fflags", "+bitexact", "-c:a", "pcm_s16le"])
+        .arg(&wav);
+    run(c, Duration::from_secs(90)).await.map_err(|e| format!("could not read the audio: {e}"))?;
+    let secs = std::fs::metadata(&wav).map(|m| wav_secs(m.len())).unwrap_or(0.0);
+    let w2 = wav.clone();
+    let level = tokio::task::spawn_blocking(move || loudest_window_db(&w2)).await.unwrap_or(0.0);
+    if secs < 0.3 || level < SILENCE_DB {
+        return Ok(String::new());
+    }
+    let p = prompt(app, None);
+    let mut c = tokio::process::Command::new("nice");
+    c.args(["-n", NICE]).arg(&bin).arg("-m").arg(&model).arg("-f").arg(&wav);
+    c.args(["-t", &threads().await.to_string(), "-np", "-nt", "-l", "en"]);
+    if !p.is_empty() {
+        c.arg("--prompt").arg(&p);
+    }
+    if let Some(lib) = bin.parent().and_then(Path::parent).map(|d| d.join("lib")).filter(|l| l.join("libwhisper.so.1").exists()) {
+        c.env("LD_LIBRARY_PATH", lib);
+    }
+    let out = run(c, Duration::from_secs(60 + 3 * secs as u64)).await.map_err(|e| format!("whisper: {e}"))?;
+    Ok(clean(&out))
+}
+
+
 /// Runs a child to completion with a deadline; killed if the deadline passes or
 /// the request is dropped. Returns stdout.
 async fn run(mut c: tokio::process::Command, limit: Duration) -> Result<String, String> {

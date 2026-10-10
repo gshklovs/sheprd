@@ -30,6 +30,8 @@ mod repos;
 mod push;
 mod res;
 mod scan;
+mod send;
+mod share;
 mod talk;
 mod sched;
 mod schedicon;
@@ -261,6 +263,7 @@ async fn main() {
     tokio::spawn(subscription_loop(app.clone(), panes_rx));
     alerts::init(&app, &state_dir());
     tokio::spawn(theme::run(app.clone()));
+    tokio::spawn(send::run(app.clone()));
     tokio::spawn(push_digests(app.clone()));
 
     let api = Router::new()
@@ -323,6 +326,7 @@ async fn main() {
         .merge(usage::routes())
         .merge(voice::routes())
         .merge(theme::routes())
+        .merge(send::routes())
         .merge(asks::routes())
         .merge(repos::routes())
         .merge(slash::routes())
@@ -383,7 +387,7 @@ async fn main() {
     let _ = axum::serve(l, api).await;
 }
 
-async fn tailscale_identity() -> (String, String) {
+pub(crate) async fn tailscale_identity() -> (String, String) {
     let out = tokio::process::Command::new("tailscale").args(["status", "--json", "--self", "--peers=false"]).output().await;
     let Ok(out) = out else { return (String::new(), String::new()) };
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);

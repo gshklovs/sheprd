@@ -69,6 +69,8 @@ sheprd setup --yes --no-wait  # unattended
 - **Blocked? Answer it**: permission prompts, `AskUserQuestion` menus and plan approvals become big buttons.
 - **Push notifications** when an agent is blocked, finishes a long turn, or surfaces something for you.
   They're suppressed while you're already looking.
+- **Send to your home agent** from any app: a link, a note, a photo, a PDF or a voice memo plus a note, through an
+  iOS Shortcut on the Share button (the app walks you through it).
 - **Start agents** from the phone in any folder, in one tap, including worktrees, forks and reviewers.
 - **History, schedules and automations**: resume any past session, run agents on a plain-language schedule
   ("every weekday 8:00"), and see your Claude cloud routines.

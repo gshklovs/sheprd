@@ -65,6 +65,7 @@ export function chatMenu(view) {
   const n = a.watches?.length || 0;
   const rows = [
     a.home && ['new', 'New chat'], // was the pencil in the home agent's header
+    a.home && ['send', 'Send to ' + HOME_NAME() + '…'], // link / note / photo / voice + a note, and the Share-button Shortcut (send.js)
     ['desk', 'Open on desk'],
     ['watch', 'Tell me when…' + (n ? ` (${n} set)` : '')],
     !a.home && ['review', 'Review this'],
@@ -91,6 +92,7 @@ export function chatMenu(view) {
     else if (k === 'git') location.hash = '#/g/' + enc(a.pane);
     else if (k === 'term') view.toggleScreen();
     else if (k === 'new') view.newChat?.();
+    else if (k === 'send') lazy('send').then(m => m.sendSheet(), e => toast('Load failed: ' + esc(e.message), 'err'));
     else if (k === 'subs') view.subsSheet();
     else if (k === 'files') lazy('files').then(m => m.filesSheet(view.tid, view.filesR));
   });

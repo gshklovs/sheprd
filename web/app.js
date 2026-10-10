@@ -3008,7 +3008,8 @@ function route() {
   // item routes: #/?i=N, #/a/<pane>?i=N, #/t/<tid>?i=N
   let hs = raw, wantI = null, rfocus = null, seeId = null;
   const mq = raw.match(/^(\/|\/[at]\/[^?]+)\?(.*)$/);
-  if (mq) { hs = mq[1]; const v = new URLSearchParams(mq[2]).get('i'); if (v != null && /^\d+$/.test(v)) wantI = +v; }
+  let sendQ = false; // #/?send=1: Send to the home agent (its share page's "Send something else")
+  if (mq) { hs = mq[1]; const qp = new URLSearchParams(mq[2]), v = qp.get('i'); if (v != null && /^\d+$/.test(v)) wantI = +v; sendQ = hs === '/' && !!qp.get('send'); }
   // #/see/<id> (a surface push, sw.js): the agents view, its "You should see this" panel in view, that card lit
   const sm = hs.match(/^\/see\/([^/?]+)/);
   if (sm) { try { seeId = decodeURIComponent(sm[1]); } catch { seeId = sm[1]; } hs = '/agents'; }
@@ -3020,6 +3021,7 @@ function route() {
     if (wantI != null) G.view?.focusItem?.(wantI);
     if (seeId != null) G.view?.see?.(seeId);
     rfocus?.();
+    if (sendQ) lazy('send').then(m => m.sendSheet(), e => toast('Load failed: ' + esc(e.message), 'err'));
   };
   const m = hs.match(/^\/(a|t|s)\/(.+)$/);
   let key, make;
