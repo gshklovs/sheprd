@@ -3,7 +3,11 @@
 // description. Tap opens the app (its https Tailscale Serve form when one exists, else its URL: http on a tailnet IP
 // opens in Safari). Long-press: Open, Copy link, Refresh, Remove. Agents register with POST /api/launcher
 // (server/src/launcher.rs, API.md "Apps (launcher)"); the empty state shows the one-liner.
-import { G, I, $, h, esc, api, sheet, toast, haptic, tick, longPress, copyText, agentHref, nav, whoName, goBack, HOME_NAME } from './app.js';
+// No blank screens: the view is kept across visits, the last list is kept in memory and in
+// localStorage ('apps.last') so the grid paints at once, and every fetch patches tiles in place: a changed name,
+// description or health only touches that text / that dot, tiles are added, moved or removed one by one, and a
+// thumbnail's <img> stays alive across updates (a new ?v= hash is preloaded, then swapped in).
+import { G, I, $, h, esc, api, ls, sheet, toast, haptic, longPress, copyText, agentHref, nav, whoName, goBack, HOME_NAME } from './app.js';
 
 await new Promise(r => {
   if (document.querySelector('link[data-appstab]')) return r();
@@ -29,16 +33,50 @@ const healthWord = x => {
 let V = null;
 export function route() { return { key: 'apps', make: () => (V ||= new AppsView()), focus: null }; }
 
+const LSK = 'apps.last';
+const tileStyle = x => { const bg = col(x.background), ac = col(x.accent); return (bg ? `--ap-bg:${bg};` : '') + (ac ? `--ap-ac:${ac};` : ''); };
+const mono = x => (x.name.match(/[\p{L}\p{N}]/u) || ['•'])[0].toUpperCase();
 function tileHTML(x) {
-  const [hs, hw] = healthWord(x), bg = col(x.background), ac = col(x.accent);
-  const style = (bg ? `--ap-bg:${bg};` : '') + (ac ? `--ap-ac:${ac};` : '');
-  const art = x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" decoding="async">`
-    : `<span class="ap-mono" aria-hidden="true">${esc((x.name.match(/[\p{L}\p{N}]/u) || ['•'])[0].toUpperCase())}</span>`;
+  const [hs, hw] = healthWord(x), style = tileStyle(x);
+  const art = x.thumb ? `<img src="${esc(x.thumb)}" alt="" decoding="async">` : `<span class="ap-mono" aria-hidden="true">${esc(mono(x))}</span>`;
   return `<a class="ap-tile" href="${esc(x.open)}" target="_blank" rel="noopener" data-id="${esc(x.id)}" data-ev="app-open"${style ? ` style="${style}"` : ''}>
     <span class="ap-th">${art}</span>
     <span class="ap-nm"><i class="ap-dot ${hs}" title="${esc(hw)}" aria-label="${esc(hw)}"></i><b>${esc(x.name)}</b></span>
     <span class="ap-ds">${esc(x.description || hostOf(x.open))}</span>
   </a>`;
+}
+// set only what differs, so an unchanged tile isn't touched at all
+const setAttr = (el, k, v) => { if (v == null || v === '') { if (el.hasAttribute(k)) el.removeAttribute(k); } else if (el.getAttribute(k) !== v) el.setAttribute(k, v); };
+const setText = (el, v) => { if (el.textContent !== v) el.textContent = v; };
+// the thumbnail: keep the <img>; a new src is loaded off-screen first and swapped in once decoded
+function patchArt(t, x) {
+  const th = $('.ap-th', t), img = $('img', th);
+  if (!x.thumb) {
+    delete th._want; img?.remove();
+    let m = $('.ap-mono', th); if (!m) { m = h('<span class="ap-mono" aria-hidden="true"></span>'); th.append(m); }
+    setText(m, mono(x)); return;
+  }
+  if ((th._want || img?.getAttribute('src')) === x.thumb) return;
+  const want = th._want = x.thumb, pre = new Image();
+  pre.src = want;
+  const swap = () => {
+    if (th._want !== want) return; // superseded by a newer hash (or the thumbnail went away)
+    delete th._want;
+    const cur = $('img', th);
+    if (cur) cur.src = want;
+    else { const n = h('<img alt="" decoding="async">'); n.src = want; $('.ap-mono', th)?.remove(); th.prepend(n); }
+  };
+  pre.decode().then(swap, () => { delete th._want; }); // a broken new thumbnail keeps the old one
+}
+function patchTile(t, x) {
+  const [hs, hw] = healthWord(x);
+  setAttr(t, 'href', x.open); setAttr(t, 'style', tileStyle(x));
+  const dot = $('.ap-dot', t);
+  if (!dot.classList.contains(hs)) dot.className = `ap-dot ${hs}`;
+  setAttr(dot, 'title', hw); setAttr(dot, 'aria-label', hw);
+  setText($('.ap-nm b', t), x.name);
+  setText($('.ap-ds', t), x.description || hostOf(x.open));
+  patchArt(t, x);
 }
 
 function registerHelp(line) {
@@ -51,7 +89,8 @@ function registerHelp(line) {
 
 class AppsView {
   constructor() {
-    this.keep = true; this.d = null; this.at = 0; this.polls = 0;
+    this.keep = true; this.at = 0; this.polls = 0;
+    const last = ls.get(LSK, null); this.d = Array.isArray(last?.apps) ? last : null; // last list: paint it before the fetch
     this.el = h(`<div class="view appsv">
       <header class="bar"><div class="bar-in">
         <button class="ib back" aria-label="Back">${I.back}</button>
@@ -61,6 +100,7 @@ class AppsView {
       </div></header>
       <div class="scroll apsc"><div class="ap-list"><div class="stline"><span class="spin"></span> Loading…</div></div></div></div>`);
     this.list = $('.ap-list', this.el);
+    if (this.d) this.render();
   }
   mount() {
     $('.back', this.el).onclick = () => goBack('#/agents');
@@ -81,8 +121,10 @@ class AppsView {
   async load() {
     const rf = $('.rf', this.el); rf.classList.add('busy');
     try {
-      this.d = await api('launcher'); this.at = Date.now();
-      this.render();
+      const d = await api('launcher'); this.at = Date.now();
+      if (!Array.isArray(d?.apps)) throw new Error('bad answer');
+      this.d = d; this.render();
+      ls.set(LSK, { apps: d.apps, register: d.register });
       clearTimeout(this.pt);
       if (this.d.checking && ++this.polls < 6 && this.el.isConnected) this.pt = setTimeout(() => this.load(), 2500); // health checks running
       return this.d;
@@ -93,14 +135,22 @@ class AppsView {
   }
   render() {
     const d = this.d;
-    $('.t2', this.el).textContent = `${G.st?.host || ''} · ${pl(d.apps.length, 'app')}`;
+    setText($('.t2', this.el), `${G.st?.host || ''} · ${pl(d.apps.length, 'app')}`);
     if (!d.apps.length) {
       this.list.innerHTML = `<div class="ap-empty"><div class="ap-eic" aria-hidden="true">${GRID}</div><h3>No apps yet</h3>${registerHelp(d.register)}</div>`;
       return;
     }
-    const html = `<div class="ap-grid">${d.apps.map(tileHTML).join('')}</div>`;
-    if (this.list.dataset.sig !== html) { this.list.innerHTML = html; this.list.dataset.sig = html; tick(this.list); }
-    this.sheet?.redraw?.();
+    // patch in place: never clear the grid; tiles keep their nodes (and their decoded <img>s) across updates
+    let grid = $(':scope > .ap-grid', this.list);
+    if (!grid) { grid = h('<div class="ap-grid"></div>'); this.list.replaceChildren(grid); }
+    const have = new Map([...grid.children].map(t => [t.dataset.id, t])), ids = new Set(d.apps.map(x => x.id));
+    for (const [id, t] of have) if (!ids.has(id)) t.remove();
+    let at = grid.firstElementChild;
+    for (const x of d.apps) {
+      let t = have.get(x.id);
+      if (t) patchTile(t, x); else t = h(tileHTML(x));
+      if (t !== at) grid.insertBefore(t, at); else at = at.nextElementSibling;
+    }
   }
 }
 const GRID = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="5.5" rx="1.5"/><rect x="13" y="4" width="7" height="5.5" rx="1.5"/><rect x="4" y="13" width="7" height="5.5" rx="1.5"/><rect x="13" y="13" width="7" height="5.5" rx="1.5"/></svg>';
