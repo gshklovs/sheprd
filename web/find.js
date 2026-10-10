@@ -250,14 +250,14 @@ function recentList(st) {
 }
 /** Session ids on the Recent grid (app.js leaves them out of Awake; drawAgents out of Asleep). */
 export const recentSids = st => new Set(recentList(st).map(r => r.sid));
-const ago = ms => ms ? `<span data-since="${ms}" data-ago></span>` : '';
-const cellSub = r => {
-  const p = r.pinned ? `<span class="gpin">${PIN}</span>` : '';
-  if (r.asleep) return `${p}${MOON}asleep · <span data-since="${r.ts}"></span>`;
-  if (r.status === 'working') return `${p}<span class="wkt">working</span>`;
-  if (r.status === 'blocked') return `${p}<span class="bkt">needs you</span>`;
-  if (r.status === 'done') return `${p}done · <span data-since="${r.since || r.ts}"></span>`;
-  return `${p}${r.lu || r.ts || r.since ? ago(r.lu || r.ts || r.since) : 'idle'}`;
+/* Recent grid cell: the job line under the name and the time
+   at the top right; "now" while it works, "needs you" when blocked. The status shows on the disc (arc, moon). */
+const cellJob = r => esc(r.job || shortPath(r.cwd || '') || (r.asleep ? 'Asleep' : 'Idle'));
+const cellTime = r => {
+  if (!r.asleep && r.status === 'working') return '<span class="gtm wk">now</span>';
+  if (!r.asleep && r.status === 'blocked') return '<span class="gtm bk">needs you</span>';
+  const t = r.asleep ? r.ts : r.status === 'done' ? (r.since || r.ts) : (r.lu || r.ts || r.since);
+  return t ? `<span class="gtm" data-since="${t}"></span>` : '';
 };
 const hrefOf = r => r.asleep ? '#/t/' + enc(r.sid) : r.home ? '#/' : '#/a/' + enc(r.pane);
 let MISS = '', MISS_T = 0;
@@ -279,7 +279,7 @@ export function drawRecent(el, st) {
   }
   const prev = box.previousElementSibling; // right under the briefing, or under Decide's card (decide.js) that sits there
   if (prev !== brief && !(prev?.classList.contains('dwrap') && prev.previousElementSibling === brief)) brief.after(box);
-  const html = rows.map(r => `<a class="fgc${colCls(r.color)}" href="${hrefOf(r)}" data-sid="${esc(r.sid)}">${favHTML(r, { sz: 30 })}<span class="gb"><b>${esc(nameOf(r))}</b><small>${cellSub(r)}</small>${r.branchOf ? `<small class="gfrom" data-go="${r.branchOf.pane ? '#/a/' + enc(r.branchOf.pane) : '#/t/' + enc(r.branchOf.sid)}">↳ from ${esc(whoName(r.branchOf.name))}</small>` : ''}</span></a>`).join('');
+  const html = rows.map(r => `<a class="fgc${colCls(r.color)}" href="${hrefOf(r)}" data-sid="${esc(r.sid)}">${favHTML(r, { sz: 30 })}<span class="gb"><b>${esc(nameOf(r))}</b><small>${cellJob(r)}</small>${r.branchOf ? `<small class="gfrom" data-go="${r.branchOf.pane ? '#/a/' + enc(r.branchOf.pane) : '#/t/' + enc(r.branchOf.sid)}">↳ from ${esc(whoName(r.branchOf.name))}</small>` : ''}</span>${cellTime(r)}</a>`).join('');
   const g = $('.fgrid', box);
   if (g._h !== html) { g._h = html; g.innerHTML = html; }
   tick(g);
